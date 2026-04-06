@@ -1,11 +1,9 @@
 <?php
-// includes/header.php
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 include_once 'db_connection.php';
 
-// --- 1. 智能路径定义 ---
 $is_root = file_exists('includes/db_connection.php');
 
 if ($is_root) {
@@ -22,7 +20,7 @@ if ($is_root) {
 
 $current_page = basename($_SERVER['PHP_SELF']);
 $auth_pages = ['login.php', 'register.php', 'admin_login.php', 'forgot_password.php'];
-if (!isset($page_title)) $page_title = "Teh Tarik No Tarik Homestay";
+if (!isset($page_title)) $page_title = "Online Sport Shoes Store";
 
 $nav_is_logged_in = false;
 $nav_user_name = "";
@@ -58,15 +56,17 @@ if (isset($_SESSION['user_id'])) {
     
     <style>
       body { background-color: #f8f9fa; font-family: 'Segoe UI', sans-serif; }
+      /* 遵循 UI 规范：导航栏背景 #333333 */
       .bg-brand-dark { background-color: #333333 !important; }
       .navbar-nav .nav-link { color: rgba(255,255,255,0.85); font-weight: 500; margin-right: 15px; }
       .navbar-nav .nav-link:hover { color: #fff; }
-      .navbar-nav .nav-link.active { color: #fff; font-weight: 700; border-bottom: 2px solid #f0ad4e; }
+      /* 遵循 UI 规范：强调色 #FF6B00 */
+      .navbar-nav .nav-link.active { color: #fff; font-weight: 700; border-bottom: 2px solid #FF6B00; }
       
       .search-form { width: 100%; max-width: 400px; }
       .search-input { border-radius: 20px 0 0 20px; border: none; }
-      .search-btn { border-radius: 0 20px 20px 0; background-color: #f0ad4e; color: white; border: none; }
-      .search-btn:hover { background-color: #ec971f; color: white; }
+      .search-btn { border-radius: 0 20px 20px 0; background-color: #FF6B00; color: white; border: none; }
+      .search-btn:hover { background-color: #e66000; color: white; }
     </style>
   </head>
   
@@ -75,8 +75,8 @@ if (isset($_SESSION['user_id'])) {
       <div class="container-fluid px-4">
         
         <a class="navbar-brand d-flex align-items-center me-3" href="<?php echo $path_root; ?>index.php">
-           <img src="<?php echo $path_mod_a; ?>tehtariklogo.jpg" alt="Logo" style="height: 40px; width: auto;" class="d-inline-block align-text-top me-2 rounded bg-white p-1">
-           <span class="fw-bold text-warning d-none d-md-block">Teh Tarik No Tarik</span>
+           <img src="<?php echo $path_mod_a; ?>images/logo.png" alt="Sport Shoes Store Logo" style="height: 40px; width: auto;" class="d-inline-block align-text-top me-2 rounded bg-white p-1">
+           <span class="fw-bold text-warning d-none d-md-block">Sport Shoes Store</span>
         </a>
 
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
@@ -89,16 +89,16 @@ if (isset($_SESSION['user_id'])) {
               <a class="nav-link <?php echo ($current_page == 'index.php') ? 'active' : ''; ?>" href="<?php echo $path_root; ?>index.php">Home</a>
             </li>
             <li class="nav-item">
-              <a class="nav-link <?php echo ($current_page == 'room_catalogue.php') ? 'active' : ''; ?>" href="<?php echo $path_mod_b; ?>room_catalogue.php">Rooms</a>
+              <a class="nav-link <?php echo ($current_page == 'catalogue.php' || $current_page == 'room_catalogue.php') ? 'active' : ''; ?>" href="<?php echo $path_mod_b; ?>catalogue.php">Catalogue</a>
             </li>
             <li class="nav-item">
-              <a class="nav-link <?php echo ($current_page == 'about_us.php') ? 'active' : ''; ?>" href="<?php echo $path_mod_b; ?>about_us.php">About</a>
+              <a class="nav-link <?php echo ($current_page == 'about_us.php') ? 'active' : ''; ?>" href="<?php echo $path_mod_b; ?>about_us.php">About Us</a>
             </li>
           </ul>
 
-          <form class="d-flex mx-auto search-form mb-3 mb-lg-0" action="<?php echo $path_mod_b; ?>room_catalogue.php" method="GET">
+          <form class="d-flex mx-auto search-form mb-3 mb-lg-0" action="<?php echo $path_mod_b; ?>catalogue.php" method="GET">
             <div class="input-group">
-                <input class="form-control search-input" type="search" name="search" placeholder="Search homestay..." aria-label="Search" value="<?php echo isset($_GET['search']) ? htmlspecialchars($_GET['search']) : ''; ?>">
+                <input class="form-control search-input" type="search" name="search" placeholder="Search shoes by brand or name..." aria-label="Search" value="<?php echo isset($_GET['search']) ? htmlspecialchars($_GET['search']) : ''; ?>">
                 <button class="btn search-btn" type="submit">
                     <i class="bi bi-search"></i>
                 </button>
@@ -119,12 +119,12 @@ if (isset($_SESSION['user_id'])) {
                         <i class="bi bi-speedometer2"></i>
                     </a>
                 <?php else: ?>
-                    <a class="btn btn-outline-light btn-sm me-2" href="<?php echo $path_mod_a; ?>user_dashboard.php" title="My Account">
+                    <a class="btn btn-outline-light btn-sm me-2" href="<?php echo $path_mod_a; ?>profile.php" title="My Profile">
                         <i class="bi bi-person-circle"></i>
                     </a>
                 <?php endif; ?>
                 
-                <a class="btn btn-link text-white-50 text-decoration-none btn-sm" href="<?php echo $path_mod_a; ?>logout.php" onclick="return confirm('Sign out?');">
+                <a class="btn btn-link text-white-50 text-decoration-none btn-sm" href="<?php echo $path_mod_a; ?>logout.php" onclick="return confirm('Confirm sign out?');">
                     <i class="bi bi-box-arrow-right fs-5"></i>
                 </a>
 
@@ -141,4 +141,3 @@ if (isset($_SESSION['user_id'])) {
         </div>
       </div>
     </nav>
-

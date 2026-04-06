@@ -1,5 +1,4 @@
 <?php
-// Module C/admin_manage_bookings.php
 session_start();
 require_once '../includes/db_connection.php';
 

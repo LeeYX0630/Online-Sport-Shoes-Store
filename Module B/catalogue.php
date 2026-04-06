@@ -1,15 +1,17 @@
 <?php
-
+// Module B: 核心交易组 - 产品目录页面 (Catalogue)
 include '../includes/db_connection.php'; 
 include '../includes/header.php';
 
 $search_query = "";
 $where_clause = "";
 
-// Search functionality
+// 搜索功能：适配运动鞋名称、描述或品牌名称 [cite: 51, 52]
 if (isset($_GET['search']) && !empty($_GET['search'])) {
     $search_query = $conn->real_escape_string($_GET['search']);
-    $where_clause = "WHERE room_name LIKE '%$search_query%' OR description LIKE '%$search_query%'";
+    $where_clause = "WHERE Pro_Name LIKE '%$search_query%' 
+                     OR Pro_Description LIKE '%$search_query%' 
+                     OR Brand_Id IN (SELECT Brand_Id FROM BRAND WHERE Brand_Name LIKE '%$search_query%')";
 }
 ?>
 
@@ -18,14 +20,13 @@ if (isset($_GET['search']) && !empty($_GET['search'])) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Room Catalogue</title>
+    <title>Shoe Catalogue | Online Sport Shoes Store</title>
     <style>
- 
         body {
             font-family: 'Segoe UI', Arial, sans-serif;
             background-color: #f4f6f9;
             margin: 0; padding: 0;
-            color: #333333;
+            color: #212529; /* 使用项目规范的主要文字颜色  */
         }
 
         .catalogue-container {
@@ -48,7 +49,7 @@ if (isset($_GET['search']) && !empty($_GET['search'])) {
         }
 
         .room-card {
-            background-color: #ffffff;
+            background-color: #ffffff; /* 全局背景白色  */
             border-radius: 8px;
             overflow: hidden;
             box-shadow: 0px 4px 15px rgba(0,0,0,0.05);
@@ -85,7 +86,7 @@ if (isset($_GET['search']) && !empty($_GET['search'])) {
 
         .category-badge {
             background-color: #f8f9fa;
-            color: #666;
+            color: #FF6B00; /* 使用项目强调色  */
             font-size: 12px;
             font-weight: bold;
             text-transform: uppercase;
@@ -94,7 +95,7 @@ if (isset($_GET['search']) && !empty($_GET['search'])) {
             display: inline-block;
             margin-bottom: 10px;
             width: fit-content;
-            border: 1px solid #ddd;
+            border: 1px solid #FF6B00;
         }
 
         .room-title {
@@ -106,7 +107,7 @@ if (isset($_GET['search']) && !empty($_GET['search'])) {
 
         .room-price {
             font-size: 18px;
-            color: #28a745;
+            color: #28A745; /* 成功反馈颜色  */
             font-weight: bold;
             margin-bottom: 15px;
         }
@@ -125,7 +126,7 @@ if (isset($_GET['search']) && !empty($_GET['search'])) {
         .btn-view {
             display: block;
             width: 100%;
-            background-color: #333;
+            background-color: #333333; /* 导航栏/稳重背景色  */
             color: #fff;
             text-align: center;
             padding: 12px 0;
@@ -133,8 +134,9 @@ if (isset($_GET['search']) && !empty($_GET['search'])) {
             border-radius: 4px;
             font-weight: bold;
             box-sizing: border-box; 
+            transition: 0.3s;
         }
-        .btn-view:hover { background-color: #000; }
+        .btn-view:hover { background-color: #FF6B00; } /* 悬停变为强调色  */
         
         .no-results { grid-column: 1 / -1; text-align: center; padding: 50px; color: #999; }
     </style>
@@ -143,78 +145,60 @@ if (isset($_GET['search']) && !empty($_GET['search'])) {
 
 <div class="catalogue-container">
     <div class="page-header">
-        <h2>Our Homestays</h2>
-        <p>Choose from our variety of homestays.</p>
+        <h2>Premium Sports Collection</h2>
+        <p>Step into performance with our latest athletic footwear.</p>
     </div>
 
     <div class="room-grid">
         <?php
-        // 3. Fetch rooms from database with search filter
-        $sql = "SELECT rooms.*, 
-                       (SELECT COUNT(*) FROM categories WHERE categories.room_id = rooms.room_id) as cat_count
-                FROM rooms 
+        $sql = "SELECT product.*, brand.Brand_Name 
+                FROM product 
+                JOIN brand ON product.Brand_Id = brand.Brand_Id
                 $where_clause 
-                ORDER BY room_name ASC";
+                ORDER BY Pro_Name ASC";
         
         $result = $conn->query($sql);
 
         if ($result && $result->num_rows > 0) {
             while($row = $result->fetch_assoc()) {
                 
-                // room image
-                $img_name = $row['room_image'];
-                if (!empty($img_name)) {
-
-                    $img_src = "../uploads/" . $img_name;
-                } else {
-
-                    $img_src = "../assets/images/placeholder.jpg"; 
-                }
+                // 鞋子图片路径 [cite: 54]
+                $img_name = $row['Pro_Image'];
+                $img_src = !empty($img_name) ? "../uploads/" . $img_name : "../assets/images/placeholder.jpg";
                 
-                // show price arrangement(max/min)
-                $min = $row['min_price'];
-                $max = $row['max_price'];
-                $price_display = "";
-                
-                if ($min == 0 && $max == 0) {
-                    $price_display = "Check Details";
-                } elseif ($min == $max) {
-                    $price_display = "RM " . number_format($min, 2);
-                } else {
-                    $price_display = "RM " . number_format($min, 2) . " - " . number_format($max, 2);
-                }
+                // 价格处理 [cite: 53]
+                $price = $row['Pro_Price'];
+                $price_display = "RM " . number_format($price, 2);
 
-                // show description and facilities
-                $desc = !empty($row['description']) ? substr($row['description'], 0, 60) . '...' : 'Enjoy a comfortable stay.';
-                $facilities = !empty($row['facilities']) ? $row['facilities'] : 'Standard Amenities';
-
-                // 4. category count
-                $count = $row['cat_count'];
+                // 描述与品牌详情 [cite: 51, 52]
+                $desc = !empty($row['Pro_Description']) ? substr($row['Pro_Description'], 0, 60) . '...' : 'Premium quality sports shoes.';
+                $brand = $row['Brand_Name'];
+                $stock = $row['Pro_Stock_Quantity']; // 库存数量 [cite: 55]
                 ?>
                 
                 <div class="room-card">
                     <div class="card-image">
-                        <img src="<?php echo $img_src; ?>" alt="<?php echo $row['room_name']; ?>" onerror="this.src='../assets/images/placeholder.jpg'">
+                        <img src="<?php echo $img_src; ?>" alt="<?php echo $row['Pro_Name']; ?>" onerror="this.src='../assets/images/placeholder.jpg'">
                     </div>
                     
                     <div class="card-content">
-                        <div class="category-badge"><?php echo $count; ?> Room Types Available</div>
+                        <div class="category-badge"><?php echo $brand; ?></div>
 
-                        <h3 class="room-title"><?php echo $row['room_name']; ?></h3>
+                        <h3 class="room-title"><?php echo $row['Pro_Name']; ?></h3>
 
                         <div class="room-price">
                             <?php echo $price_display; ?>
-                            <span>/ night</span>
                         </div>
 
                         <ul class="room-details">
                             <li><strong>Description:</strong> <?php echo $desc; ?></li>
-                            <li><strong>Facilities:</strong> <?php echo substr($facilities, 0, 50) . '...'; ?></li>
+                            <li><strong>Available Sizes:</strong> <?php echo $row['Pro_Size']; ?></li>
+                            <li><strong>Stock:</strong> <?php echo $stock; ?> pairs left</li>
                         </ul>
 
                         <div class="card-footer">
-                            <a href="room_details.php?room_id=<?php echo $row['room_id']; ?>" class="btn-view">
-                                VIEW DETAILS
+                            <a href="product_details.php?pro_id=<?php echo $row['Pro_Id']; ?>" class="btn-view">
+                                VIEW PRODUCT
                             </a>
                         </div>
                     </div>
@@ -223,7 +207,7 @@ if (isset($_GET['search']) && !empty($_GET['search'])) {
                 <?php
             }
         } else {
-            echo "<div class='no-results'>No homestays found in the database.</div>";
+            echo "<div class='no-results'>No sport shoes found in the store.</div>";
         }
         ?>
     </div>

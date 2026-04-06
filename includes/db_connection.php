@@ -5,7 +5,7 @@
 $servername = "localhost";
 $username = "root";
 $password = "";
-$dbname = "homestay_db"; // 请确保你们的数据库名称统一为这个
+$dbname = "db_online_shoes"; // 请确保你们的数据库名称统一为这个
 
 $conn = new mysqli($servername, $username, $password, $dbname);
 

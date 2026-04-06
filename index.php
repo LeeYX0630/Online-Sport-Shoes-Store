@@ -3,7 +3,7 @@ session_start();
 
 require_once 'includes/db_connection.php';
 
-$sql = "SELECT * FROM rooms ORDER BY room_id DESC LIMIT 6";
+$sql = "SELECT * FROM product ORDER BY Pro_Id DESC LIMIT 6";
 $result = $conn->query($sql);
 ?>
 
@@ -250,9 +250,9 @@ include 'includes/header.php';
         <source src="images/Sport Shoe Video 3.mp4" type="video/mp4">
     </video>
 
-    <h1>Welcome to Your Perfect Getaway</h1>
-    <p>Experience comfort and luxury at affordable prices.</p>
-    <a href="Module B/room_catalogue.php" class="cta-button">Book Now</a>
+    <h1>Step Into Your Style</h1>
+    <p>Discover the best performance sport shoes at unbeatable prices.</p>
+    <a href="Module B/catalogue.php" class="cta-button">Shop Now</a>
 </div>
 
 <script>
@@ -301,33 +301,38 @@ include 'includes/header.php';
             if (!isDown) return;
             e.preventDefault();
             const x = e.pageX - slider.offsetLeft;
-            const walk = (x - startX) * 2; // *2 是滑动速度系数
+            const walk = (x - startX) * 2; 
             slider.scrollLeft = scrollLeft - walk;
         });
     });
 </script>
 
 <div class="featured-container">
-    <h2 class="section-title">Recommended Rooms</h2>
+    <h2 class="section-title">Recommended Collections</h2>
 
-    <div class="room-grid">
+<div class="room-grid">
         <?php
-        if ($result->num_rows > 0) {
+        if ($result && $result->num_rows > 0) {
             $count = 0;
             while($row = $result->fetch_assoc()) {
                 $count++;
-                $img_path = !empty($row['room_image']) ? "uploads/" . $row['room_image'] : "images/placeholder.jpg";
+                // 适配 PRODUCT 表字段 [cite: 54, 51, 53, 49]
+                $img_path = !empty($row['Pro_Image']) ? "uploads/" . $row['Pro_Image'] : "images/placeholder.jpg";
+                $original_price = $row['Pro_Price'];
                 
-                $min = $row['min_price'];
-                $max = $row['max_price'];
-                $price_display = "";
+                /**
+                 * 价格逻辑：
+                 * 检查是否有折扣字段（例如 Pro_Sale_Price）。
+                 * 如果没有，这里暂时模拟逻辑或直接显示原价。
+                 */
+                $has_discount = false; // 如果以后数据库有折扣字段，可以改为 !empty($row['Pro_Sale_Price'])
+                $sale_price = 0;       // 这里放对应的折扣字段
                 
-                if ($min == 0 && $max == 0) {
-                    $price_display = "Check Details";
-                } elseif ($min == $max) {
-                    $price_display = "RM " . number_format($min, 2);
+                if ($has_discount) {
+                    $price_html = '<span class="old-price">RM ' . number_format($original_price, 2) . '</span>';
+                    $price_html .= '<span class="price">RM ' . number_format($sale_price, 2) . '</span>';
                 } else {
-                    $price_display = "RM " . number_format($min, 2) . " - " . number_format($max, 2);
+                    $price_html = '<span class="price">RM ' . number_format($original_price, 2) . '</span>';
                 }
                 
                 $newBadge = ($count <= 2) ? '<span class="badge-new">NEW</span>' : '';
@@ -335,18 +340,18 @@ include 'includes/header.php';
                 echo '
                 <div class="room-card" style="position:relative;">
                     '.$newBadge.'
-                    <img src="'.$img_path.'" alt="'.$row['room_name'].'" class="room-img">
+                    <img src="'.$img_path.'" alt="'.$row['Pro_Name'].'" class="room-img">
                     <div class="room-info">
-                        <h3>'.$row['room_name'].'</h3>
-                        <p class="price">'.$price_display.' <span style="font-size: 0.7em; color: #999;">/ night</span></p>
-                        <p style="color:#666; font-size:0.9em;">'.substr($row['description'], 0, 80).'...</p>
-                        <a href="Module B/room_details.php?room_id='.$row['room_id'].'" class="btn-details">View Details</a>
+                        <h3>'.$row['Pro_Name'].'</h3>
+                        <div class="price-box">'.$price_html.'</div>
+                        <p style="color:#666; font-size:0.9em;">' . (isset($row['Pro_Description']) ? substr($row['Pro_Description'], 0, 80) : "No description") . '...</p>
+                        <a href="Module B/product_details.php?pro_id='.$row['Pro_Id'].'" class="btn-details">View Details</a>
                     </div>
                 </div>
                 ';
             }
         } else {
-            echo '<p style="text-align:center; width:100%;">No featured rooms available at the moment.</p>';
+            echo '<p style="text-align:center; width:100%;">No featured products available at the moment.</p>';
         }
         ?>
     </div>
