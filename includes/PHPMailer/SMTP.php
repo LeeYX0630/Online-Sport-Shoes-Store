@@ -1289,7 +1289,7 @@ class SMTP
      *   3. EHLO has been sent -
      *     $name == 'HELO'|'EHLO': returns the server name
      *     $name == any other string: if extension $name exists, returns True
-     *       or its options (e.g. AUTH mechanisms supported). Otherwise returns False.
+     *       or its options (e.g. AUTH mechanisms supported). Otherwise, returns False.
      *
      * @param string $name Name of SMTP extension or 'HELO'|'EHLO'
      *

@@ -6,9 +6,9 @@ if (session_status() === PHP_SESSION_NONE) {
 
 // 2. 引入必要文件 (请确保路径正确)
 require_once '../includes/db_connection.php'; 
-require '../includes/PHPMailer/src/Exception.php';
-require '../includes/PHPMailer/src/PHPMailer.php';
-require '../includes/PHPMailer/src/SMTP.php';
+require '../includes/PHPMailer/Exception.php';
+require '../includes/PHPMailer/PHPMailer.php';
+require '../includes/PHPMailer/SMTP.php';
 
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
@@ -31,8 +31,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_btn'])) {
     $phone_input = trim($_POST['phone']);
     $password = $_POST['password'];
     $confirm_password = $_POST['confirm_password'];
+    
+    // 接收新增的字段
+    $dob = trim($_POST['dob']);
+    $address = trim($_POST['address']);
+    $postcode = trim($_POST['postcode']);
+    $state = trim($_POST['state']);
 
-    // --- A. 验证逻辑 --- [cite: 87, 180]
+    // --- A. 验证逻辑 --- 
     
     // 1. 邮箱域名验证
     $trusted_domains = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'icloud.com'];
@@ -51,8 +57,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_btn'])) {
     } elseif ($password !== $confirm_password) {
         $error = "Passwords do not match.";
     } else {
-        // --- B. 数据库查重 --- 
-        $checkStmt = $conn->prepare("SELECT email FROM users WHERE email = ? OR phone = ?");
+        // --- B. 数据库查重 (已修复匹配 USER 表) --- 
+        $checkStmt = $conn->prepare("SELECT User_Email FROM `USER` WHERE User_Email = ? OR User_Phone = ?");
         $checkStmt->bind_param("ss", $email, $clean_phone);
         $checkStmt->execute();
         if ($checkStmt->get_result()->num_rows > 0) {
@@ -62,12 +68,16 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_btn'])) {
             $otp = rand(100000, 999999);
             $hashed_password = password_hash($password, PASSWORD_DEFAULT);
             
-            // 暂存数据到 Session
+            // 暂存所有数据到 Session
             $_SESSION['temp_user'] = [
                 'full_name' => $full_name,
                 'email' => $email,
                 'phone' => $clean_phone,
                 'password' => $hashed_password,
+                'dob' => $dob,
+                'address' => $address,
+                'postcode' => $postcode,
+                'state' => $state,
                 'otp' => $otp,
                 'expiry' => strtotime("+5 minutes")
             ];
@@ -77,16 +87,16 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_btn'])) {
                 $mail->isSMTP();
                 $mail->Host       = 'smtp.gmail.com'; 
                 $mail->SMTPAuth   = true;
-                $mail->Username   = 'leeyunxiang123@gmail.com'; // 填入你的邮箱
-                $mail->Password   = 'ngzxhtdxzftaznip';    // 填入你的应用专用密码
+                $mail->Username   = SMTP_EMAIL; 
+                $mail->Password   = SMTP_PASS;
                 $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
                 $mail->Port       = 587;
 
-                $mail->setFrom('leeyunxiang123@gmail.com', 'Keropok Sedap Homestay');
+                $mail->setFrom('sportshoes.system@gmail.com', 'Online Sport Shoes Store');
                 $mail->addAddress($email);
                 $mail->isHTML(true);
                 $mail->Subject = 'Verify Your Registration';
-                $mail->Body    = "Hello $full_name, your OTP is: <b>$otp</b>. Valid for 5 minutes.";
+                $mail->Body    = "Hello $full_name, your OTP is: <b style='font-size:20px; color:#FF6B00;'>$otp</b>. Valid for 5 minutes.";
 
                 $mail->send();
                 header("Location: verify_otp.php");
@@ -98,7 +108,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_btn'])) {
     }
 }
 
-$page_title = "Register - Homestay";
+$page_title = "Register - Online Sport Shoes Store";
 include_once '../includes/header.php'; 
 ?>
 
@@ -109,11 +119,11 @@ include_once '../includes/header.php';
                 <div class="card-body p-5">
                     <div class="text-center mb-5">
                         <h2 class="fw-bold">Create Account</h2>
-                        <p class="text-muted">A verification code will be sent to your email</p>
+                        <p class="text-muted">Join Online Sport Shoes Store today!</p>
                     </div>
 
                     <?php if($error): ?>
-                        <div class="alert alert-danger"><?php echo $error; ?></div>
+                        <div class="alert alert-danger text-center"><?php echo $error; ?></div>
                     <?php endif; ?>
 
                     <form method="POST" action="">
@@ -122,9 +132,47 @@ include_once '../includes/header.php';
                             <input type="text" name="full_name" class="form-control bg-light py-3" required placeholder="John Doe">
                         </div>
 
+                        <div class="row">
+                            <div class="col-md-6 mb-4">
+                                <label class="form-label fw-bold">Phone Number (MY Only)</label>
+                                <input type="text" name="phone" class="form-control bg-light py-3" placeholder="0123456789" required>
+                            </div>
+                            <div class="col-md-6 mb-4">
+                                <label class="form-label fw-bold">Date of Birth</label>
+                                <input type="date" name="dob" class="form-control bg-light py-3" required>
+                            </div>
+                        </div>
+
                         <div class="mb-4">
-                            <label class="form-label fw-bold">Phone Number (MY Only)</label>
-                            <input type="text" name="phone" class="form-control bg-light py-3" placeholder="0123456789" required>
+                            <label class="form-label fw-bold">Address</label>
+                            <input type="text" name="address" class="form-control bg-light py-3" placeholder="123, Jalan Shoes..." required>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6 mb-4">
+                                <label class="form-label fw-bold">Postcode</label>
+                                <input type="number" name="postcode" class="form-control bg-light py-3" placeholder="75450" required>
+                            </div>
+                            <div class="col-md-6 mb-4">
+                                <label class="form-label fw-bold">State</label>
+                                <select name="state" class="form-select bg-light py-3" required>
+                                    <option value="">-- Select State --</option>
+                                    <option value="Melaka">Melaka</option>
+                                    <option value="Johor">Johor</option>
+                                    <option value="Selangor">Selangor</option>
+                                    <option value="Kuala Lumpur">Kuala Lumpur</option>
+                                    <option value="Penang">Penang</option>
+                                    <option value="Perak">Perak</option>
+                                    <option value="Kedah">Kedah</option>
+                                    <option value="Pahang">Pahang</option>
+                                    <option value="Negeri Sembilan">Negeri Sembilan</option>
+                                    <option value="Terengganu">Terengganu</option>
+                                    <option value="Kelantan">Kelantan</option>
+                                    <option value="Perlis">Perlis</option>
+                                    <option value="Sabah">Sabah</option>
+                                    <option value="Sarawak">Sarawak</option>
+                                </select>
+                            </div>
                         </div>
 
                         <div class="mb-4">
@@ -132,26 +180,27 @@ include_once '../includes/header.php';
                             <input type="email" name="email" class="form-control bg-light py-3" required placeholder="name@gmail.com">
                         </div>
 
-                        <div class="mb-4">
-                            <label class="form-label fw-bold">Password</label>
-                            <input type="password" name="password" id="passwordInput" class="form-control bg-light py-3" required>
-                            <small id="strengthText" class="text-muted">Strength: Enter password...</small>
-                        </div>
-
-                        <div class="mb-5">
-                            <label class="form-label fw-bold">Confirm Password</label>
-                            <input type="password" name="confirm_password" class="form-control bg-light py-3" required>
+                        <div class="row">
+                            <div class="col-md-6 mb-4">
+                                <label class="form-label fw-bold">Password</label>
+                                <input type="password" name="password" id="passwordInput" class="form-control bg-light py-3" required>
+                                <small id="strengthText" class="text-muted">Strength: Enter password...</small>
+                            </div>
+                            <div class="col-md-6 mb-5">
+                                <label class="form-label fw-bold">Confirm Password</label>
+                                <input type="password" name="confirm_password" class="form-control bg-light py-3" required>
+                            </div>
                         </div>
 
                         <div class="d-grid">
-                            <button type="submit" name="register_btn" class="btn btn-dark btn-lg py-3 fw-bold">
+                            <button type="submit" name="register_btn" class="btn btn-lg py-3 fw-bold text-white" style="background-color: #FF6B00;">
                                 Get Verification Code
                             </button>
                         </div>
                     </form>
 
                     <div class="text-center mt-4">
-                        <p>Already have an account? <a href="login.php" class="text-warning fw-bold">Login here</a></p>
+                        <p>Already have an account? <a href="login.php" class="fw-bold text-decoration-none" style="color: #FF6B00;">Login here</a></p>
                     </div>
                 </div>
             </div>
