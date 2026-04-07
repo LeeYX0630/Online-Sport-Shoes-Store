@@ -5,7 +5,8 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 // 2. 引入必要文件 (请确保路径正确)
-require_once '../includes/db_connection.php'; 
+require_once '../includes/db_connection.php';
+require_once '../includes/mail_config.php'; 
 require '../includes/PHPMailer/Exception.php';
 require '../includes/PHPMailer/PHPMailer.php';
 require '../includes/PHPMailer/SMTP.php';
