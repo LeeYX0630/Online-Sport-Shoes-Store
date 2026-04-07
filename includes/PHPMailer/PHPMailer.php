@@ -77,7 +77,7 @@ class PHPMailer
     public $CharSet = self::CHARSET_ISO88591;
 
     /**
-     * The MIME Content-type of the message.
+     * The MIME Content-Type of the message.
      *
      * @var string
      */
@@ -159,7 +159,7 @@ class PHPMailer
     public $Ical = '';
 
     /**
-     * Value-array of "method" in Contenttype header "text/calendar"
+     * Value-array of "method" in Content-Type header "text/calendar"
      *
      * @var string[]
      */
@@ -1853,7 +1853,7 @@ class PHPMailer
                     return $this->mailSend($this->MIMEHeader, $this->MIMEBody);
                 default:
                     $sendMethod = $this->Mailer . 'Send';
-                    if (method_exists($this, $sendMethod)) {
+                    if (!empty($this->Mailer) && method_exists($this, $sendMethod)) {
                         return $this->{$sendMethod}($this->MIMEHeader, $this->MIMEBody);
                     }
 
@@ -1911,7 +1911,7 @@ class PHPMailer
 
         // CVE-2016-10033, CVE-2016-10045: Don't pass -f if characters will be escaped.
         // Also don't add the -f automatically unless it has been set either via Sender
-        // or sendmail_path. Otherwise it can introduce new problems.
+        // or sendmail_path. Otherwise, it can introduce new problems.
         // @see http://github.com/PHPMailer/PHPMailer/issues/2298
         if (!empty($this->Sender) && static::validateAddress($this->Sender) && self::isShellSafe($this->Sender)) {
             $sendmailArgs[] = '-f' . $this->Sender;
@@ -2510,7 +2510,7 @@ class PHPMailer
             'authenticate' => 'SMTP Error: Could not authenticate.',
             'buggy_php' => 'Your version of PHP is affected by a bug that may result in corrupted messages.' .
                 ' To fix it, switch to sending using SMTP, disable the mail.add_x_header option in' .
-                ' your php.ini, switch to MacOS or Linux, or upgrade your PHP to version 7.0.17+ or 7.1.3+.',
+                ' your php.ini, switch to macOS or Linux, or upgrade your PHP to version 7.0.17+ or 7.1.3+.',
             'connect_host' => 'SMTP Error: Could not connect to SMTP host.',
             'data_not_accepted' => 'SMTP Error: data not accepted.',
             'empty_message' => 'Message body empty',

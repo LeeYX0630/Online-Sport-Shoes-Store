@@ -92,7 +92,7 @@ if (isset($_SESSION['user_id'])) {
               <a class="nav-link <?php echo ($current_page == 'catalogue.php' || $current_page == 'room_catalogue.php') ? 'active' : ''; ?>" href="<?php echo $path_mod_b; ?>catalogue.php">Catalogue</a>
             </li>
             <li class="nav-item">
-              <a class="nav-link <?php echo ($current_page == 'about_us.php') ? 'active' : ''; ?>" href="<?php echo $path_mod_b; ?>about_us.php">About Us</a>
+              <a class="nav-link <?php echo ($current_page == 'about_us.php') ? 'active' : ''; ?>" href="<?php echo $path_mod_a; ?>about_us.php">About Us</a>
             </li>
           </ul>
 
