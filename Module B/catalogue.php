@@ -227,7 +227,7 @@ $where_clause = count($where_clauses) > 0 ? "WHERE " . implode(" AND ", $where_c
                 $top_brands = $conn->query("SELECT * FROM brand WHERE Brand_Logo IS NOT NULL AND Brand_Logo != '' ORDER BY Brand_Name ASC LIMIT 4");
                 if ($top_brands && $top_brands->num_rows > 0) {
                     while($tb = $top_brands->fetch_assoc()) {
-                        $logo = "../uploads/" . $tb['Brand_Logo'];
+                        $logo = "../images/brands/" . $tb['Brand_Logo'];
                         echo '<div><a href="catalogue.php?brand_id='.$tb['Brand_Id'].'" class="brand-card-img"><img src="'.$logo.'" alt="'.$tb['Brand_Name'].'"></a><a href="catalogue.php?brand_id='.$tb['Brand_Id'].'" class="brand-card-title">'.$tb['Brand_Name'].'</a></div>';
                     }
                 }
