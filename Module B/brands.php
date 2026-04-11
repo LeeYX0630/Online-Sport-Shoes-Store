@@ -8,7 +8,7 @@ include '../includes/header.php';
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>All Brands | Online Sport Shoes Store</title>
+    <title>Brands | Online Sport Shoes Store</title>
     <style>
         body {
             font-family: 'Segoe UI', Arial, sans-serif;
@@ -97,17 +97,17 @@ include '../includes/header.php';
         
         if ($brand_res && $brand_res->num_rows > 0) {
             while($b = $brand_res->fetch_assoc()) {
-                if ($logo = !empty($b['Brand_Logo'])) {
+                if (!empty($b['Brand_Logo'])) {
                     $logo = "../images/brands/" . $b['Brand_Logo'];
                 } else {
-                    $logo = "../images/placeholder.png";
+                    $logo = "../images/brands/placeholder.png";
                 }
 
-            // 点击后跳转到 catalogue.php 并带上 brand_id
+            // 加入 onerror 机制，如果照片不存在则自动加载 placeholder
             echo '
             <a href="catalogue.php?brand_id='.$b['Brand_Id'].'" class="brand-card">
                 <div class="brand-image-wrapper">
-                    <img src="'.$logo.'" alt="'.$b['Brand_Name'].'">
+                    <img src="'.$logo.'" alt="'.$b['Brand_Name'].'" onerror="this.onerror=null; this.src=\'../images/brands/placeholder.png\'">
                 </div>
                 <div class="brand-name">'.$b['Brand_Name'].'</div>
             </a>';
