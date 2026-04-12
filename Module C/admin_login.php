@@ -1,10 +1,10 @@
 <?php
-// for admin login
+// admin_login.php
 session_start();
 require_once '../includes/db_connection.php';
 
-// 1. Gatekeeper: Redirect if already logged in as Admin
-if (isset($_SESSION['role']) && ($_SESSION['role'] === 'superadmin' || $_SESSION['role'] === 'admin')) {
+// 1. 拦截器：如果已经登录，直接跳转到 Dashboard
+if (isset($_SESSION['admin_id'])) {
     header("Location: ../Module C/admin_dashboard.php");
     exit();
 }
@@ -13,40 +13,42 @@ $error = "";
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
+    // 获取前端表单提交的数据
     $email = trim($_POST['email']); 
     $password = trim($_POST['password']);
 
-    $stmt = $conn->prepare("SELECT admin_id, full_name, password, role, username, status FROM admins WHERE email = ?");
-    $stmt->bind_param("s", $email);
-    $stmt->execute();
-    $result = $stmt->get_result();
+    // SQL 查询：根据截图，字段名严格匹配（首字母大写）
+    // 移除了 Admin_Status 字段
+    $stmt = $conn->prepare("SELECT Admin_Id, Admin_Name, Admin_Password, Admin_Level FROM admin WHERE Admin_Email = ?");
+    
+    if ($stmt) {
+        $stmt->bind_param("s", $email);
+        $stmt->execute();
+        $result = $stmt->get_result();
 
-    if ($result->num_rows === 1) {
-        $row = $result->fetch_assoc();
+        if ($result->num_rows === 1) {
+            $row = $result->fetch_assoc();
 
-        // Verify Password
-        if (password_verify($password, $row['password'])) {
-            // Check account status before setting session
-            if (isset($row['status']) && $row['status'] === 'inactive') {
-                echo "<script>alert('Your account is deactivated. Contact Super Admin.'); window.location.href = 'admin_login.php';</script>";
+            // 2. 验证密码：对比用户输入的明文和数据库中的哈希密文
+            if (password_verify($password, $row['Admin_Password'])) {
+                
+                // 3. 设置 Session
+                $_SESSION['admin_id'] = $row['Admin_Id'];
+                $_SESSION['username'] = $row['Admin_Name']; 
+                $_SESSION['role']     = $row['Admin_Level']; 
+                
+                header("Location: ../Module C/admin_dashboard.php");
                 exit();
+            } else {
+                $error = "Invalid Password."; // 密码不匹配
             }
-
-            // Session Setting
-            $_SESSION['admin_id'] = $row['admin_id'];
-            $_SESSION['username'] = $row['username']; 
-            $_SESSION['role'] = $row['role'];         
-            
-            // Redirect to Admin Dashboard
-            header("Location: ../Module C/admin_dashboard.php");
-            exit();
         } else {
-            $error = "Invalid Password.";
+            $error = "Access Denied. Admin email not found."; // Email 错误
         }
+        $stmt->close();
     } else {
-        $error = "Access Denied. Admin email not found.";
+        $error = "Database Error: Failed to prepare statement."; 
     }
-    $stmt->close();
 }
 
 $page_title = "Admin Login";
@@ -79,7 +81,7 @@ include_once '../includes/header.php';
                             <label class="form-label fw-bold small text-secondary">Admin Email</label>
                             <div class="input-group">
                                 <span class="input-group-text bg-light border-0 px-3"><i class="bi bi-envelope fs-5"></i></span>
-                                <input type="email" name="email" class="form-control form-control-lg bg-light border-0 py-3" placeholder="admin@homestay.com" required>
+                                <input type="email" name="email" class="form-control form-control-lg bg-light border-0 py-3" placeholder="admin@sport.com" required>
                             </div>
                         </div>
 

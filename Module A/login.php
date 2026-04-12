@@ -143,7 +143,7 @@ include_once '../includes/header.php';
                         <p class="text-muted mb-2">Don't have an account? 
                             <a href="register.php" class="text-warning fw-bold text-decoration-none">Sign Up Here</a>
                         </p>
-                        <a href="admin_login.php" class="btn btn-sm btn-outline-secondary rounded-pill px-3">
+                        <a href="../Module C/admin_login.php" class="btn btn-sm btn-outline-secondary rounded-pill px-3">
                             <i class="bi bi-shield-lock me-1"></i> Admin Portal
                         </a>
                     </div>

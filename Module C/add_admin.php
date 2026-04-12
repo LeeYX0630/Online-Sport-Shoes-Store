@@ -1,10 +1,11 @@
 <?php
-// Module C/add_admin.php
+// admin/add_admin.php
 session_start();
 require_once '../includes/db_connection.php';
 
-if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'superadmin') {
-    echo "<script>alert('Access Denied. Super Admin only.'); window.location.href='admin_manage_admins.php';</script>";
+// 1. 权限检查：必须是 Level 1 (Super Admin) 才能进入
+if (!isset($_SESSION['role']) || $_SESSION['role'] != 1) {
+    echo "<script>alert('Access Denied. Super Admin only.'); window.location.href='admin_dashboard.php';</script>";
     exit();
 }
 
@@ -12,57 +13,56 @@ $msg = "";
 $sweetAlertCode = ""; 
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    $username = trim($_POST['username']);
-    $email = trim($_POST['email']); 
-
-    $raw_phone = trim($_POST['phone']);
-    $phone = str_replace('-', '', $raw_phone);
-    $full_name = trim($_POST['full_name']);
+    // 严格对应 SQL 字段名
+    $admin_name = trim($_POST['admin_name']);
+    $admin_email = trim($_POST['admin_email']); 
     $password = $_POST['password'];
     $confirm_password = $_POST['confirm_password'];
     
-    $role = 'admin'; 
+    // 默认新创建的为普通管理员 Level 2
+    $admin_level = 2; 
 
-    if (empty($username) || empty($email) || empty($phone) || empty($password) || empty($full_name)) {
+    // 基础验证
+    if (empty($admin_name) || empty($admin_email) || empty($password)) {
         $msg = "<div class='alert error'>All fields are required.</div>";
-    } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+    } elseif (!filter_var($admin_email, FILTER_VALIDATE_EMAIL)) {
         $msg = "<div class='alert error'>Invalid email format.</div>";
-    }
-    elseif (substr($email, -13) !== '@homestay.com') {
-        $msg = "<div class='alert error'>Restricted Domain: Admin email must end with <b>@homestay.com</b></div>";
-    }
-    elseif (!preg_match('/^[0-9]{9,11}$/', $phone)) {
-        $msg = "<div class='alert error'>Invalid phone number (9-11 digits required).</div>";
+    } 
+    // 限制后台管理员邮箱后缀
+    elseif (substr($admin_email, -14) !== '@shoestore.com') {
+        $msg = "<div class='alert error'>Restricted Domain: Admin email must end with <b>@shoestore.com</b></div>";
     }
     elseif (strlen($password) < 6) {
         $msg = "<div class='alert error'>Password must be at least 6 characters long.</div>";
     } elseif ($password !== $confirm_password) {
         $msg = "<div class='alert error'>Passwords do not match.</div>";
     } else {
-        $check_sql = "SELECT admin_id FROM admins WHERE username = ? OR email = ?";
+        // 2. 检查 Admin_Email 是否已存在 (表名 admin)
+        $check_sql = "SELECT Admin_Id FROM admin WHERE Admin_Email = ?";
         $stmt = $conn->prepare($check_sql);
-        $stmt->bind_param("ss", $username, $email);
+        $stmt->bind_param("s", $admin_email);
         $stmt->execute();
         $stmt->store_result();
 
         if ($stmt->num_rows > 0) {
-            $msg = "<div class='alert error'>Username or Email already taken.</div>";
+            $msg = "<div class='alert error'>Email already registered.</div>";
         } else {
             $hashed_password = password_hash($password, PASSWORD_DEFAULT);
             $stmt->close(); 
 
-            $insert_sql = "INSERT INTO admins (username, email, phone, password, full_name, role) VALUES (?, ?, ?, ?, ?, ?)";
+            // 3. 插入数据 (对应 SQL 中的字段)
+            $insert_sql = "INSERT INTO admin (Admin_Name, Admin_Email, Admin_Password, Admin_Level) VALUES (?, ?, ?, ?)";
             $stmt = $conn->prepare($insert_sql);
-            $stmt->bind_param("ssssss", $username, $email, $phone, $hashed_password, $full_name, $role);
+            $stmt->bind_param("sssi", $admin_name, $admin_email, $hashed_password, $admin_level);
 
             if ($stmt->execute()) {
                 $sweetAlertCode = "
                 Swal.fire({
                     title: 'Admin Added!',
-                    text: 'New Admin ($username) created successfully.',
+                    text: 'New Admin ($admin_name) created successfully.',
                     icon: 'success',
                     confirmButtonColor: '#28a745',
-                    confirmButtonText: 'Back to Dashboard'
+                    confirmButtonText: 'Go to Dashboard'
                 }).then((result) => {
                     if (result.isConfirmed) {
                         window.location.href = 'admin_dashboard.php';
@@ -75,168 +75,113 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $stmt->close();
     }
 }
+
+// 引入公共 Header
+$page_title = "Add New Admin | Shoe Store";
+include_once '../includes/header.php'; 
 ?>
 
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Add New Admin</title>
-    <link rel="stylesheet" href="../Module A/style.css"> 
-    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-    <style>
-        body { background-color: #f4f4f4; font-family: 'Segoe UI', sans-serif; }
-        .form-container { max-width: 500px; margin: 50px auto; padding: 40px; background: white; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
-        .form-group { margin-bottom: 20px; }
-        .form-group label { display: block; margin-bottom: 8px; font-weight: 600; color: #333; }
-        .form-group input { width: 100%; padding: 12px; box-sizing: border-box; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }
-        .form-group input:focus { border-color: #007bff; outline: none; }
-        
-        .btn-submit { width: 100%; padding: 12px; background-color: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: bold; transition: 0.3s; }
-        .btn-submit:hover { background-color: #0056b3; }
-        
-        .alert { padding: 12px; margin-bottom: 20px; border-radius: 6px; text-align: center; font-size: 14px; }
-        .error { background-color: #ffebee; color: #c62828; border: 1px solid #ef9a9a; }
-        .success { background-color: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
-        
-        .back-link { display: block; text-align: center; margin-top: 20px; text-decoration: none; color: #666; font-size: 14px; }
-        .back-link:hover { color: #333; text-decoration: underline; }
+<style>
+    body { background-color: #f8f9fa; font-family: 'Segoe UI', sans-serif; }
+    .form-container { max-width: 450px; margin: 60px auto; padding: 40px; background: white; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); }
+    .form-group { margin-bottom: 1.5rem; }
+    .form-group label { display: block; margin-bottom: 8px; font-weight: 600; color: #444; }
+    .form-group input { width: 100%; padding: 12px; border: 1px solid #dee2e6; border-radius: 8px; font-size: 14px; transition: all 0.2s; }
+    .form-group input:focus { border-color: #28a745; outline: none; box-shadow: 0 0 0 3px rgba(40, 167, 69, 0.1); }
+    
+    /* 提交按钮：绿色高亮 */
+    .btn-submit { width: 100%; padding: 14px; background-color: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 600; margin-top: 10px; transition: 0.3s; }
+    .btn-submit:hover { background-color: #218838; transform: translateY(-1px); }
+    
+    /* 返回按钮：明显的边框样式 */
+    .btn-back { display: flex; align-items: center; justify-content: center; width: 100%; padding: 12px; margin-top: 15px; background-color: transparent; color: #6c757d; border: 2px solid #6c757d; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500; transition: 0.3s; }
+    .btn-back:hover { background-color: #6c757d; color: white; text-decoration: none; }
+    .btn-back i { margin-right: 8px; }
 
-        .strength-container { margin-top: 8px; height: 5px; background-color: #eee; border-radius: 3px; overflow: hidden; display: flex;}
-        .strength-bar { height: 100%; width: 0%; transition: width 0.3s ease, background-color 0.3s ease; }
-        .strength-text { font-size: 12px; margin-top: 5px; font-weight: bold; display: block; text-align: right; }
-        .strength-weak { background-color: #dc3545; }
-        .strength-medium { background-color: #ffc107; }
-        .strength-strong { background-color: #28a745; }
-    </style>
-</head>
-<body>
+    .alert { padding: 12px; margin-bottom: 20px; border-radius: 8px; text-align: center; font-size: 14px; }
+    .error { background-color: #fff5f5; color: #e03131; border: 1px solid #ffc9c9; }
+
+    .strength-container { margin-top: 8px; height: 4px; background-color: #e9ecef; border-radius: 2px; overflow: hidden; }
+    .strength-bar { height: 100%; width: 0%; transition: width 0.3s ease; }
+    .strength-weak { background-color: #fa5252; }
+    .strength-medium { background-color: #fab005; }
+    .strength-strong { background-color: #40c057; }
+</style>
 
 <div class="form-container">
-    <h2 style="text-align:center; margin-top:0; margin-bottom: 30px; color:#333;">Add New Admin</h2>
+    <div class="text-center mb-4">
+        <h2 class="fw-bold text-dark">Add New Admin</h2>
+        <p class="text-muted small">Create an additional administrator account</p>
+    </div>
+
     <?php echo $msg; ?>
 
     <form method="POST">
         <div class="form-group">
-            <label>Full Name (Position)</label>
-            <input type="text" name="full_name" required placeholder="e.g. John Manager" value="<?php echo isset($_POST['full_name']) ? htmlspecialchars($_POST['full_name']) : ''; ?>">
+            <label>Admin Name</label>
+            <input type="text" name="admin_name" required placeholder="Full Name" value="<?php echo isset($_POST['admin_name']) ? htmlspecialchars($_POST['admin_name']) : ''; ?>">
         </div>
 
         <div class="form-group">
-            <label>Username</label>
-            <input type="text" name="username" required placeholder="For display purpose" value="<?php echo isset($_POST['username']) ? htmlspecialchars($_POST['username']) : ''; ?>">
-        </div>
-
-        <div class="form-group">
-            <label>Email Address (For Login)</label>
-            <input type="email" name="email" id="emailInput" required placeholder="username@homestay.com" value="<?php echo isset($_POST['email']) ? htmlspecialchars($_POST['email']) : ''; ?>">
-            <small style="color:#666; font-size:0.8em;">* Must end with @homestay.com</small>
-        </div>
-
-        <div class="form-group">
-            <label>Phone Number</label>
-            <input type="tel" name="phone" id="phoneInput" required placeholder="e.g. 012-3456789" 
-                   maxlength="12" 
-                   value="<?php echo isset($_POST['phone']) ? htmlspecialchars($_POST['phone']) : ''; ?>">
-            <small style="color:#666; font-size:0.8em;">* Format: 01x-xxxxxxx</small>
+            <label>Email Address</label>
+            <input type="email" name="admin_email" id="emailInput" required placeholder="name@shoestore.com" value="<?php echo isset($_POST['admin_email']) ? htmlspecialchars($_POST['admin_email']) : ''; ?>">
+            <small class="text-muted" style="font-size: 0.75rem;">* Hint: Type '@' to auto-complete domain</small>
         </div>
 
         <div class="form-group">
             <label>Password</label>
-            <input type="password" name="password" id="passwordInput" required placeholder="********">
-            
+            <input type="password" name="password" id="passwordInput" required placeholder="Min. 6 characters">
             <div class="strength-container">
                 <div class="strength-bar" id="strengthBar"></div>
             </div>
-            <span class="strength-text" id="strengthText"></span>
-            <small id="passwordSuggestions" style="color:#666; font-size:0.8em;"></small>
         </div>
 
         <div class="form-group">
             <label>Confirm Password</label>
-            <input type="password" name="confirm_password" required placeholder="********">
+            <input type="password" name="confirm_password" required placeholder="Re-type password">
         </div>
 
         <button type="submit" class="btn-submit">Create Admin Account</button>
+        
+        <a href="admin_dashboard.php" class="btn-back">
+            <i class="bi bi-arrow-left-circle"></i> Back to Dashboard
+        </a>
     </form>
-
-    <a href="admin_manage_admins.php" class="back-link">&larr; Back to Admin List</a>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+
 <script>
+    // 自动补全域名
     const emailInput = document.getElementById('emailInput');
-    
     emailInput.addEventListener('input', function(e) {
         if (e.target.value.endsWith('@')) {
-            e.target.value += 'homestay.com';
+            e.target.value += 'shoestore.com';
         }
     });
 
-    const phoneInput = document.getElementById('phoneInput');
-    phoneInput.addEventListener('input', function(e) {
-        let value = e.target.value.replace(/\D/g, '');
-        if (value.length > 11) value = value.slice(0, 11);
-        if (value.length > 3) value = value.slice(0, 3) + '-' + value.slice(3);
-        e.target.value = value;
-    });
-
+    // 简易密码强度视觉反馈
     const passwordInput = document.getElementById('passwordInput');
     const strengthBar = document.getElementById('strengthBar');
-    const strengthText = document.getElementById('strengthText');
-    const passwordSuggestions = document.getElementById('passwordSuggestions');
 
     passwordInput.addEventListener('input', function() {
         const val = passwordInput.value;
-        let score = 0;
-        if (val.length >= 6) score += 1;
-        if (val.length >= 10) score += 1;
-        if (/[A-Z]/.test(val)) score += 1;
-        if (/[0-9]/.test(val)) score += 1;
-        if (/[^A-Za-z0-9]/.test(val)) score += 1;
-
         strengthBar.className = 'strength-bar';
-        strengthText.textContent = '';
-        passwordSuggestions.textContent = '';
-
-        let suggestions = [];
-        if (val.length === 0) {
-            strengthBar.style.width = '0%';
-        } else if (val.length < 6) {
-            strengthBar.style.width = '20%';
+        if (val.length === 0) strengthBar.style.width = '0%';
+        else if (val.length < 6) {
+            strengthBar.style.width = '30%';
             strengthBar.classList.add('strength-weak');
-            strengthText.textContent = 'Too Short';
-            strengthText.style.color = '#dc3545';
-            suggestions.push('Password must be at least 6 characters long.');
+        } else if (val.length < 10) {
+            strengthBar.style.width = '60%';
+            strengthBar.classList.add('strength-medium');
         } else {
-            if (score < 3) {
-                strengthBar.style.width = '40%';
-                strengthBar.classList.add('strength-weak');
-                strengthText.textContent = 'Weak';
-                strengthText.style.color = '#dc3545';
-                if (!/[A-Z]/.test(val)) suggestions.push('Add uppercase letters.');
-                if (!/[0-9]/.test(val)) suggestions.push('Add numbers.');
-                if (!/[^A-Za-z0-9]/.test(val)) suggestions.push('Add special characters (e.g., !@#$%).');
-            } else if (score === 3 || score === 4) {
-                strengthBar.style.width = '70%';
-                strengthBar.classList.add('strength-medium');
-                strengthText.textContent = 'Medium';
-                strengthText.style.color = '#d39e00';
-                if (!/[A-Z]/.test(val)) suggestions.push('Add uppercase letters for stronger password.');
-                if (!/[0-9]/.test(val)) suggestions.push('Add numbers for stronger password.');
-                if (!/[^A-Za-z0-9]/.test(val)) suggestions.push('Add special characters for stronger password.');
-            } else {
-                strengthBar.style.width = '100%';
-                strengthBar.classList.add('strength-strong');
-                strengthText.textContent = 'Strong';
-                strengthText.style.color = '#28a745';
-                suggestions.push('Great password!');
-            }
+            strengthBar.style.width = '100%';
+            strengthBar.classList.add('strength-strong');
         }
-        passwordSuggestions.textContent = suggestions.join(' ');
     });
 
     <?php if (!empty($sweetAlertCode)) { echo $sweetAlertCode; } ?>
 </script>
 
-</body>
-</html>
+<?php include_once '../includes/footer.php'; ?>
