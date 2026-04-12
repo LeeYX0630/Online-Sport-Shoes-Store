@@ -138,7 +138,7 @@ if (isset($_SESSION['cart']) && !empty($_SESSION['cart'])) {
                     </a>
                 <?php else: ?>
                     
-                    <a class="btn btn-outline-light btn-sm me-2 position-relative" href="<?php echo $path_mod_b; ?>cart.php" onclick="if(typeof toggleCart === 'function') { toggleCart(); return false; }" title="Shopping Cart">
+                    <a class="btn btn-outline-light btn-sm me-2 position-relative" href="<?php echo $path_mod_b; ?>cart.php" onclick="if(typeof viewShoppingCart === 'function') { viewShoppingCart(); return false; }" title="Shopping Cart">
                         <i class="bi bi-bag"></i>
                         <?php if ($header_cart_count > 0): ?>
                             <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="font-size: 0.6rem; padding: 3px 5px;">

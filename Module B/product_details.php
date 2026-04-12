@@ -477,7 +477,7 @@ if (!empty($_SESSION['cart'])) {
                         <?php if($isAdmin): ?>
                             <button type="button" class="btn-add-cart" onclick="showAdminWarning()">ADD TO BASKET</button>
                         <?php else: ?>
-                            <button type="button" class="btn-add-cart" onclick="openCartDrawer()">ADD TO BASKET</button>
+                            <button type="button" class="btn-add-cart" id="addToBasketBtn" onclick="addToCartAndOpen.call(this)">ADD TO BASKET</button>
                         <?php endif; ?>
                     </div>
                     <small style="display:block; margin-top:10px; color:#666;">Only <span id="stockLimit"><?php echo $product['Pro_Stock_Quantity']; ?></span> left in stock.</small>
@@ -641,14 +641,17 @@ if (!empty($_SESSION['cart'])) {
     // 页面加载完成后立刻渲染第一种颜色
     document.addEventListener('DOMContentLoaded', () => {
         renderGallery(selectedColor);
+        
+        // 检查是否需要自动打开购物车
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.has('status') && urlParams.get('status') === 'added') {
+            // 延迟打开购物车，让页面先完全加载
+            setTimeout(() => {
+                openCartDrawer();
+            }, 500);
+        }
     });
 
-
-    <?php if(isset($_GET['status']) && $_GET['status'] == 'added'): ?>
-    document.addEventListener('DOMContentLoaded', function() {
-        Swal.fire({ title: "Added to Cart!", text: "Your item is waiting in the shopping cart.", icon: "success", confirmButtonColor: "#008060", confirmButtonText: "Continue Shopping" });
-    });
-    <?php endif; ?>
 
     function promptLogin(actionText) {
         Swal.fire({
@@ -736,6 +739,73 @@ if (!empty($_SESSION['cart'])) {
     function toggleCart() {
         document.getElementById('cartOverlay').classList.toggle('active');
         document.getElementById('cartDrawer').classList.toggle('active');
+    }
+
+    function viewShoppingCart() {
+        // 用于从header点击购物车icon时打开抽屉（只显示已有商品，不显示当前产品）
+        if (!isLoggedIn) { promptLogin('view your cart'); return; }
+        
+        let existingItemsHtml = '';
+        if (miniCartItems && miniCartItems.length > 0) {
+            miniCartItems.forEach((item, index) => {
+                let itemImg = item.Pro_Image ? '../uploads/' + item.Pro_Image : '../assets/images/placeholder.jpg';
+                let itemPrice = parseFloat(item.Pro_Price) || 0;
+                let cartKey = item.pro_id + '_' + item.size + '_' + item.color.replace(/[^a-zA-Z0-9]/g, '');
+                
+                existingItemsHtml += `
+                    <div class="cart-item" id="cart-item-${index}">
+                        <div class="cart-item-img"><img src="${itemImg}" onerror="this.src='../assets/images/placeholder.jpg'"></div>
+                        <div class="cart-item-details">
+                            <div style="font-weight:bold; font-size:14px; margin:4px 0; line-height:1.3;">${item.Pro_Name}</div>
+                            <div style="font-size:13px; color:#666; margin-top:5px;">
+                                Size: <strong>${item.size}</strong> | Col: <strong>${item.color}</strong>
+                            </div>
+                            <div style="font-size:13px; color:#666; margin-top:2px;">Qty: <strong>${item.qty}</strong></div>
+                            <div class="cart-qty-controls">
+                                <button type="button" onclick="updateExistingItemQty('${cartKey}', ${index}, -1, 100)">−</button>
+                                <input type="text" value="${item.qty}" readonly>
+                                <button type="button" onclick="updateExistingItemQty('${cartKey}', ${index}, 1, 100)">+</button>
+                            </div>
+                        </div>
+                        <div style="font-weight:bold; font-size:14px;">RM ${(item.subtotal).toFixed(2)}</div>
+                        <button class="cart-delete" onclick="removeFromCart('${cartKey}', ${currentProId})"><i class="bi bi-trash3"></i></button>
+                    </div>
+                `;
+            });
+        }
+
+        // 计算已有商品的总数和总价
+        let totalExistingQty = 0;
+        let totalExistingSubtotal = 0;
+        if (miniCartItems && miniCartItems.length > 0) {
+            miniCartItems.forEach(item => {
+                totalExistingQty += item.qty;
+                totalExistingSubtotal += item.subtotal;
+            });
+        }
+
+        document.getElementById('cartCount').innerText = totalExistingQty;
+        document.getElementById('cartSubtotalText').innerText = 'RM ' + totalExistingSubtotal.toFixed(2);
+        
+        // 更新运费状态
+        let shippingFill = document.getElementById('shippingFill');
+        let shippingText = document.getElementById('shippingText');
+        
+        if(totalExistingSubtotal === 0 || totalExistingSubtotal == 0) {
+            shippingFill.style.width = "0%"; 
+            shippingText.innerText = "Add items to unlock free shipping!";
+        } else if(totalExistingSubtotal >= freeShippingLimit) {
+            shippingFill.style.width = "100%"; 
+            shippingText.innerHTML = "<span style='color:#008060;'>You qualify for Free Standard Delivery!</span>";
+        } else {
+            let remain = (freeShippingLimit - totalExistingSubtotal).toFixed(2);
+            shippingFill.style.width = (totalExistingSubtotal / freeShippingLimit * 100) + "%";
+            shippingText.innerText = `You're RM ${remain} away from free shipping.`;
+        }
+
+        document.getElementById('cartItemsContainer').innerHTML = existingItemsHtml;
+        
+        toggleCart();
     }
 
     function slideCarousel(id, direction) {
@@ -849,19 +919,125 @@ if (!empty($_SESSION['cart'])) {
         if (newQty >= 1 && newQty <= maxStock) {
             qtyInput.value = newQty;
             
-            // 更新小计价格（这里假设已有商品价格存储在 miniCartItems 中）
-            // 重新计算购物车总数
-            let allQty = 0;
-            document.querySelectorAll('.cart-qty-controls input[readonly]').forEach(input => {
-                allQty += parseInt(input.value);
+            // 从 miniCartItems 中获取该商品的信息
+            let item = miniCartItems[itemIndex];
+            if (!item) return;
+            
+            let itemPrice = parseFloat(item.Pro_Price) || 0;
+            let newSubtotal = newQty * itemPrice;
+            
+            // 更新该商品显示的小计价格（找到最后一个bold div，即价格显示）
+            let allDivs = itemDiv.querySelectorAll('div');
+            let priceDiv = null;
+            allDivs.forEach(div => {
+                if (div.style.fontWeight === 'bold' && div.style.fontSize === '14px' && 
+                    !div.classList.contains('cart-item-details') && 
+                    !div.querySelector('.cart-qty-controls')) {
+                    priceDiv = div;
+                }
+            });
+            if (priceDiv) {
+                priceDiv.innerText = 'RM ' + newSubtotal.toFixed(2);
+            }
+            
+            // 重新计算购物车所有商品的总数量和总价
+            let totalExistingQty = 0;
+            let totalExistingSubtotal = 0;
+            
+            // 遍历所有已有购物车项，计算总数和总价
+            miniCartItems.forEach((cartItem, idx) => {
+                let cartItemDiv = document.getElementById('cart-item-' + idx);
+                if (cartItemDiv) {
+                    let itemQtyInput = cartItemDiv.querySelector('.cart-qty-controls input');
+                    if (itemQtyInput) {
+                        let itemQty = parseInt(itemQtyInput.value);
+                        let itemPr = parseFloat(cartItem.Pro_Price) || 0;
+                        totalExistingQty += itemQty;
+                        totalExistingSubtotal += itemQty * itemPr;
+                    }
+                }
             });
             
-            // 更新购物车商品数和页面的main form量
-            let mainFormQty = document.getElementById('qtyInput').value;
-            let totalQty = allQty + parseInt(mainFormQty);
+            // 获取正在添加商品的数量
+            let mainFormQty = parseInt(document.getElementById('qtyInput').value);
+            let mainFormPrice = price; // 全局变量
+            
+            // 总计
+            let totalQty = totalExistingQty + mainFormQty;
+            let totalSubtotal = (totalExistingSubtotal + mainFormQty * mainFormPrice).toFixed(2);
+            
+            // 更新UI显示
             document.getElementById('cartCount').innerText = totalQty;
-            updateCartTotals(parseInt(mainFormQty));
+            document.getElementById('cartSubtotalText').innerText = 'RM ' + totalSubtotal;
+            
+            // 更新运费状态
+            let shippingFill = document.getElementById('shippingFill');
+            let shippingText = document.getElementById('shippingText');
+            
+            let numSubtotal = parseFloat(totalSubtotal);
+            if(numSubtotal == 0 || totalSubtotal === '0.00') {
+                shippingFill.style.width = "0%"; 
+                shippingText.innerText = "Add items to unlock free shipping!";
+            } else if(numSubtotal >= freeShippingLimit) {
+                shippingFill.style.width = "100%"; 
+                shippingText.innerHTML = "<span style='color:#008060;'>You qualify for Free Standard Delivery!</span>";
+            } else {
+                let remain = (freeShippingLimit - numSubtotal).toFixed(2);
+                shippingFill.style.width = (numSubtotal / freeShippingLimit * 100) + "%";
+                shippingText.innerText = `You're RM ${remain} away from free shipping.`;
+            }
         }
+    }
+
+    function addToCartAndOpen() {
+        // 验证是否选择了size
+        if (!selectedSize) {
+            document.getElementById('sizeError').style.display = 'inline';
+            Swal.fire({ icon: 'warning', title: 'Select Size', text: 'Please select a size before adding to basket' });
+            return;
+        }
+
+        // 隐藏错误提示
+        document.getElementById('sizeError').style.display = 'none';
+
+        // 禁用按钮防止重复提交
+        this.disabled = true;
+        this.style.opacity = '0.6';
+        let originalText = this.textContent;
+        this.textContent = 'Adding...';
+        
+        // 使用AJAX提交表单
+        let formData = new FormData(document.getElementById('addToCartForm'));
+        formData.append('add_to_cart', '1');
+        let btn = this; // 保存按钮引用
+
+        fetch('product_details.php?pro_id=<?php echo $product['Pro_Id']; ?>', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.text())
+        .then(data => {
+            // 显示成功提示后刷新页面
+            Swal.fire({
+                title: 'Added to Cart!',
+                text: 'Your item is waiting in the shopping cart.',
+                icon: 'success',
+                confirmButtonColor: '#008060',
+                confirmButtonText: 'Continue Shopping',
+                timer: 1500,
+                didClose: () => {
+                    // 刷新页面让PHP重新生成miniCartItems，然后自动打开购物车
+                    window.location.href = 'product_details.php?pro_id=<?php echo $product["Pro_Id"]; ?>&status=added';
+                }
+            });
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            btn.disabled = false;
+            btn.style.opacity = '1';
+            btn.textContent = originalText;
+            Swal.fire({ icon: 'error', title: 'Error', text: 'Failed to add to cart' });
+        });
     }
 
     function submitCartForm(actionType) {
