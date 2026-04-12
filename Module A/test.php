@@ -1,19 +1,8 @@
 <?php
 // 1. Start Session & Buffer
 ob_start();
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
+session_start();
 require_once '../includes/db_connection.php';
-
-// 引入邮件发送必需的 PHPMailer 组件
-require_once '../includes/mail_config.php'; 
-require '../includes/PHPMailer/Exception.php';
-require '../includes/PHPMailer/PHPMailer.php';
-require '../includes/PHPMailer/SMTP.php';
-
-use PHPMailer\PHPMailer\PHPMailer;
-use PHPMailer\PHPMailer\Exception;
 
 $error = "";
 
@@ -33,36 +22,22 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $otp = rand(100000, 999999);
         $_SESSION['reset_otp'] = $otp;
         $_SESSION['reset_email'] = $email;
-        $user_name = $row['User_Name'];
-        $_SESSION['reset_name'] = $user_name;
+        $_SESSION['reset_name'] = $row['User_Name'];
         
         // ==========================================
-        // 真实的邮件发送逻辑 (PHPMailer)
+        // 邮件发送区 (如果你有配置 PHPMailer)
+        // 如果只做前端跳转测试，这部分可以保持注释
         // ==========================================
-        $mail = new PHPMailer(true);
-        try {
-            $mail->isSMTP();
-            $mail->Host       = 'smtp.gmail.com'; 
-            $mail->SMTPAuth   = true;
-            $mail->Username   = SMTP_EMAIL; 
-            $mail->Password   = SMTP_PASS;
-            $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
-            $mail->Port       = 587;
+        /* require_once '../includes/mail_config.php';
+        $mail->addAddress($email, $row['User_Name']);
+        $mail->Subject = 'Password Reset OTP - Sport Shoes Store';
+        $mail->Body    = 'Hello ' . $row['User_Name'] . ',<br><br>Your OTP for password reset is: <b>' . $otp . '</b>.<br>Please do not share this code with anyone.';
+        $mail->send(); 
+        */
 
-            $mail->setFrom('sportshoes.system@gmail.com', 'Online Sport Shoes Store');
-            $mail->addAddress($email, $user_name);
-            $mail->isHTML(true);
-            $mail->Subject = 'Password Reset OTP - Sport Shoes Store';
-            $mail->Body    = "Hello $user_name,<br><br>Your OTP for password reset is: <b style='font-size:20px; color:#FF6B00;'>$otp</b>.<br>Please do not share this code with anyone.";
-
-            // 发送邮件并跳转
-            $mail->send();
-            header("Location: reset_password.php");
-            exit();
-        } catch (Exception $e) {
-            $error = "Email could not be sent. Error: {$mail->ErrorInfo}";
-        }
-
+        // [修复点] 成功找到邮箱后，跳转到专用的重置密码页面，而不是注册页面
+        header("Location: reset_password.php");
+        exit();
     } else {
         $error = "We could not find an account with that email address.";
     }

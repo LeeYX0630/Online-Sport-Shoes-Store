@@ -5,6 +5,14 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
+if (!isset($_SESSION['user_id'])) {
+    echo "<script>
+            alert('Please login to view your shopping cart.'); 
+            window.location.href='login.php';
+          </script>";
+    exit;
+}
+
 // 确保购物车 Session 已初始化
 if (!isset($_SESSION['cart'])) {
     $_SESSION['cart'] = [];
@@ -194,7 +202,7 @@ $free_shipping_threshold = 250.00;
                             $shipping_fee = 0;
                             echo "<span style='color: #28A745; font-weight: bold;'>Free</span>";
                         } else {
-                            $shipping_fee = 15.00; // 默认运费
+                            $shipping_fee = 15.00; 
                             echo "<span style='font-weight: bold; color: #333;'>RM " . number_format($shipping_fee, 2) . "</span>";
                         }
                         ?>

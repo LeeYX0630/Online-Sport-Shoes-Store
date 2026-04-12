@@ -4,10 +4,19 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
+// 检查是否已登录
+$is_logged_in = isset($_SESSION['user_id']);
+
 // ==========================================
 // 核心逻辑：处理加入购物车 (Add to Cart / Checkout)
 // ==========================================
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && (isset($_POST['add_to_cart']) || isset($_POST['checkout_now']))) {
+    // 后端双重验证：如果未登录，正确跳转回 Module A 的登录页
+    if (!$is_logged_in) {
+        header("Location: ../Module A/login.php");
+        exit;
+    }
+
     $add_pro_id = intval($_POST['pro_id']);
     $add_size = $_POST['selected_size'];
     $add_qty = intval($_POST['quantity']);
@@ -17,11 +26,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && (isset($_POST['add_to_cart']) || iss
             $_SESSION['cart'] = [];
         }
         
-        // 使用 产品ID + 尺码 作为购物车的唯一标识键值 (例如: 5_UK8)
         $cart_key = $add_pro_id . '_' . $add_size;
         
         if (isset($_SESSION['cart'][$cart_key])) {
-            $_SESSION['cart'][$cart_key]['qty'] += $add_qty; // 已有同款同尺码，累加数量
+            $_SESSION['cart'][$cart_key]['qty'] += $add_qty; 
         } else {
             $_SESSION['cart'][$cart_key] = [
                 'pro_id' => $add_pro_id,
@@ -30,11 +38,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && (isset($_POST['add_to_cart']) || iss
             ];
         }
 
-        // 根据点击的按钮决定跳转去向
         if (isset($_POST['checkout_now'])) {
-            header("Location: cart.php"); // 去结算页
+            header("Location: cart.php"); 
         } else {
-            header("Location: product_details.php?pro_id=$add_pro_id&status=added"); // 留在当前页
+            header("Location: product_details.php?pro_id=$add_pro_id&status=added"); 
         }
         exit;
     }
@@ -58,13 +65,10 @@ $pro_id = intval($_GET['pro_id']);
 if (!isset($_SESSION['recently_viewed'])) {
     $_SESSION['recently_viewed'] = [];
 }
-// 如果已存在该商品，先从记录中移除（为了把它重新推到最前面）
 if (($key = array_search($pro_id, $_SESSION['recently_viewed'])) !== false) {
     unset($_SESSION['recently_viewed'][$key]);
 }
-// 将当前商品插入到数组最前面
 array_unshift($_SESSION['recently_viewed'], $pro_id);
-// 最多只保留最近浏览的 8 个商品
 if (count($_SESSION['recently_viewed']) > 8) {
     array_pop($_SESSION['recently_viewed']);
 }
@@ -87,10 +91,7 @@ $pro_img = !empty($product['Pro_Image']) ? "../uploads/" . $product['Pro_Image']
 $sizes = explode(',', $product['Pro_Size']);
 $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
 
-
-// ==========================================
-// 3. 获取 "You may also like" 推荐商品 (加入去重逻辑)
-// ==========================================
+// 3. 获取 "You may also like" 推荐商品 
 $cat_id = $product['Cat_Id'];
 $rec_sql = "SELECT product.*, brand.Brand_Name FROM product 
             JOIN brand ON product.Brand_Id = brand.Brand_Id
@@ -110,9 +111,7 @@ if ($rec_res && $rec_res->num_rows > 0) {
     }
 }
 
-// ==========================================
-// 4. 获取 "Recently Viewed" 及 智能填补 (加入去重逻辑)
-// ==========================================
+// 4. 获取 "Recently Viewed" 及 智能填补
 $recently_viewed_products = [];
 $recent_section_title = "Recently Viewed"; 
 $rv_seen_names = [$product['Pro_Name']];
@@ -162,9 +161,7 @@ if ($current_count < 8) {
     }
 }
 
-// ==========================================
 // 5. 获取 "Best Sellers"
-// ==========================================
 $bs_sql = "SELECT product.*, brand.Brand_Name FROM product 
            JOIN brand ON product.Brand_Id = brand.Brand_Id
            WHERE Pro_Id != '$pro_id' AND Pro_Status = 'Available' 
@@ -175,9 +172,7 @@ if ($bs_res && $bs_res->num_rows > 0) {
     while($r = $bs_res->fetch_assoc()) { $best_sellers[] = $r; }
 }
 
-// ==========================================
 // 6. 获取 当前购物车数据 (用于底部悬浮迷你购物车)
-// ==========================================
 $mini_cart_total = 0;
 $mini_cart_count = 0;
 if (!empty($_SESSION['cart'])) {
@@ -249,7 +244,6 @@ if (!empty($_SESSION['cart'])) {
         }
         .btn-wishlist-card:hover { color: #E7352B; transform: scale(1.1); }
 
-        /* 滑动展示区 */
         .sliders-wrapper { max-width: 1200px; margin: 0 auto 60px auto; padding: 0 20px; }
         .slider-section { margin-top: 50px; }
         .slider-header { display: flex; align-items: center; justify-content: center; gap: 20px; margin-bottom: 25px; font-size: 18px; font-weight: bold; color: #333; }
@@ -267,7 +261,6 @@ if (!empty($_SESSION['cart'])) {
         .slider-brand { font-size: 13px; font-weight: bold; color: #666; margin-bottom: 3px; }
         .slider-name { font-size: 14px; color: #333; line-height: 1.3; }
 
-        /* 侧边栏购物车 */
         .cart-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.5); z-index: 99998; opacity: 0; visibility: hidden; transition: 0.3s ease; }
         .cart-overlay.active { opacity: 1; visibility: visible; }
         .cart-drawer { position: fixed; top: 0; right: -500px; width: 100%; max-width: 480px; height: 100vh; background: #fff; z-index: 99999; box-shadow: -5px 0 20px rgba(0,0,0,0.1); display: flex; flex-direction: column; transition: 0.4s cubic-bezier(0.25, 0.8, 0.25, 1); }
@@ -319,38 +312,25 @@ if (!empty($_SESSION['cart'])) {
         .btn-checkout { width: 100%; background: #008060; color: white; border: none; padding: 16px; font-size: 16px; font-weight: bold; border-radius: 4px; cursor: pointer; transition: 0.3s;}
         .btn-checkout:hover { background: #00664c; }
 
-        /* ================= 新增：底部悬浮长条购物车 ================= */
+        /* ================= 迷你购物车 ================= */
         .floating-mini-cart {
-            position: fixed;
-            bottom: 30px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: #fff;
-            padding: 12px 24px;
-            border-radius: 50px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 30px;
-            z-index: 9990;
-            border: 2px solid #008060;
-            width: max-content;
+            position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+            background: #fff; padding: 12px 24px; border-radius: 50px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15); display: flex;
+            align-items: center; justify-content: space-between; gap: 30px;
+            z-index: 9990; border: 2px solid #008060; width: max-content;
             animation: slideUp 0.5s ease;
         }
-        @keyframes slideUp {
-            from { bottom: -100px; opacity: 0; }
-            to { bottom: 30px; opacity: 1; }
-        }
+        @keyframes slideUp { from { bottom: -100px; opacity: 0; } to { bottom: 30px; opacity: 1; } }
         .fmc-info { display: flex; align-items: center; gap: 15px; }
         .fmc-icon { background: #e6f2ef; color: #008060; width: 40px; height: 40px; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 20px; }
         .fmc-text { display: flex; flex-direction: column; }
         .fmc-count { font-size: 12px; color: #666; font-weight: bold; text-transform: uppercase; }
         .fmc-total { font-size: 18px; font-weight: 900; color: #333; }
         .fmc-actions { display: flex; gap: 10px; }
-        .fmc-btn-view { padding: 10px 20px; border-radius: 25px; border: 1px solid #ccc; color: #333; text-decoration: none; font-weight: bold; font-size: 14px; transition: 0.3s; }
+        .fmc-btn-view { padding: 10px 20px; border-radius: 25px; border: 1px solid #ccc; color: #333; text-decoration: none; font-weight: bold; font-size: 14px; transition: 0.3s; cursor: pointer; }
         .fmc-btn-view:hover { background: #f4f4f4; }
-        .fmc-btn-checkout { padding: 10px 24px; border-radius: 25px; background: #008060; color: #fff; text-decoration: none; font-weight: bold; font-size: 14px; transition: 0.3s; border: 1px solid #008060; }
+        .fmc-btn-checkout { padding: 10px 24px; border-radius: 25px; background: #008060; color: #fff; text-decoration: none; font-weight: bold; font-size: 14px; transition: 0.3s; border: 1px solid #008060; cursor: pointer; }
         .fmc-btn-checkout:hover { background: #00664c; }
         @media (max-width: 576px) {
             .floating-mini-cart { width: 90%; flex-direction: column; border-radius: 12px; gap: 15px; padding: 15px; bottom: 20px; }
@@ -386,7 +366,7 @@ if (!empty($_SESSION['cart'])) {
                 <div class="info-label">Description</div>
                 <p style="color:#666; line-height:1.6; margin-bottom:30px;"><?php echo nl2br($product['Pro_Description']); ?></p>
 
-                <form action="" method="POST" id="addToCartForm">
+                <form action="product_details.php?pro_id=<?php echo $product['Pro_Id']; ?>" method="POST" id="addToCartForm">
                     <input type="hidden" name="pro_id" value="<?php echo $product['Pro_Id']; ?>">
                     <input type="hidden" name="selected_size" id="selectedSizeInput" value="">
 
@@ -483,8 +463,8 @@ if (!empty($_SESSION['cart'])) {
         </div>
     </div>
     <div class="fmc-actions">
-        <a href="cart.php" class="fmc-btn-view">View Cart</a>
-        <a href="checkout.php" class="fmc-btn-checkout">Checkout</a>
+        <a href="cart.php" class="fmc-btn-view" onclick="guardLink(event, 'view your cart')">View Cart</a>
+        <a href="checkout.php" class="fmc-btn-checkout" onclick="guardLink(event, 'proceed to checkout')">Checkout</a>
     </div>
 </div>
 <?php endif; ?>
@@ -545,7 +525,7 @@ if (!empty($_SESSION['cart'])) {
         
         <div class="drawer-action-row">
             <button type="button" class="btn-drawer-outline" onclick="submitCartForm('add')">ADD TO CART</button>
-            <button type="button" class="btn-drawer-outline" onclick="window.location.href='wishlist.php'">WISHLIST</button>
+            <button type="button" class="btn-drawer-outline" onclick="if(!isLoggedIn){promptLogin('view your wishlist');}else{window.location.href='wishlist.php';}">WISHLIST</button>
         </div>
 
         <button type="button" class="btn-checkout" onclick="submitCartForm('checkout')">Checkout securely</button>
@@ -553,6 +533,7 @@ if (!empty($_SESSION['cart'])) {
 </div>
 
 <script>
+    const isLoggedIn = <?php echo $is_logged_in ? 'true' : 'false'; ?>;
     let selectedSize = "";
     const price = <?php echo $product['Pro_Price']; ?>;
     const freeShippingLimit = 250;
@@ -569,10 +550,41 @@ if (!empty($_SESSION['cart'])) {
     });
     <?php endif; ?>
 
+    function promptLogin(actionText) {
+        Swal.fire({
+            title: "Login Required",
+            text: "Please login to " + actionText + ".",
+            icon: "warning",
+            showCancelButton: true,
+            confirmButtonColor: "#008060",
+            cancelButtonColor: "#d33",
+            confirmButtonText: "Login Now"
+        }).then((result) => {
+            if (result.isConfirmed) {
+                window.location.href = "../Module A/login.php"; 
+            }
+        });
+    }
+
+    // =====================================
+    // 拦截未登录用户点击直接跳转的超链接
+    // =====================================
+    function guardLink(event, actionText) {
+        if (!isLoggedIn) {
+            event.preventDefault(); // 阻止 a 标签的默认跳转
+            promptLogin(actionText);
+        }
+    }
+
     function toggleWishlist(event, element) {
         event.preventDefault(); 
-        let icon = element.querySelector('i');
         
+        if (!isLoggedIn) {
+            promptLogin('add items to your wishlist');
+            return;
+        }
+
+        let icon = element.querySelector('i');
         if (icon.classList.contains('bi-heart')) {
             icon.classList.remove('bi-heart');
             icon.classList.add('bi-heart-fill');
@@ -663,6 +675,11 @@ if (!empty($_SESSION['cart'])) {
     }
 
     function openCartDrawer() {
+        if (!isLoggedIn) {
+            promptLogin('add items to your cart');
+            return;
+        }
+
         if(!selectedSize) { document.getElementById('sizeError').style.display = 'inline'; return; }
         
         let qty = parseInt(document.getElementById('qtyInput').value);
@@ -684,7 +701,7 @@ if (!empty($_SESSION['cart'])) {
                     </div>
                 </div>
                 <div style="font-weight:bold; font-size:14px;">RM ${price.toFixed(2)}</div>
-                <button class="cart-delete" onclick="this.parentElement.remove(); updateCartTotals(0); document.getElementById('qtyInput').value=1;"><i class="bi bi-trash3"></i></button>
+                <button class="cart-delete" onclick="this.parentElement.remove(); updateCartTotals(0); document.getElementById('qtyInput').value=1;"><i class=\"bi bi-trash3\"></i></button>
             </div>
         `;
         

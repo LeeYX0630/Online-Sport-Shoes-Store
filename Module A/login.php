@@ -11,7 +11,7 @@ require_once '../includes/db_connection.php';
 
 // 2. Redirect if already logged in (Gatekeeper)
 if (isset($_SESSION['user_id'])) {
-    if ($_SESSION['role'] === 'Admin') {
+    if (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin') {
         header("Location: ../Module C/admin_dashboard.php");
     } else {
         header("Location: user_dashboard.php");
@@ -25,7 +25,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $email = trim($_POST['email']);
     $password = trim($_POST['password']);
     
-    $stmt = $conn->prepare("SELECT user_id, full_name, password, role, status, profile_image FROM users WHERE email = ?");
+    // [已修复] 更改了表名为 `USER`，并匹配了数据库真实的字段名 `User_Email`
+    $stmt = $conn->prepare("SELECT * FROM `USER` WHERE User_Email = ?");
     $stmt->bind_param("s", $email);
     $stmt->execute();
     $result = $stmt->get_result();
@@ -33,25 +34,30 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     if ($result->num_rows === 1) {
         $row = $result->fetch_assoc();
 
+        // 兼容检查：如果你的数据库里没有 role 和 status 字段，默认设为普通顾客和正常状态
+        $user_role = isset($row['role']) ? $row['role'] : 'Customer';
+        $user_status = isset($row['status']) ? $row['status'] : 'Active';
+
         // 3. Admin Interceptor 
-        if ($row['role'] === 'Admin') {
+        if ($user_role === 'Admin') {
             $error = "<strong>Admin Access Denied</strong><br>Admins must login via the <a href='admin_login.php' class='alert-link'>Admin Portal</a>.";
         } else {
-            // 4. Password Verification
-            if (password_verify($password, $row['password'])) {
+            // 4. Password Verification [已修复：匹配 User_Password]
+            if (password_verify($password, $row['User_Password'])) {
                 
                 // 5. Block Check 
-                if ($row['status'] === 'Blocked') {
+                if ($user_status === 'Blocked') {
                     $error = "⛔ Your account has been suspended.<br>Please contact admin for assistance.";
                 } else {
 
                     // LOGIN SUCCESS
                     session_regenerate_id(true);
 
-                    $_SESSION['user_id'] = $row['user_id'];
-                    $_SESSION['user_name'] = $row['full_name'];
-                    $_SESSION['role'] = $row['role'];
-                    $_SESSION['profile_image'] = !empty($row['profile_image']) ? $row['profile_image'] : 'default.png';
+                    // [已修复：匹配数据库真实的列名]
+                    $_SESSION['user_id'] = $row['User_Id'];
+                    $_SESSION['user_name'] = $row['User_Name'];
+                    $_SESSION['role'] = $user_role;
+                    $_SESSION['profile_image'] = !empty($row['User_Image']) ? $row['User_Image'] : 'default.png';
 
                     // Remember Me Logic
                     if (isset($_POST['remember'])) {
@@ -65,7 +71,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     }
 
                     // Redirect based on role (Double Check)
-                    if ($row['role'] === 'Admin') {
+                    if ($user_role === 'Admin') {
                         header("Location: ../Module C/admin_dashboard.php");
                     } else {
                         header("Location: user_dashboard.php");
