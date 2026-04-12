@@ -27,7 +27,7 @@ $nav_user_name = "";
 $nav_profile_pic = $path_mod_a . "images/user_icon.png"; // 默认头像
 
 // ==========================================
-// 修复：匹配真实的 USER 表和字段
+// 匹配真实的 USER 表和字段
 // ==========================================
 if (isset($_SESSION['user_id'])) {
     $nav_is_logged_in = true;
@@ -49,6 +49,16 @@ if (isset($_SESSION['user_id'])) {
 } elseif (isset($_SESSION['admin_id'])) {
     $nav_is_logged_in = true;
     $nav_user_name = isset($_SESSION['username']) ? $_SESSION['username'] . " (Admin)" : "Administrator";
+}
+
+// ==========================================
+// 新增：计算全局购物车数量 (用于显示在 Header 的小红点)
+// ==========================================
+$header_cart_count = 0;
+if (isset($_SESSION['cart']) && !empty($_SESSION['cart'])) {
+    foreach ($_SESSION['cart'] as $item) {
+        $header_cart_count += isset($item['qty']) ? intval($item['qty']) : 0;
+    }
 }
 ?>
 <!doctype html>
@@ -127,6 +137,16 @@ if (isset($_SESSION['user_id'])) {
                         <i class="bi bi-speedometer2"></i>
                     </a>
                 <?php else: ?>
+                    
+                    <a class="btn btn-outline-light btn-sm me-2 position-relative" href="<?php echo $path_mod_b; ?>cart.php" onclick="if(typeof toggleCart === 'function') { toggleCart(); return false; }" title="Shopping Cart">
+                        <i class="bi bi-bag"></i>
+                        <?php if ($header_cart_count > 0): ?>
+                            <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="font-size: 0.6rem; padding: 3px 5px;">
+                                <?php echo $header_cart_count; ?>
+                            </span>
+                        <?php endif; ?>
+                    </a>
+                    
                     <a class="btn btn-outline-light btn-sm me-2" href="<?php echo $path_mod_a; ?>user_dashboard.php" title="My Profile">
                         <i class="bi bi-person-circle"></i>
                     </a>

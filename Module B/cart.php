@@ -8,7 +8,7 @@ if (session_status() === PHP_SESSION_NONE) {
 if (!isset($_SESSION['user_id'])) {
     echo "<script>
             alert('Please login to view your shopping cart.'); 
-            window.location.href='login.php';
+            window.location.href='../Module A/login.php';
           </script>";
     exit;
 }
@@ -22,8 +22,17 @@ if (!isset($_SESSION['cart'])) {
 // 1. 处理表单提交 (更新数量 / 删除商品)
 // ---------------------------------------------------------
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-    // 更新数量逻辑
-    if (isset($_POST['update_cart'])) {
+    
+    // 【核心修复】：将 remove_item 的优先级调到最高！
+    // 因为 update_cart 是隐藏域，每次都会提交。必须先检查用户是不是按了垃圾桶。
+    if (isset($_POST['remove_item'])) {
+        $key_to_remove = $_POST['remove_key'];
+        if (isset($_SESSION['cart'][$key_to_remove])) {
+            unset($_SESSION['cart'][$key_to_remove]);
+        }
+    } 
+    // 如果没有按垃圾桶，才执行修改数量的逻辑
+    elseif (isset($_POST['update_cart'])) {
         if (isset($_POST['qty']) && is_array($_POST['qty'])) {
             foreach ($_POST['qty'] as $cart_key => $quantity) {
                 $quantity = intval($quantity);
@@ -31,13 +40,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     $_SESSION['cart'][$cart_key]['qty'] = $quantity;
                 }
             }
-        }
-    } 
-    // 删除单个商品逻辑
-    elseif (isset($_POST['remove_item'])) {
-        $key_to_remove = $_POST['remove_key'];
-        if (isset($_SESSION['cart'][$key_to_remove])) {
-            unset($_SESSION['cart'][$key_to_remove]);
         }
     }
     
@@ -81,20 +83,19 @@ $free_shipping_threshold = 250.00;
         .item-brand { font-size: 12px; font-weight: bold; color: #666; text-transform: uppercase; }
         .item-name { font-size: 16px; font-weight: bold; color: #333; text-decoration: none; }
         .item-name:hover { color: #FF6B00; }
-        .item-size { font-size: 14px; color: #666; }
+        .item-size { font-size: 13px; color: #666; }
 
         .item-price { font-weight: bold; font-size: 16px; color: #333; }
         
-        .qty-input { width: 60px; padding: 8px; border: 1px solid #ccc; border-radius: 4px; text-align: center; font-weight: bold; }
-        
+        .qty-input { width: 60px; padding: 8px; border: 1px solid #ccc; border-radius: 4px; text-align: center; font-weight: bold; cursor: pointer; transition: 0.2s;}
+        .qty-input:hover, .qty-input:focus { border-color: #333; outline: none; }
+
         .btn-remove { background: none; border: none; color: #999; cursor: pointer; font-size: 18px; transition: 0.2s; }
         .btn-remove:hover { color: #DC3545; }
 
         .cart-actions { display: flex; justify-content: space-between; margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee; }
         .btn-outline { background: #fff; border: 1px solid #333; color: #333; padding: 10px 20px; border-radius: 4px; font-weight: bold; cursor: pointer; transition: 0.3s; text-decoration: none; }
         .btn-outline:hover { background: #f4f4f4; }
-        .btn-update { background: #333; border: 1px solid #333; color: #fff; padding: 10px 20px; border-radius: 4px; font-weight: bold; cursor: pointer; transition: 0.3s; }
-        .btn-update:hover { background: #222; }
 
         /* 订单摘要区 */
         .order-summary { background: #ffffff; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); padding: 25px; position: sticky; top: 20px; }
@@ -130,15 +131,17 @@ $free_shipping_threshold = 250.00;
             <div class="cart-layout">
                 
                 <form method="POST" action="cart.php" id="cartForm">
+                    <input type="hidden" name="update_cart" value="1">
+                    
                     <div class="cart-items">
                         <?php
-                        // 获取购物车中所有产品的详细信息
                         foreach ($_SESSION['cart'] as $cart_key => $item) {
                             $pro_id = $item['pro_id'];
                             $size = $item['size'];
                             $qty = $item['qty'];
+                            
+                            $color = isset($item['color']) && $item['color'] !== 'Default' ? $item['color'] : '';
 
-                            // 从数据库拉取最新的产品信息
                             $sql = "SELECT product.*, brand.Brand_Name 
                                     FROM product 
                                     JOIN brand ON product.Brand_Id = brand.Brand_Id 
@@ -147,7 +150,22 @@ $free_shipping_threshold = 250.00;
 
                             if ($res && $res->num_rows > 0) {
                                 $product = $res->fetch_assoc();
-                                $img_src = !empty($product['Pro_Image']) ? "../uploads/" . $product['Pro_Image'] : "../assets/images/placeholder.jpg";
+                                
+                                $base_img = $product['Pro_Image'];
+                                $img_src = !empty($base_img) ? "../uploads/" . $base_img : "../assets/images/placeholder.jpg";
+                                
+                                if (!empty($color)) {
+                                    $path_parts = pathinfo($base_img);
+                                    $base_name = preg_replace('/_\d+$/', '', $path_parts['filename']);
+                                    $ext = isset($path_parts['extension']) ? "." . $path_parts['extension'] : "";
+                                    $color_slug = strtolower(explode('/', str_replace(' ', '_', $color))[0]);
+                                    
+                                    $color_img_test = "../uploads/" . $base_name . "_" . $color_slug . "_1" . $ext;
+                                    if (file_exists($color_img_test)) {
+                                        $img_src = $color_img_test;
+                                    }
+                                }
+                                
                                 $item_total = $product['Pro_Price'] * $qty;
                                 $subtotal += $item_total;
                                 ?>
@@ -158,13 +176,14 @@ $free_shipping_threshold = 250.00;
                                     <div class="item-details">
                                         <span class="item-brand"><?php echo htmlspecialchars($product['Brand_Name']); ?></span>
                                         <a href="product_details.php?pro_id=<?php echo $pro_id; ?>" class="item-name"><?php echo htmlspecialchars($product['Pro_Name']); ?></a>
-                                        <span class="item-size">Size (UK): <?php echo htmlspecialchars($size); ?></span>
+                                        
+                                        <span class="item-size">Size (UK): <?php echo htmlspecialchars($size); ?> <?php if($color) echo "&nbsp;|&nbsp; Col: " . htmlspecialchars($color); ?></span>
                                     </div>
                                     <div class="item-price desktop-only">
                                         RM <?php echo number_format($product['Pro_Price'], 2); ?>
                                     </div>
                                     <div>
-                                        <input type="number" name="qty[<?php echo $cart_key; ?>]" value="<?php echo $qty; ?>" min="1" max="<?php echo $product['Pro_Stock_Quantity']; ?>" class="qty-input">
+                                        <input type="number" name="qty[<?php echo $cart_key; ?>]" value="<?php echo $qty; ?>" min="1" max="<?php echo $product['Pro_Stock_Quantity']; ?>" class="qty-input" onchange="this.form.submit()">
                                     </div>
                                     <div style="text-align: right;">
                                         <div class="item-price">RM <?php echo number_format($item_total, 2); ?></div>
@@ -182,7 +201,6 @@ $free_shipping_threshold = 250.00;
                         
                         <div class="cart-actions">
                             <a href="catalogue.php" class="btn-outline">Continue Shopping</a>
-                            <button type="submit" name="update_cart" class="btn-update">Update Cart</button>
                         </div>
                     </div>
                 </form>

@@ -11,7 +11,6 @@ $is_logged_in = isset($_SESSION['user_id']);
 // 核心逻辑：处理加入购物车 (Add to Cart / Checkout)
 // ==========================================
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && (isset($_POST['add_to_cart']) || isset($_POST['checkout_now']))) {
-    // 后端双重验证：如果未登录，正确跳转回 Module A 的登录页
     if (!$is_logged_in) {
         header("Location: ../Module A/login.php");
         exit;
@@ -19,6 +18,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && (isset($_POST['add_to_cart']) || iss
 
     $add_pro_id = intval($_POST['pro_id']);
     $add_size = $_POST['selected_size'];
+    $add_color = isset($_POST['selected_color']) ? $_POST['selected_color'] : 'Default';
     $add_qty = intval($_POST['quantity']);
 
     if (!empty($add_pro_id) && !empty($add_size) && $add_qty > 0) {
@@ -26,7 +26,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && (isset($_POST['add_to_cart']) || iss
             $_SESSION['cart'] = [];
         }
         
-        $cart_key = $add_pro_id . '_' . $add_size;
+        // 购物车唯一键值：产品ID + 尺码 + 颜色
+        $cart_key = $add_pro_id . '_' . $add_size . '_' . preg_replace('/[^a-zA-Z0-9]/', '', $add_color);
         
         if (isset($_SESSION['cart'][$cart_key])) {
             $_SESSION['cart'][$cart_key]['qty'] += $add_qty; 
@@ -34,6 +35,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && (isset($_POST['add_to_cart']) || iss
             $_SESSION['cart'][$cart_key] = [
                 'pro_id' => $add_pro_id,
                 'size' => $add_size,
+                'color' => $add_color,
                 'qty' => $add_qty
             ];
         }
@@ -47,6 +49,25 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && (isset($_POST['add_to_cart']) || iss
     }
 }
 
+// ==========================================
+// 处理删除购物车商品
+// ==========================================
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['remove_from_cart'])) {
+    if (!$is_logged_in) {
+        header("Location: ../Module A/login.php");
+        exit;
+    }
+
+    $cart_key_to_remove = $_POST['remove_from_cart'];
+    if (isset($_SESSION['cart'][$cart_key_to_remove])) {
+        unset($_SESSION['cart'][$cart_key_to_remove]);
+    }
+    
+    $current_pro_id = intval($_POST['current_pro_id']);
+    header("Location: product_details.php?pro_id=$current_pro_id");
+    exit;
+}
+
 // Module B: 核心交易组 - 产品详情页面 (Product Details)
 include '../includes/db_connection.php';
 include '../includes/header.php';
@@ -58,20 +79,6 @@ if (!isset($_GET['pro_id']) || empty($_GET['pro_id'])) {
 }
 
 $pro_id = intval($_GET['pro_id']); 
-
-// ==========================================
-// 处理 Recently Viewed 逻辑 (Session 记录)
-// ==========================================
-if (!isset($_SESSION['recently_viewed'])) {
-    $_SESSION['recently_viewed'] = [];
-}
-if (($key = array_search($pro_id, $_SESSION['recently_viewed'])) !== false) {
-    unset($_SESSION['recently_viewed'][$key]);
-}
-array_unshift($_SESSION['recently_viewed'], $pro_id);
-if (count($_SESSION['recently_viewed']) > 8) {
-    array_pop($_SESSION['recently_viewed']);
-}
 
 // 2. 获取当前产品数据
 $sql_pro = "SELECT product.*, brand.Brand_Name 
@@ -87,33 +94,102 @@ if ($res_pro->num_rows == 0) {
 }
 
 $product = $res_pro->fetch_assoc();
-$pro_img = !empty($product['Pro_Image']) ? "../uploads/" . $product['Pro_Image'] : "../assets/images/placeholder.jpg";
 $sizes = explode(',', $product['Pro_Size']);
 $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
 
-// 3. 获取 "You may also like" 推荐商品 
-$cat_id = $product['Cat_Id'];
-$rec_sql = "SELECT product.*, brand.Brand_Name FROM product 
-            JOIN brand ON product.Brand_Id = brand.Brand_Id
-            WHERE Pro_Id != '$pro_id' AND Cat_Id = '$cat_id' AND Pro_Status = 'Available' 
-            ORDER BY RAND()";
-$rec_res = $conn->query($rec_sql);
-$recommended_products = [];
-$rec_seen_names = [$product['Pro_Name']]; 
+// 处理 Recently Viewed 逻辑
+if (!isset($_SESSION['recently_viewed'])) $_SESSION['recently_viewed'] = [];
+if (($key = array_search($pro_id, $_SESSION['recently_viewed'])) !== false) unset($_SESSION['recently_viewed'][$key]);
+array_unshift($_SESSION['recently_viewed'], $pro_id);
+if (count($_SESSION['recently_viewed']) > 8) array_pop($_SESSION['recently_viewed']);
 
-if ($rec_res && $rec_res->num_rows > 0) {
-    while($r = $rec_res->fetch_assoc()) { 
-        if (!in_array($r['Pro_Name'], $rec_seen_names)) {
-            $recommended_products[] = $r; 
-            $rec_seen_names[] = $r['Pro_Name'];
+
+// ==========================================
+// 升级：智能同款多色画廊逻辑 (Smart Glob & Group)
+// ==========================================
+// 1. 分割数据库里填写的颜色 (例如: "Black, White" 或 "Black/White")
+$raw_colors_str = $product['Pro_Colour'];
+// 用逗号或"/"分隔，然后过滤和整理
+$raw_colors = preg_split('/[,\/]/', $raw_colors_str);
+$colors = [];
+foreach($raw_colors as $rc) {
+    $c = trim($rc);
+    if (!empty($c)) {
+        // 避免重复
+        if (!in_array(strtolower($c), array_map('strtolower', $colors))) {
+            $colors[] = $c;
         }
-        if (count($recommended_products) >= 6) break; 
     }
 }
+if (empty($colors)) $colors[] = "Default";
 
-// 4. 获取 "Recently Viewed" 及 智能填补
+// 2. 提取主图名字的前缀 (例如: pegasus42_white_1.jpg -> pegasus42)
+$base_img = $product['Pro_Image'];
+$path_parts = pathinfo($base_img);
+$base_name = preg_replace('/_\d+$/', '', $path_parts['filename']);
+
+$color_galleries = [];
+foreach ($colors as $c) {
+    $color_galleries[$c] = [];
+}
+
+// 3. 扫描 uploads 文件夹里所有相关图片
+$all_files = glob("../uploads/{$base_name}*.*");
+
+if ($all_files) {
+    foreach ($all_files as $file_path) {
+        $file_name = basename($file_path);
+        $filename_only = pathinfo($file_name, PATHINFO_FILENAME);
+        
+        $matched_color = $colors[0]; // 默认分给第一个颜色
+        
+        // 智能匹配文件名里是否包含颜色的单词
+        foreach ($colors as $index => $c) {
+            if ($index === 0) continue; // 跳过默认色，先找特殊色
+            
+            $slugs = [
+                strtolower(str_replace(' ', '', $c)),
+                strtolower(str_replace(' ', '_', $c)),
+                strtolower(explode('/', $c)[0]),
+                strtolower(explode(' ', $c)[0])
+            ];
+            
+            foreach ($slugs as $slug) {
+                if (!empty($slug) && strpos(strtolower($filename_only), "_" . $slug) !== false) {
+                    $matched_color = $c;
+                    break 2;
+                }
+            }
+        }
+        $color_galleries[$matched_color][] = "../uploads/" . $file_name;
+    }
+} else {
+    $color_galleries[$colors[0]][] = "../uploads/" . $base_img;
+}
+
+// 4. 补齐 4 张占位图，确保 JD Sports 风格的 2x2 网格完美呈现
+foreach ($color_galleries as $c => &$images) {
+    if (empty($images)) $images[] = "../assets/images/placeholder.jpg";
+    while (count($images) < 4) {
+        $images[] = "../assets/images/placeholder.jpg";
+    }
+}
+unset($images);
+
+$cat_id = $product['Cat_Id'];
+$rec_sql = "SELECT product.*, brand.Brand_Name FROM product JOIN brand ON product.Brand_Id = brand.Brand_Id WHERE Pro_Id != '$pro_id' AND Cat_Id = '$cat_id' AND Pro_Status = 'Available' ORDER BY RAND() LIMIT 6";
+$recommended_products = [];
+$rec_res = $conn->query($rec_sql);
+if ($rec_res && $rec_res->num_rows > 0) { while($r = $rec_res->fetch_assoc()) { $recommended_products[] = $r; } }
+
+$bs_sql = "SELECT product.*, brand.Brand_Name FROM product JOIN brand ON product.Brand_Id = brand.Brand_Id WHERE Pro_Id != '$pro_id' AND Pro_Status = 'Available' ORDER BY Pro_Stock_Quantity ASC LIMIT 8";
+$best_sellers = [];
+$bs_res = $conn->query($bs_sql);
+if ($bs_res && $bs_res->num_rows > 0) { while($r = $bs_res->fetch_assoc()) { $best_sellers[] = $r; } }
+
+// 获取最近浏览过的产品
 $recently_viewed_products = [];
-$recent_section_title = "Recently Viewed"; 
+$recent_section_title = "Recently Viewed";
 $rv_seen_names = [$product['Pro_Name']];
 
 $rv_ids = array_diff($_SESSION['recently_viewed'], [$pro_id]);
@@ -161,29 +237,25 @@ if ($current_count < 8) {
     }
 }
 
-// 5. 获取 "Best Sellers"
-$bs_sql = "SELECT product.*, brand.Brand_Name FROM product 
-           JOIN brand ON product.Brand_Id = brand.Brand_Id
-           WHERE Pro_Id != '$pro_id' AND Pro_Status = 'Available' 
-           ORDER BY Pro_Stock_Quantity ASC LIMIT 8";
-$bs_res = $conn->query($bs_sql);
-$best_sellers = [];
-if ($bs_res && $bs_res->num_rows > 0) {
-    while($r = $bs_res->fetch_assoc()) { $best_sellers[] = $r; }
-}
-
-// 6. 获取 当前购物车数据 (用于底部悬浮迷你购物车)
 $mini_cart_total = 0;
 $mini_cart_count = 0;
+$mini_cart_items = [];
 if (!empty($_SESSION['cart'])) {
     foreach ($_SESSION['cart'] as $cart_key => $c_item) {
         $c_pro_id = intval($c_item['pro_id']);
-        $c_sql = "SELECT Pro_Price FROM product WHERE Pro_Id = '$c_pro_id'";
+        $c_sql = "SELECT Pro_Name, Pro_Price, Pro_Image FROM product WHERE Pro_Id = '$c_pro_id'";
         $c_res = $conn->query($c_sql);
         if ($c_res && $c_res->num_rows > 0) {
             $c_row = $c_res->fetch_assoc();
-            $mini_cart_total += ($c_item['qty'] * $c_row['Pro_Price']);
+            $c_row['pro_id'] = $c_pro_id;
+            $c_row['size'] = $c_item['size'];
+            $c_row['color'] = isset($c_item['color']) ? $c_item['color'] : '';
+            $c_row['qty'] = $c_item['qty'];
+            $c_row['subtotal'] = $c_item['qty'] * $c_row['Pro_Price'];
+            
+            $mini_cart_total += $c_row['subtotal'];
             $mini_cart_count += $c_item['qty'];
+            $mini_cart_items[] = $c_row;
         }
     }
 }
@@ -200,22 +272,40 @@ if (!empty($_SESSION['cart'])) {
     <style>
         body { font-family: 'Segoe UI', Arial, sans-serif; background-color: #f4f6f9; color: #333; margin: 0; padding: 0; display: flex; flex-direction: column; min-height: 100vh; overflow-x: hidden; }
         .flex-wrapper { flex: 1 0 auto; width: 100%; padding-bottom: 60px; }
-        .detail-container { max-width: 1200px; margin: 40px auto; padding: 30px; background: #ffffff; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); }
+        .detail-container { max-width: 1300px; margin: 40px auto; padding: 30px; background: #ffffff; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); }
         .breadcrumb { margin-bottom: 30px; font-size: 14px; color: #666; }
         .breadcrumb a { color: #333; text-decoration: none; font-weight: bold; }
-        .product-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 50px; }
+        
+        .product-layout { display: grid; grid-template-columns: 1.5fr 1fr; gap: 50px; }
         @media (max-width: 992px) { .product-layout { grid-template-columns: 1fr; } }
 
-        .image-gallery { background: #f9f9f9; border-radius: 8px; padding: 20px; text-align: center; position: relative; }
-        .main-image { width: 100%; max-width: 500px; height: auto; mix-blend-mode: multiply; }
-        .badge-sale { position: absolute; top: 20px; left: 20px; background: #ffeb3b; color: #000; font-size: 13px; font-weight: bold; padding: 6px 12px; border-radius: 4px; z-index: 5;}
+        /* ================= JD Sports 风格：2x2 图像网格排版 ================= */
+        .product-gallery-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; }
+        .gallery-img-box { background: #f4f6f9; border-radius: 8px; overflow: hidden; aspect-ratio: 1 / 1; display: flex; align-items: center; justify-content: center; position: relative; }
+        .gallery-img-box img { width: 90%; height: 90%; object-fit: contain; mix-blend-mode: multiply; transition: transform 0.3s; }
+        .gallery-img-box:hover img { transform: scale(1.05); }
+        
+        .badge-sale { position: absolute; top: 15px; left: 15px; background: #ffeb3b; color: #000; font-size: 13px; font-weight: bold; padding: 6px 12px; border-radius: 4px; z-index: 5;}
+        
         .brand-name { font-size: 14px; font-weight: bold; color: #FF6B00; text-transform: uppercase; margin-bottom: 5px; }
         .product-title { font-size: 32px; font-weight: 800; margin: 0 0 15px 0; line-height: 1.2; }
-        .current-price { font-size: 28px; font-weight: bold; margin-bottom: 30px; display: block;}
+        .current-price { font-size: 28px; font-weight: bold; margin-bottom: 25px; display: block;}
         .info-label { font-weight: bold; display: block; margin-bottom: 10px; font-size: 15px; }
         
+        /* JD Sports 风格颜色选择器 */
+        .color-variants-container { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 25px; }
+        .color-variant-box {
+            width: 70px; height: 70px; background: #f4f4f4; border: 1px solid #ddd;
+            border-radius: 4px; display: flex; align-items: center; justify-content: center;
+            overflow: hidden; cursor: pointer; transition: 0.2s; padding: 2px;
+        }
+        .color-variant-box:hover { border-color: #999; }
+        .color-variant-box.active { border-color: #333; border-width: 2px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .color-variant-box img { width: 100%; height: 100%; object-fit: contain; mix-blend-mode: multiply; }
+        
         .size-selector { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 15px; }
-        .size-box { width: 50px; height: 50px; border: 1px solid #ccc; display: flex; align-items: center; justify-content: center; font-weight: bold; cursor: pointer; border-radius: 4px; }
+        .size-box { width: 50px; height: 50px; border: 1px solid #ccc; display: flex; align-items: center; justify-content: center; font-weight: bold; cursor: pointer; border-radius: 4px; transition: 0.2s;}
+        .size-box:hover { border-color: #333; }
         .size-box.selected { background: #333; color: white; border-color: #333; }
         
         .quantity-selector { display: flex; border: 1px solid #ccc; border-radius: 4px; width: 120px; overflow: hidden; }
@@ -227,32 +317,29 @@ if (!empty($_SESSION['cart'])) {
         .btn-add-cart:hover { background-color: #00664c; }
 
         .btn-wishlist-main {
-            position: absolute; top: 20px; right: 20px;
-            background: #fff; width: 44px; height: 44px;
+            position: absolute; top: 15px; right: 15px; background: #fff; width: 40px; height: 40px;
             border-radius: 50%; display: flex; align-items: center; justify-content: center;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.1); font-size: 20px; color: #666;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1); font-size: 18px; color: #666;
             cursor: pointer; border: none; transition: 0.3s; z-index: 2;
         }
         .btn-wishlist-main:hover { color: #E7352B; transform: scale(1.1); }
         
         .btn-wishlist-card {
-            position: absolute; top: 10px; right: 10px;
-            background: #fff; width: 32px; height: 32px;
+            position: absolute; top: 10px; right: 10px; background: #fff; width: 32px; height: 32px;
             border-radius: 50%; display: flex; align-items: center; justify-content: center;
             box-shadow: 0 2px 8px rgba(0,0,0,0.1); font-size: 15px; color: #666;
             cursor: pointer; border: none; transition: 0.3s; z-index: 2;
         }
         .btn-wishlist-card:hover { color: #E7352B; transform: scale(1.1); }
 
+        /* 滑块 */
         .sliders-wrapper { max-width: 1200px; margin: 0 auto 60px auto; padding: 0 20px; }
         .slider-section { margin-top: 50px; }
         .slider-header { display: flex; align-items: center; justify-content: center; gap: 20px; margin-bottom: 25px; font-size: 18px; font-weight: bold; color: #333; }
         .slider-header i { cursor: pointer; color: #999; font-size: 20px; transition: 0.2s; }
         .slider-header i:hover { color: #333; }
-        
         .slider-container { display: flex; gap: 20px; overflow-x: auto; padding-bottom: 15px; scrollbar-width: none; scroll-behavior: smooth; }
         .slider-container::-webkit-scrollbar { display: none; }
-        
         .slider-card { min-width: 240px; max-width: 240px; text-decoration: none; color: inherit; flex-shrink: 0; display: block; transition: transform 0.3s; background: #fff; padding: 15px; border-radius: 8px; }
         .slider-card:hover { transform: translateY(-5px); box-shadow: 0 5px 15px rgba(0,0,0,0.05); }
         .slider-img { width: 100%; aspect-ratio: 1/1; background: #f4f4f4; border-radius: 6px; display: flex; align-items: center; justify-content: center; margin-bottom: 15px; position: relative; }
@@ -261,16 +348,15 @@ if (!empty($_SESSION['cart'])) {
         .slider-brand { font-size: 13px; font-weight: bold; color: #666; margin-bottom: 3px; }
         .slider-name { font-size: 14px; color: #333; line-height: 1.3; }
 
+        /* 侧边栏与悬浮车 */
         .cart-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.5); z-index: 99998; opacity: 0; visibility: hidden; transition: 0.3s ease; }
         .cart-overlay.active { opacity: 1; visibility: visible; }
         .cart-drawer { position: fixed; top: 0; right: -500px; width: 100%; max-width: 480px; height: 100vh; background: #fff; z-index: 99999; box-shadow: -5px 0 20px rgba(0,0,0,0.1); display: flex; flex-direction: column; transition: 0.4s cubic-bezier(0.25, 0.8, 0.25, 1); }
         .cart-drawer.active { right: 0; }
         .cart-header { padding: 20px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
         .cart-close { font-size: 24px; cursor: pointer; color: #333; position: relative; z-index: 100000; }
-        
         .shipping-bar { padding: 15px 20px; border-bottom: 1px solid #eee; }
         .shipping-fill { height: 6px; background: #008060; transition: width 0.5s; border-radius: 3px; }
-        
         .drawer-body { flex: 1; overflow-y: auto; }
         .cart-items { padding: 20px; }
         .cart-item { display: grid; grid-template-columns: 100px 1fr auto; gap: 15px; margin-bottom: 25px; position: relative; }
@@ -312,7 +398,6 @@ if (!empty($_SESSION['cart'])) {
         .btn-checkout { width: 100%; background: #008060; color: white; border: none; padding: 16px; font-size: 16px; font-weight: bold; border-radius: 4px; cursor: pointer; transition: 0.3s;}
         .btn-checkout:hover { background: #00664c; }
 
-        /* ================= 迷你购物车 ================= */
         .floating-mini-cart {
             position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
             background: #fff; padding: 12px 24px; border-radius: 50px;
@@ -332,11 +417,6 @@ if (!empty($_SESSION['cart'])) {
         .fmc-btn-view:hover { background: #f4f4f4; }
         .fmc-btn-checkout { padding: 10px 24px; border-radius: 25px; background: #008060; color: #fff; text-decoration: none; font-weight: bold; font-size: 14px; transition: 0.3s; border: 1px solid #008060; cursor: pointer; }
         .fmc-btn-checkout:hover { background: #00664c; }
-        @media (max-width: 576px) {
-            .floating-mini-cart { width: 90%; flex-direction: column; border-radius: 12px; gap: 15px; padding: 15px; bottom: 20px; }
-            .fmc-actions { width: 100%; }
-            .fmc-btn-view, .fmc-btn-checkout { flex: 1; text-align: center; }
-        }
     </style>
 </head>
 <body>
@@ -348,10 +428,9 @@ if (!empty($_SESSION['cart'])) {
         </div>
 
         <div class="product-layout">
-            <div class="image-gallery">
-                <?php if($product['Pro_Sale'] == 1): ?><div class="badge-sale">↗ TRENDING / SALE</div><?php endif; ?>
-                <button class="btn-wishlist-main" onclick="toggleWishlist(event, this)"><i class="bi bi-heart"></i></button>
-                <img src="<?php echo $pro_img; ?>" class="main-image" onerror="this.src='../assets/images/placeholder.jpg'">
+            
+            <div class="product-gallery-grid" id="mainGalleryGrid">
+                <div style="grid-column: 1/-1; text-align: center; color: #999; padding: 100px;">Loading images...</div>
             </div>
             
             <div class="product-info">
@@ -359,8 +438,19 @@ if (!empty($_SESSION['cart'])) {
                 <h1 class="product-title"><?php echo $product['Pro_Name']; ?></h1>
                 <span class="current-price">RM <?php echo number_format($product['Pro_Price'], 2); ?></span>
 
+                <div style="margin-bottom:10px;">
+                    <strong>Colour:</strong> <span id="selectedColorText" style="font-weight:normal; color:#666;"><?php echo htmlspecialchars($colors[0]); ?></span>
+                </div>
+                <div class="color-variants-container">
+                    <?php foreach($colors as $idx => $c): ?>
+                        <div class="color-variant-box <?php echo $idx==0 ? 'active' : ''; ?>" onclick="selectColor(this, '<?php echo htmlspecialchars($c); ?>')" title="<?php echo htmlspecialchars($c); ?>">
+                            <img src="<?php echo $color_galleries[$c][0]; ?>" onerror="this.src='../assets/images/placeholder.jpg'">
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+                
                 <div style="margin-bottom:25px; color:#666; font-size:14px;">
-                    <strong>Colour:</strong> <?php echo $product['Pro_Colour']; ?> | <strong>Gender:</strong> <?php echo $product['Pro_Gender']; ?>
+                    <strong>Gender:</strong> <?php echo $product['Pro_Gender']; ?>
                 </div>
 
                 <div class="info-label">Description</div>
@@ -369,6 +459,8 @@ if (!empty($_SESSION['cart'])) {
                 <form action="product_details.php?pro_id=<?php echo $product['Pro_Id']; ?>" method="POST" id="addToCartForm">
                     <input type="hidden" name="pro_id" value="<?php echo $product['Pro_Id']; ?>">
                     <input type="hidden" name="selected_size" id="selectedSizeInput" value="">
+                    
+                    <input type="hidden" name="selected_color" id="selectedColorInput" value="<?php echo htmlspecialchars($colors[0]); ?>">
 
                     <div class="info-label">Select Size (UK) <span id="sizeError" style="color:red; font-size:12px; display:none; margin-left:10px;">*Required</span></div>
                     <div class="size-selector">
@@ -397,31 +489,6 @@ if (!empty($_SESSION['cart'])) {
     
     <div class="sliders-wrapper">
         
-        <?php if(!empty($best_sellers)): ?>
-        <div class="slider-section">
-            <div class="slider-header">
-                <i class="bi bi-chevron-left" onclick="slideCarousel('bestSellerSlider', -1)"></i>
-                <span>Best Sellers</span>
-                <i class="bi bi-chevron-right" onclick="slideCarousel('bestSellerSlider', 1)"></i>
-            </div>
-            <div class="slider-container" id="bestSellerSlider">
-                <?php foreach($best_sellers as $bs): 
-                    $bs_img = !empty($bs['Pro_Image']) ? "../uploads/" . $bs['Pro_Image'] : "../assets/images/placeholder.jpg";
-                ?>
-                    <a href="product_details.php?pro_id=<?php echo $bs['Pro_Id']; ?>" class="slider-card">
-                        <div class="slider-img">
-                            <button class="btn-wishlist-card" onclick="toggleWishlist(event, this)"><i class="bi bi-heart"></i></button>
-                            <img src="<?php echo $bs_img; ?>" onerror="this.src='../assets/images/placeholder.jpg'">
-                        </div>
-                        <div class="slider-price">RM <?php echo number_format($bs['Pro_Price'], 0); ?></div>
-                        <div class="slider-brand"><?php echo $bs['Brand_Name']; ?></div>
-                        <div class="slider-name"><?php echo $bs['Pro_Name']; ?></div>
-                    </a>
-                <?php endforeach; ?>
-            </div>
-        </div>
-        <?php endif; ?>
-
         <?php if(!empty($recently_viewed_products)): ?>
         <div class="slider-section">
             <div class="slider-header">
@@ -464,7 +531,7 @@ if (!empty($_SESSION['cart'])) {
     </div>
     <div class="fmc-actions">
         <a href="cart.php" class="fmc-btn-view" onclick="guardLink(event, 'view your cart')">View Cart</a>
-        <a href="checkout.php" class="fmc-btn-checkout" onclick="guardLink(event, 'proceed to checkout')">Checkout</a>
+        <a href="cart.php" class="fmc-btn-checkout" onclick="guardLink(event, 'proceed to checkout')">Checkout</a>
     </div>
 </div>
 <?php endif; ?>
@@ -505,26 +572,13 @@ if (!empty($_SESSION['cart'])) {
     </div>
 
     <div class="cart-footer">
-        <div class="promo-accordion">
-            <div class="promo-summary" onclick="togglePromo()">
-                <span><i class="bi bi-percent" style="margin-right:10px;"></i> Add Promotion Code</span>
-                <i class="bi bi-chevron-down" id="promoArrow"></i>
-            </div>
-            <div class="promo-content" id="promoContent">
-                <div class="promo-input-group">
-                    <input type="text" placeholder="Enter code">
-                    <button class="btn-promo">Apply</button>
-                </div>
-            </div>
-        </div>
-
-        <div class="subtotal-row">
+        <div class="subtotal-row mt-3">
             <span>Subtotal:</span>
             <span id="cartSubtotalText">RM 0.00</span>
         </div>
         
-        <div class="drawer-action-row">
-            <button type="button" class="btn-drawer-outline" onclick="submitCartForm('add')">ADD TO CART</button>
+        <div class="drawer-action-row mt-3">
+            <button type="button" class="btn-drawer-outline" onclick="toggleCart()">CLOSE</button>
             <button type="button" class="btn-drawer-outline" onclick="if(!isLoggedIn){promptLogin('view your wishlist');}else{window.location.href='wishlist.php';}">WISHLIST</button>
         </div>
 
@@ -534,71 +588,88 @@ if (!empty($_SESSION['cart'])) {
 
 <script>
     const isLoggedIn = <?php echo $is_logged_in ? 'true' : 'false'; ?>;
-    let selectedSize = "";
     const price = <?php echo $product['Pro_Price']; ?>;
     const freeShippingLimit = 250;
+    const isSale = <?php echo $product['Pro_Sale']; ?>;
+
+    // 获取 PHP 生成的 JSON 画廊数据
+    const colorGalleries = <?php echo json_encode($color_galleries); ?>;
+    const miniCartItems = <?php echo json_encode($mini_cart_items); ?>;
+    const currentProId = <?php echo $pro_id; ?>;
+    let selectedColor = "<?php echo htmlspecialchars($colors[0]); ?>";
+    let selectedSize = "";
+
+    // ==========================================
+    // 动态渲染 2x2 JD Sports 风格网格
+    // ==========================================
+    function renderGallery(color) {
+        const grid = document.getElementById('mainGalleryGrid');
+        const images = colorGalleries[color] || [];
+        let html = '';
+        
+        images.forEach((imgSrc, idx) => {
+            let badges = '';
+            if (idx === 0) {
+                if (isSale === 1) badges += '<div class="badge-sale">↗ TRENDING / SALE</div>';
+                badges += `<button class="btn-wishlist-main" onclick="toggleWishlist(event, this)"><i class="bi bi-heart"></i></button>`;
+            }
+            html += `
+                <div class="gallery-img-box">
+                    ${badges}
+                    <img src="${imgSrc}" onerror="this.src='../assets/images/placeholder.jpg'">
+                </div>
+            `;
+        });
+        grid.innerHTML = html;
+    }
+
+    // 切换颜色触发器
+    function selectColor(el, color) {
+        // 更新 UI 边框激活状态
+        document.querySelectorAll('.color-variant-box').forEach(b => b.classList.remove('active'));
+        el.classList.add('active');
+        
+        // 更新文字和隐藏表单
+        selectedColor = color;
+        document.getElementById('selectedColorText').innerText = color;
+        document.getElementById('selectedColorInput').value = color;
+        
+        // 瞬间渲染对应的 4 张新图
+        renderGallery(color);
+    }
+
+    // 页面加载完成后立刻渲染第一种颜色
+    document.addEventListener('DOMContentLoaded', () => {
+        renderGallery(selectedColor);
+    });
+
 
     <?php if(isset($_GET['status']) && $_GET['status'] == 'added'): ?>
     document.addEventListener('DOMContentLoaded', function() {
-        Swal.fire({
-            title: "Added to Cart!",
-            text: "Your item is waiting in the shopping cart.",
-            icon: "success",
-            confirmButtonColor: "#008060",
-            confirmButtonText: "Continue Shopping"
-        });
+        Swal.fire({ title: "Added to Cart!", text: "Your item is waiting in the shopping cart.", icon: "success", confirmButtonColor: "#008060", confirmButtonText: "Continue Shopping" });
     });
     <?php endif; ?>
 
     function promptLogin(actionText) {
         Swal.fire({
-            title: "Login Required",
-            text: "Please login to " + actionText + ".",
-            icon: "warning",
-            showCancelButton: true,
-            confirmButtonColor: "#008060",
-            cancelButtonColor: "#d33",
-            confirmButtonText: "Login Now"
-        }).then((result) => {
-            if (result.isConfirmed) {
-                window.location.href = "../Module A/login.php"; 
-            }
-        });
+            title: "Login Required", text: "Please login to " + actionText + ".", icon: "warning",
+            showCancelButton: true, confirmButtonColor: "#008060", cancelButtonColor: "#d33", confirmButtonText: "Login Now"
+        }).then((result) => { if (result.isConfirmed) { window.location.href = "../Module A/login.php"; } });
     }
 
-    // =====================================
-    // 拦截未登录用户点击直接跳转的超链接
-    // =====================================
     function guardLink(event, actionText) {
-        if (!isLoggedIn) {
-            event.preventDefault(); // 阻止 a 标签的默认跳转
-            promptLogin(actionText);
-        }
+        if (!isLoggedIn) { event.preventDefault(); promptLogin(actionText); }
     }
 
     function toggleWishlist(event, element) {
         event.preventDefault(); 
-        
-        if (!isLoggedIn) {
-            promptLogin('add items to your wishlist');
-            return;
-        }
-
+        if (!isLoggedIn) { promptLogin('add items to your wishlist'); return; }
         let icon = element.querySelector('i');
         if (icon.classList.contains('bi-heart')) {
-            icon.classList.remove('bi-heart');
-            icon.classList.add('bi-heart-fill');
-            icon.style.color = '#E7352B';
-            
-            const Toast = Swal.mixin({
-                toast: true, position: 'top-end', showConfirmButton: false, timer: 1500,
-                timerProgressBar: true,
-            });
-            Toast.fire({ icon: 'success', title: 'Added to Wishlist!' });
+            icon.classList.remove('bi-heart'); icon.classList.add('bi-heart-fill'); icon.style.color = '#E7352B';
+            Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 1500 }).fire({ icon: 'success', title: 'Added to Wishlist!' });
         } else {
-            icon.classList.remove('bi-heart-fill');
-            icon.classList.add('bi-heart');
-            icon.style.color = '#666';
+            icon.classList.remove('bi-heart-fill'); icon.classList.add('bi-heart'); icon.style.color = '#666';
         }
     }
 
@@ -619,7 +690,6 @@ if (!empty($_SESSION['cart'])) {
     function updateCartQty(amt, maxStock) {
         let drawerInput = document.getElementById('drawerQty');
         if(!drawerInput) return;
-        
         let val = parseInt(drawerInput.value) + amt;
         if(val >= 1 && val <= maxStock) {
             drawerInput.value = val;
@@ -629,24 +699,36 @@ if (!empty($_SESSION['cart'])) {
     }
 
     function updateCartTotals(qty) {
-        let subtotal = (qty * price).toFixed(2);
+        // 计算已有购物车商品的总价格和数量
+        let existingSubtotal = 0;
+        let existingQty = 0;
+        if (miniCartItems && miniCartItems.length > 0) {
+            miniCartItems.forEach(item => {
+                existingSubtotal += item.subtotal;
+                existingQty += item.qty;
+            });
+        }
         
-        document.getElementById('cartCount').innerText = qty;
-        document.getElementById('cartSubtotalText').innerText = "RM " + subtotal;
+        // 当前商品的小计
+        let currentSubtotal = qty * price;
+        
+        // 总计
+        let totalQty = existingQty + qty;
+        let totalSubtotal = (existingSubtotal + currentSubtotal).toFixed(2);
+        
+        document.getElementById('cartCount').innerText = totalQty;
+        document.getElementById('cartSubtotalText').innerText = "RM " + totalSubtotal;
         
         let shippingFill = document.getElementById('shippingFill');
         let shippingText = document.getElementById('shippingText');
         
-        if(qty === 0) {
-            shippingFill.style.width = "0%";
-            shippingText.innerText = "Add items to unlock free shipping!";
-        } else if(subtotal >= freeShippingLimit) {
-            shippingFill.style.width = "100%";
-            shippingText.innerHTML = "<span style='color:#008060;'>You qualify for Free Standard Delivery!</span>";
+        if(totalSubtotal === 0 || totalSubtotal == 0) {
+            shippingFill.style.width = "0%"; shippingText.innerText = "Add items to unlock free shipping!";
+        } else if(totalSubtotal >= freeShippingLimit) {
+            shippingFill.style.width = "100%"; shippingText.innerHTML = "<span style='color:#008060;'>You qualify for Free Standard Delivery!</span>";
         } else {
-            let remain = (freeShippingLimit - subtotal).toFixed(2);
-            let percent = (subtotal / freeShippingLimit * 100);
-            shippingFill.style.width = percent + "%";
+            let remain = (freeShippingLimit - totalSubtotal).toFixed(2);
+            shippingFill.style.width = (totalSubtotal / freeShippingLimit * 100) + "%";
             shippingText.innerText = `You're RM ${remain} away from free shipping.`;
         }
     }
@@ -656,44 +738,72 @@ if (!empty($_SESSION['cart'])) {
         document.getElementById('cartDrawer').classList.toggle('active');
     }
 
-    function togglePromo() {
-        let content = document.getElementById('promoContent');
-        let arrow = document.getElementById('promoArrow');
-        if(content.style.display === "block") {
-            content.style.display = "none";
-            arrow.style.transform = "rotate(0deg)";
-        } else {
-            content.style.display = "block";
-            arrow.style.transform = "rotate(180deg)";
-        }
-    }
-
     function slideCarousel(id, direction) {
         const container = document.getElementById(id);
-        const scrollAmount = 260; 
-        container.scrollBy({ left: direction * scrollAmount, behavior: 'smooth' });
+        container.scrollBy({ left: direction * 260, behavior: 'smooth' });
     }
 
     function openCartDrawer() {
-        if (!isLoggedIn) {
-            promptLogin('add items to your cart');
-            return;
-        }
-
+        if (!isLoggedIn) { promptLogin('add items to your cart'); return; }
         if(!selectedSize) { document.getElementById('sizeError').style.display = 'inline'; return; }
         
         let qty = parseInt(document.getElementById('qtyInput').value);
         let stock = <?php echo $product['Pro_Stock_Quantity']; ?>;
         
+        // 计算购物车总项数（已有项 + 即将添加的项）
+        let totalQty = qty;
+        if (miniCartItems && miniCartItems.length > 0) {
+            miniCartItems.forEach(item => {
+                totalQty += item.qty;
+            });
+        }
         updateCartTotals(qty);
+        
+        // 动态抓取当前选择的颜色对应的第一张缩略图
+        let currentThumb = colorGalleries[selectedColor] ? colorGalleries[selectedColor][0] : '../assets/images/placeholder.jpg';
 
-        document.getElementById('cartItemsContainer').innerHTML = `
+        // 先渲染所有已有的购物车商品
+        let existingItemsHtml = '';
+        if (miniCartItems && miniCartItems.length > 0) {
+            miniCartItems.forEach((item, index) => {
+                let itemImg = item.Pro_Image ? '../uploads/' + item.Pro_Image : '../assets/images/placeholder.jpg';
+                let itemPrice = parseFloat(item.Pro_Price) || 0;
+                // 生成购物车键值：用于识别要删除的商品（与后端同样的逻辑）
+                let cartKey = item.pro_id + '_' + item.size + '_' + item.color.replace(/[^a-zA-Z0-9]/g, '');
+                
+                existingItemsHtml += `
+                    <div class="cart-item" id="cart-item-${index}">
+                        <div class="cart-item-img"><img src="${itemImg}" onerror="this.src='../assets/images/placeholder.jpg'"></div>
+                        <div class="cart-item-details">
+                            <div style="font-weight:bold; font-size:14px; margin:4px 0; line-height:1.3;">${item.Pro_Name}</div>
+                            <div style="font-size:13px; color:#666; margin-top:5px;">
+                                Size: <strong>${item.size}</strong> | Col: <strong>${item.color}</strong>
+                            </div>
+                            <div style="font-size:13px; color:#666; margin-top:2px;">Qty: <strong>${item.qty}</strong></div>
+                            <div class="cart-qty-controls">
+                                <button type="button" onclick="updateExistingItemQty('${cartKey}', ${index}, -1, 100)">−</button>
+                                <input type="text" value="${item.qty}" readonly>
+                                <button type="button" onclick="updateExistingItemQty('${cartKey}', ${index}, 1, 100)">+</button>
+                            </div>
+                        </div>
+                        <div style="font-weight:bold; font-size:14px;">RM ${(item.subtotal).toFixed(2)}</div>
+                        <button class="cart-delete" onclick="removeFromCart('${cartKey}', ${currentProId})"><i class="bi bi-trash3"></i></button>
+                    </div>
+                `;
+            });
+        }
+
+        // 然后渲染当前正在添加的商品
+        let currentItemHtml = `
             <div class="cart-item">
-                <div class="cart-item-img"><img src="<?php echo $pro_img; ?>" onerror="this.src='../assets/images/placeholder.jpg'"></div>
+                <div class="cart-item-img"><img src="${currentThumb}" onerror="this.src='../assets/images/placeholder.jpg'"></div>
                 <div class="cart-item-details">
-                    <div style="font-size:12px; font-weight:bold; text-transform:uppercase; color:#666;"><?php echo $product['Brand_Name']; ?></div>
-                    <div style="font-weight:bold; font-size:14px; margin:4px 0;"><?php echo addslashes($product['Pro_Name']); ?></div>
-                    <div style="font-size:13px; color:#666;">Size: ${selectedSize}</div>
+                    <div style="font-weight:bold; font-size:14px; margin:4px 0; line-height:1.3;"><?php echo addslashes($product['Pro_Name']); ?></div>
+                    
+                    <div style="font-size:13px; color:#666; margin-top:5px;">
+                        Size: <strong>${selectedSize}</strong> | Col: <strong>${selectedColor}</strong>
+                    </div>
+                    
                     <div class="cart-qty-controls">
                         <button onclick="updateCartQty(-1, ${stock})">−</button>
                         <input type="text" id="drawerQty" value="${qty}" readonly>
@@ -701,30 +811,70 @@ if (!empty($_SESSION['cart'])) {
                     </div>
                 </div>
                 <div style="font-weight:bold; font-size:14px;">RM ${price.toFixed(2)}</div>
-                <button class="cart-delete" onclick="this.parentElement.remove(); updateCartTotals(0); document.getElementById('qtyInput').value=1;"><i class=\"bi bi-trash3\"></i></button>
+                <button class="cart-delete" onclick="this.parentElement.remove(); updateCartTotals(0); document.getElementById('qtyInput').value=1;"><i class="bi bi-trash3"></i></button>
             </div>
         `;
+
+        document.getElementById('cartItemsContainer').innerHTML = existingItemsHtml + currentItemHtml;
         
         toggleCart();
+    }
+
+    function removeFromCart(cartKey, proId) {
+        // 使用 AJAX 而不是刷新页面，保持 drawer 打开
+        fetch('product_details.php?pro_id=' + proId, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: 'remove_from_cart=' + encodeURIComponent(cartKey) + '&current_pro_id=' + proId
+        })
+        .then(response => response.text())
+        .then(data => {
+            // 刷新页面来更新购物车显示
+            location.reload();
+        })
+        .catch(error => console.error('Error:', error));
+    }
+
+    function updateExistingItemQty(cartKey, itemIndex, change, maxStock) {
+        // 获取该商品的输入框
+        let itemDiv = document.getElementById('cart-item-' + itemIndex);
+        if (!itemDiv) return;
+        
+        let qtyInput = itemDiv.querySelector('.cart-qty-controls input');
+        let currentQty = parseInt(qtyInput.value);
+        let newQty = currentQty + change;
+        
+        if (newQty >= 1 && newQty <= maxStock) {
+            qtyInput.value = newQty;
+            
+            // 更新小计价格（这里假设已有商品价格存储在 miniCartItems 中）
+            // 重新计算购物车总数
+            let allQty = 0;
+            document.querySelectorAll('.cart-qty-controls input[readonly]').forEach(input => {
+                allQty += parseInt(input.value);
+            });
+            
+            // 更新购物车商品数和页面的main form量
+            let mainFormQty = document.getElementById('qtyInput').value;
+            let totalQty = allQty + parseInt(mainFormQty);
+            document.getElementById('cartCount').innerText = totalQty;
+            updateCartTotals(parseInt(mainFormQty));
+        }
     }
 
     function submitCartForm(actionType) {
         let form = document.getElementById('addToCartForm');
         let hiddenField = document.createElement("input");
         hiddenField.setAttribute("type", "hidden");
-        
-        if (actionType === 'add') {
-            hiddenField.setAttribute("name", "add_to_cart");
-        } else {
-            hiddenField.setAttribute("name", "checkout_now");
-        }
-        
+        hiddenField.setAttribute("name", actionType === 'add' ? "add_to_cart" : "checkout_now");
         hiddenField.setAttribute("value", "1");
         form.appendChild(hiddenField);
         form.submit();
     }
 
-    function showAdminWarning() { Swal.fire({ title: "Action Denied", text: "Admins cannot purchase products.", icon: "error", confirmButtonColor: "#333" }); }
+    function showAdminWarning() { Swal.fire({ title: "Action Denied", text: "Admins cannot purchase products.", icon: "error" }); }
 </script>
 
 </body>

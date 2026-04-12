@@ -135,8 +135,18 @@ $where_clause = count($where_clauses) > 0 ? "WHERE " . implode(" AND ", $where_c
         .shop-layout { display: grid; grid-template-columns: 260px 1fr; gap: 40px; align-items: start; }
         
         /* --- 左侧 Sidebar Filter --- */
-        .filter-sidebar { background: #fff; position: sticky; top: 20px; }
-        .filter-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 15px; }
+        .filter-sidebar { 
+            background: #fff; 
+            position: sticky; 
+            top: 20px; 
+            max-height: calc(100vh - 40px);
+            overflow-y: auto; 
+            padding-right: 10px; 
+        }
+        .filter-sidebar::-webkit-scrollbar { width: 4px; }
+        .filter-sidebar::-webkit-scrollbar-thumb { background: #ddd; border-radius: 4px; }
+        
+        .filter-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 15px; position: sticky; top: 0; background: #fff; z-index: 10; }
         .filter-header h3 { margin: 0; font-size: 18px; }
         .clear-all { color: #666; text-decoration: underline; font-size: 13px; }
         .clear-all:hover { color: #FF6B00; }
@@ -148,29 +158,25 @@ $where_clause = count($where_clauses) > 0 ? "WHERE " . implode(" AND ", $where_c
         details.filter-group summary::after { content: "⌄"; font-size: 20px; color: #333; transition: transform 0.3s; }
         details.filter-group[open] summary::after { transform: rotate(180deg); }
         
-        .filter-options { margin-top: 15px; display: flex; flex-direction: column; gap: 12px; max-height: 220px; overflow-y: auto; padding-right: 5px;}
-        .filter-options::-webkit-scrollbar { width: 5px; }
-        .filter-options::-webkit-scrollbar-thumb { background: #ccc; border-radius: 5px; }
+        .filter-options { margin-top: 15px; display: flex; flex-direction: column; gap: 12px; padding-right: 5px;}
         .filter-options label { font-size: 14px; color: #444; display: flex; align-items: center; cursor: pointer; }
         .filter-options input[type="checkbox"] { margin-right: 10px; accent-color: #333; width: 16px; height: 16px; cursor: pointer;}
         
-        /* ================= 新增：视觉化颜色筛选器 (Visual Color Grid) ================= */
+        /* 视觉化颜色筛选器 (Visual Color Grid) */
         .color-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px 5px; margin-top: 15px; }
         .color-swatch-wrapper { display: flex; flex-direction: column; align-items: center; cursor: pointer; text-align: center; }
-        .color-swatch-wrapper input { display: none; } /* 隐藏原生复选框 */
+        .color-swatch-wrapper input { display: none; } 
         .color-swatch-circle { width: 36px; height: 36px; border-radius: 50%; border: 1px solid #e0e0e0; display: flex; align-items: center; justify-content: center; margin-bottom: 6px; transition: 0.2s; position: relative; }
         .color-swatch-wrapper:hover .color-swatch-circle { transform: scale(1.1); box-shadow: 0 4px 8px rgba(0,0,0,0.15); }
         
-        /* 选中状态的打勾动画 */
         .color-swatch-wrapper input:checked + .color-swatch-circle::after {
             content: ''; width: 6px; height: 12px; border: solid #fff; border-width: 0 2px 2px 0; 
             transform: rotate(45deg); margin-bottom: 2px;
         }
-        /* 特殊处理：如果是白色背景，打勾要变成黑色 */
         .color-swatch-wrapper input[value="White"]:checked + .color-swatch-circle::after { border-color: #333; }
         .color-name { font-size: 12px; color: #333; }
         
-        /* ================= 进度条滑块 (Price Range Slider) ================= */
+        /* 进度条滑块 (Price Range Slider) */
         .range-slider { position: relative; width: 100%; height: 40px; margin-top: 20px; }
         .slider-track { width: 100%; height: 5px; background: #ddd; position: absolute; top: 50%; transform: translateY(-50%); border-radius: 5px; }
         .slider-range { height: 5px; background: #333; position: absolute; top: 50%; transform: translateY(-50%); border-radius: 5px; }
@@ -179,7 +185,7 @@ $where_clause = count($where_clauses) > 0 ? "WHERE " . implode(" AND ", $where_c
         .range-slider input[type="range"]::-moz-range-thumb { height: 20px; width: 20px; background: #333; border-radius: 50%; cursor: pointer; pointer-events: auto; border: none; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
         .price-display { display: flex; justify-content: space-between; font-size: 13px; color: #555; margin-top: 5px; font-weight: bold; }
         
-        /* ================= 开关 (Toggle Switch) ================= */
+        /* 开关 (Toggle Switch) */
         .toggle-container { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
         .switch { position: relative; display: inline-block; width: 44px; height: 24px; }
         .switch input { opacity: 0; width: 0; height: 0; }
@@ -188,9 +194,6 @@ $where_clause = count($where_clauses) > 0 ? "WHERE " . implode(" AND ", $where_c
         input:checked + .slider-round { background-color: #333; }
         input:checked + .slider-round:before { transform: translateX(20px); }
         
-        .btn-apply { width: 100%; background: #008060; color: white; padding: 12px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; margin-top: 25px; transition: 0.3s; font-size: 15px;}
-        .btn-apply:hover { background: #006048; }
-
         /* --- 模式 A: 品牌墙 --- */
         .brand-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 50px; }
         .brand-card-img { width: 100%; height: 250px; background: #333; border-radius: 8px; overflow: hidden; position: relative; display: block; transition: transform 0.3s; }
@@ -392,7 +395,6 @@ $where_clause = count($where_clauses) > 0 ? "WHERE " . implode(" AND ", $where_c
                             <summary>Colour</summary>
                             <div class="color-grid">
                                 <?php
-                                // 定义颜色和对应的Hex值，完全匹配你截图上的颜色
                                 $color_map = [
                                     'Purple' => '#7B3B9C', 'Black' => '#000000', 'Red' => '#E7352B',
                                     'Orange' => '#F36B26', 'Blue' => '#1790C8', 'White' => '#FFFFFF',
@@ -439,9 +441,8 @@ $where_clause = count($where_clauses) > 0 ? "WHERE " . implode(" AND ", $where_c
                                 </label>
                             </div>
                         </details>
-
-                        <button type="submit" class="btn-apply">Search</button>
-                    </form>
+                        
+                        </form>
                 </aside>
 
                 <main class="product-listing">
@@ -457,7 +458,24 @@ $where_clause = count($where_clauses) > 0 ? "WHERE " . implode(" AND ", $where_c
 
                         if ($result && $result->num_rows > 0) {
                             while($row = $result->fetch_assoc()) {
-                                $img_src = !empty($row['Pro_Image']) ? "../uploads/" . $row['Pro_Image'] : "../assets/images/placeholder.jpg";
+                                // --- 新增：智能抓取封面图逻辑 ---
+                                $base_img = $row['Pro_Image'];
+                                $img_src = "../images/brands/placeholder.png"; 
+                                
+                                if (!empty($base_img)) {
+                                    if (file_exists("../uploads/" . $base_img)) {
+                                        $img_src = "../uploads/" . $base_img;
+                                    } else {
+                                        // 尝试抓取变体图
+                                        $path_parts = pathinfo($base_img);
+                                        $base_name = preg_replace('/_\d+$/', '', $path_parts['filename']);
+                                        $found_images = glob("../uploads/{$base_name}*.*");
+                                        if (!empty($found_images)) {
+                                            $img_src = $found_images[0]; 
+                                        }
+                                    }
+                                }
+                                
                                 $desc = !empty($row['Pro_Description']) ? substr($row['Pro_Description'], 0, 60) . '...' : 'Premium quality sports shoes.';
                                 ?>
                                 
@@ -467,7 +485,7 @@ $where_clause = count($where_clauses) > 0 ? "WHERE " . implode(" AND ", $where_c
                                     <?php endif; ?>
                                     
                                     <div class="card-image">
-                                        <img src="<?php echo $img_src; ?>" alt="<?php echo $row['Pro_Name']; ?>" onerror="this.src='../assets/images/placeholder.jpg'">
+                                        <img src="<?php echo htmlspecialchars($img_src); ?>" alt="<?php echo htmlspecialchars($row['Pro_Name']); ?>" onerror="this.onerror=null; this.src='../images/brands/placeholder.png'">
                                     </div>
                                     <div class="card-content">
                                         <div class="category-badge"><?php echo $row['Brand_Name']; ?></div>
@@ -493,6 +511,52 @@ $where_clause = count($where_clauses) > 0 ? "WHERE " . implode(" AND ", $where_c
 <?php include '../includes/footer.php'; ?>
 
 <script>
+    // ==========================================
+    // 新增：保持页面滚动位置不变 (Scroll Restoration)
+    // ==========================================
+    // 在页面即将刷新/离开前，保存当前的滚动坐标
+    window.addEventListener("beforeunload", function() {
+        sessionStorage.setItem('scrollpos', window.scrollY);
+    });
+
+    // 页面加载完成后，瞬间跳回之前保存的坐标
+    document.addEventListener("DOMContentLoaded", function() {
+        let scrollpos = sessionStorage.getItem('scrollpos');
+        if (scrollpos) {
+            window.scrollTo({ top: parseInt(scrollpos), behavior: 'instant' });
+            sessionStorage.removeItem('scrollpos'); // 用完即删
+        }
+    });
+
+    // ==========================================
+    // 自动提交表单逻辑 (Auto-Submit)
+    // ==========================================
+    document.addEventListener('DOMContentLoaded', function() {
+        const filterForm = document.getElementById('filterForm');
+        
+        if (filterForm) {
+            const checkboxes = filterForm.querySelectorAll('input[type="checkbox"]');
+            checkboxes.forEach(chk => {
+                chk.addEventListener('change', function() {
+                    filterForm.submit();
+                });
+            });
+
+            const minPriceSlider = document.getElementById('slider-min');
+            const maxPriceSlider = document.getElementById('slider-max');
+            
+            if (minPriceSlider && maxPriceSlider) {
+                minPriceSlider.addEventListener('change', function() {
+                    filterForm.submit();
+                });
+                maxPriceSlider.addEventListener('change', function() {
+                    filterForm.submit();
+                });
+            }
+        }
+    });
+
+    // 原有的滑块 UI 视觉更新逻辑 (拖动中即时更新数字和颜色)
     let sliderMin = document.getElementById("slider-min");
     let sliderMax = document.getElementById("slider-max");
     let displayMin = document.getElementById("display-min");
