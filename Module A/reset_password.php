@@ -1,106 +1,73 @@
 <?php
-// for resetting user password
+// for resetting user password via OTP
 session_start();
 require_once '../includes/db_connection.php';
 
 $error = "";
-$token = "";
-$token_valid = false; // remark whether token is valid
+$token_valid = false;
 
-// 1. Token Validation (GET Request)
-if (isset($_GET['token'])) {
-    $token = $_GET['token'];
-    
-    // Check status along with token validity
-    $stmt = $conn->prepare("SELECT user_id, status FROM users WHERE reset_token = ? AND reset_token_expiry > NOW()");
-    $stmt->bind_param("s", $token);
-    $stmt->execute();
-    $result = $stmt->get_result();
+// 1. 验证是否合法进入 (是否有请求过重置的 Session)
+if (isset($_SESSION['reset_email']) && isset($_SESSION['reset_otp'])) {
+    $token_valid = true;
+}
 
-    if ($result->num_rows === 1) {
-        $row = $result->fetch_assoc();
-        
-        // If blocked, mark token as invalid
-        if ($row['status'] === 'Blocked') {
-            $error = "⛔ Account Suspended. You cannot reset password.";
-            $token_valid = false;
-        } else {
-            $token_valid = true;
-        }
-    } else {
-        $error = "This password reset link is invalid or has expired.";
-    }
-} 
-
-// 2. Process new password (POST Request)
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['token'])) {
-    $token = $_POST['token'];
+// 2. 处理 OTP 验证与新密码提交
+if ($_SERVER["REQUEST_METHOD"] == "POST" && $token_valid) {
+    $entered_otp = trim($_POST['otp']);
     $pass1 = $_POST['password'];
     $pass2 = $_POST['confirm_password'];
 
-    // Check token validity again (Security against forced POST)
-    $stmt = $conn->prepare("SELECT user_id, status FROM users WHERE reset_token = ? AND reset_token_expiry > NOW()");
-    $stmt->bind_param("s", $token);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    
-    if ($result->num_rows === 1) {
-        $row = $result->fetch_assoc();
-
-        // Double check status before updating
-        if ($row['status'] === 'Blocked') {
-            $error = "⛔ Account Suspended. Action denied.";
-            $token_valid = false; 
-        } else {
-            $token_valid = true; 
-
-            if ($pass1 !== $pass2) {
-                $error = "Passwords do not match.";
-            } elseif (strlen($pass1) < 6) {
-                $error = "Password must be at least 6 characters.";
-            } else {
-                $hashed_password = password_hash($pass1, PASSWORD_DEFAULT);
-                
-                // Update password and clear token
-                $update = $conn->prepare("UPDATE users SET password = ?, reset_token = NULL, reset_token_expiry = NULL WHERE reset_token = ?");
-                $update->bind_param("ss", $hashed_password, $token);
-                
-                if ($update->execute()) {
-                    echo "<script>alert('Password reset successful! Please login.'); window.location.href='login.php';</script>";
-                    exit();
-                } else {
-                    $error = "System error.";
-                }
-            }
-        }
+    // 验证 OTP 验证码是否正确
+    if ($entered_otp != $_SESSION['reset_otp']) {
+        $error = "Invalid OTP code. Please check your email.";
+    } elseif ($pass1 !== $pass2) {
+        $error = "Passwords do not match.";
+    } elseif (strlen($pass1) < 6) {
+        $error = "Password must be at least 6 characters.";
     } else {
-        $error = "Invalid or expired token.";
-        $token_valid = false;
+        // [修复点] 更新匹配数据库的 User_Password 和 User_Email 字段
+        $hashed_password = password_hash($pass1, PASSWORD_DEFAULT);
+        $email = $_SESSION['reset_email'];
+        
+        $update = $conn->prepare("UPDATE `USER` SET User_Password = ? WHERE User_Email = ?");
+        $update->bind_param("ss", $hashed_password, $email);
+        
+        if ($update->execute()) {
+            // 清理重置用的 Session
+            unset($_SESSION['reset_email']);
+            unset($_SESSION['reset_otp']);
+            unset($_SESSION['reset_name']);
+            
+            echo "<script>alert('Password reset successful! Please login with your new password.'); window.location.href='login.php';</script>";
+            exit();
+        } else {
+            $error = "System error during password update.";
+        }
     }
 }
 
-$page_title = "Reset Password";
+$page_title = "Reset Password | Sport Shoes Store";
 include_once '../includes/header.php'; 
 ?>
 
 <div class="container mt-5 mb-5">
     <div class="row justify-content-center">
-        <div class="col-md-11 col-lg-10">
+        <div class="col-md-11 col-lg-8">
             <div class="card shadow-lg border-0 rounded-4">
                 <div class="card-body p-5"> 
                     
                     <div class="text-center mb-5">
-                        <div class="mb-3"><i class="bi bi-lock-fill text-dark" style="font-size: 3rem;"></i></div>
+                        <div class="mb-3"><i class="bi bi-shield-lock-fill text-dark" style="font-size: 3rem;"></i></div>
                         <h2 class="fw-bold text-dark">Reset Password</h2>
-                        <p class="text-muted">Create a new strong password</p>
+                        <p class="text-muted">Enter the OTP sent to <strong><?php echo isset($_SESSION['reset_email']) ? $_SESSION['reset_email'] : ''; ?></strong> and create your new password.</p>
                     </div>
 
                     <?php if (!$token_valid): ?>
                         <div class="alert alert-danger text-center rounded-3 p-4">
                             <h4 class="alert-heading fw-bold"><i class="bi bi-x-circle-fill"></i> Access Denied</h4>
-                            <p><?php echo $error ? $error : "This password reset link is invalid or has expired."; ?></p>
+                            <p>Your session has expired or is invalid.</p>
                             <hr>
-                            <a href="forgot_password.php" class="btn btn-outline-danger fw-bold">Request New Link</a>
+                            <a href="forgot_password.php" class="btn btn-outline-danger fw-bold">Request New OTP</a>
                         </div>
                     
                     <?php else: ?>
@@ -110,13 +77,20 @@ include_once '../includes/header.php';
                         <?php endif; ?>
 
                         <form method="POST" action="">
-                            <input type="hidden" name="token" value="<?php echo htmlspecialchars($token); ?>">
+                            
+                            <div class="mb-4">
+                                <label class="form-label fw-bold small text-secondary">6-Digit Verification Code (OTP)</label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-light border-0 px-3"><i class="bi bi-123 fs-5"></i></span>
+                                    <input type="text" name="otp" class="form-control form-control-lg bg-light border-0 py-3" placeholder="000000" maxlength="6" required>
+                                </div>
+                            </div>
 
                             <div class="mb-1">
                                 <label class="form-label fw-bold small text-secondary">New Password</label>
                                 <div class="input-group">
                                     <span class="input-group-text bg-light border-0 px-3"><i class="bi bi-key fs-5"></i></span>
-                                    <input type="password" name="password" id="passwordInput" class="form-control form-control-lg bg-light border-0 py-3" required>
+                                    <input type="password" name="password" id="passwordInput" class="form-control form-control-lg bg-light border-0 py-3" placeholder="Enter new password" required>
                                 </div>
                             </div>
 
@@ -126,10 +100,10 @@ include_once '../includes/header.php';
                             </div>
 
                             <div class="mb-5">
-                                <label class="form-label fw-bold small text-secondary">Confirm Password</label>
+                                <label class="form-label fw-bold small text-secondary">Confirm New Password</label>
                                 <div class="input-group">
                                     <span class="input-group-text bg-light border-0 px-3"><i class="bi bi-key-fill fs-5"></i></span>
-                                    <input type="password" name="confirm_password" class="form-control form-control-lg bg-light border-0 py-3" required>
+                                    <input type="password" name="confirm_password" class="form-control form-control-lg bg-light border-0 py-3" placeholder="Confirm your password" required>
                                 </div>
                             </div>
 
@@ -153,26 +127,22 @@ include_once '../includes/header.php';
     if (passwordInput) {
         passwordInput.addEventListener('input', function() {
             const val = passwordInput.value;
-            let missing = []; // Array to store missing requirements
+            let missing = []; 
 
-            // 1. Check what is missing
             if (val.length < 6) missing.push("6+ Chars");
             if (!/[A-Z]/.test(val)) missing.push("Uppercase");
             if (!/[0-9]/.test(val)) missing.push("Number");
             if (!/[^A-Za-z0-9]/.test(val)) missing.push("Symbol");
 
-            // 2. Logic to display hint vs success
             if (val.length === 0) {
                 strengthText.textContent = "Enter password...";
                 strengthText.className = "fw-bold small text-muted";
             } 
             else if (missing.length > 0) {
-                // If something is missing, list it out
                 strengthText.innerHTML = "Weak <span class='text-muted fw-normal'>(Add: " + missing.join(", ") + ")</span>";
                 strengthText.className = "fw-bold small text-danger";
             } 
             else {
-                // If nothing missing -> Strong
                 strengthText.textContent = "Strong 🟢";
                 strengthText.className = "fw-bold small text-success";
             }

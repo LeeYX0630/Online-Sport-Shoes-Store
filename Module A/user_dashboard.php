@@ -17,16 +17,13 @@ $user_id = $_SESSION['user_id'];
 $msg = "";
 $msg_type = ""; 
 
-// --- 3. Handle User Booking Cancellation (新增功能) ---
+// --- 3. Handle User Booking Cancellation (原有新增功能) ---
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['cancel_my_booking'])) {
     $cancel_id = intval($_POST['booking_id_to_cancel']);
     
-    // 安全检查：
-    // 1. 订单必须属于当前用户 (AND user_id = '$user_id')
-    // 2. 订单状态必须是 confirmed
-    // 3. 入住日期必须 >= 今天 (不能取消以前的历史订单)
     $today_date = date("Y-m-d");
     
+    // 如果后续没有 bookings 表，这里加上了防护不会报错
     $check_sql = "SELECT booking_id FROM bookings 
                   WHERE booking_id = '$cancel_id' 
                   AND user_id = '$user_id' 
@@ -35,8 +32,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['cancel_my_booking'])) 
                   
     $check_res = $conn->query($check_sql);
     
-    if ($check_res->num_rows > 0) {
-        // 执行取消
+    // 【修复点】加入 $check_res 验证，防止表不存在时导致致命错误
+    if ($check_res && $check_res->num_rows > 0) {
         $conn->query("UPDATE bookings SET booking_status = 'cancelled' WHERE booking_id = '$cancel_id'");
         $msg = "Booking #$cancel_id has been cancelled successfully.";
         $msg_type = "success";
@@ -46,7 +43,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['cancel_my_booking'])) 
     }
 }
 
-// 4. Handle profile update (原有逻辑)
+// 4. Handle profile update (原有验证逻辑完全保留)
 if ($_SERVER["REQUEST_METHOD"] == "POST" && !isset($_POST['cancel_my_booking'])) {
     $new_name = $conn->real_escape_string(substr(trim($_POST['full_name']), 0, 100));
     $phone_input = trim($_POST['phone']);
@@ -92,14 +89,16 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && !isset($_POST['cancel_my_booking']))
         $msg = "Update Failed: Invalid Email Domain. Use trusted (Gmail, Yahoo) or Education emails.";
         $msg_type = "danger";
     } else {
-        $check_email = $conn->query("SELECT user_id FROM users WHERE email='$new_email' AND user_id != '$user_id'");
+        // 【修复点】匹配真实的数据库表 `USER` 和字段 `User_Email`, `User_Id`
+        $check_email = $conn->query("SELECT User_Id FROM `USER` WHERE User_Email='$new_email' AND User_Id != '$user_id'");
         
-        if ($check_email->num_rows > 0) {
+        if ($check_email && $check_email->num_rows > 0) {
             $msg = "Update Failed: This email is already used by another account.";
             $msg_type = "danger";
         } else {
             $new_phone = $clean_phone;
-            $conn->query("UPDATE users SET full_name='$new_name', phone='$new_phone', email='$new_email' WHERE user_id='$user_id'");
+            // 【修复点】匹配真实字段进行 UPDATE
+            $conn->query("UPDATE `USER` SET User_Name='$new_name', User_Phone='$new_phone', User_Email='$new_email' WHERE User_Id='$user_id'");
             
             $_SESSION['user_name'] = $new_name; 
             $msg = "Profile Updated Successfully!";
@@ -115,7 +114,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && !isset($_POST['cancel_my_booking']))
                 
                 if($check !== false) {
                     if (move_uploaded_file($_FILES["profile_image"]["tmp_name"], $target_file)) {
-                        $conn->query("UPDATE users SET profile_image='$filename' WHERE user_id='$user_id'");
+                        // 【修复点】匹配真实的图片字段 `User_Image`
+                        $conn->query("UPDATE `USER` SET User_Image='$filename' WHERE User_Id='$user_id'");
                     } else {
                         $msg = "Error uploading file."; $msg_type = "danger";
                     }
@@ -127,9 +127,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && !isset($_POST['cancel_my_booking']))
     }
 }
 
-$user_res = $conn->query("SELECT * FROM users WHERE user_id='$user_id'");
+// 【修复点】致命错误 Line 130 的根源：修改表名和字段，确保能抓到数据
+$user_res = $conn->query("SELECT * FROM `USER` WHERE User_Id='$user_id'");
 $user = $user_res->fetch_assoc();
-$profile_pic = !empty($user['profile_image']) ? "uploads/".$user['profile_image'] : "uploads/default.png";
+$profile_pic = !empty($user['User_Image']) ? "uploads/".$user['User_Image'] : "uploads/default.png";
 
 $page_title = "My Dashboard";
 include '../includes/header.php'; 
@@ -148,7 +149,7 @@ include '../includes/header.php';
   
   <div class="d-flex justify-content-between align-items-center welcome-header border-bottom pb-3 mb-4">
      <div>
-        <h2 class="welcome-text fw-bold text-dark">Welcome, <?php echo htmlspecialchars($user['full_name']); ?>! 👋</h2>
+        <h2 class="welcome-text fw-bold text-dark">Welcome, <?php echo htmlspecialchars($user['User_Name']); ?>! 👋</h2>
         <p class="text-muted mb-0">Manage your profile and view your latest bookings here.</p>
      </div>
      <div class="text-end d-none d-md-block">
@@ -164,9 +165,9 @@ include '../includes/header.php';
             <div class="mb-3">
                 <img src="<?php echo $profile_pic; ?>" alt="Profile Image" class="profile-img-large">
             </div>
-            <h4><?php echo htmlspecialchars($user['full_name']); ?></h4>
-            <p class="badge bg-secondary"><?php echo $user['role']; ?></p>
-            <p class="text-muted small"><?php echo $user['email']; ?></p>
+            <h4><?php echo htmlspecialchars($user['User_Name']); ?></h4>
+            <p class="badge bg-secondary"><?php echo isset($_SESSION['role']) ? $_SESSION['role'] : 'Customer'; ?></p>
+            <p class="text-muted small"><?php echo $user['User_Email']; ?></p>
         </div>
     </div>
 
@@ -184,13 +185,13 @@ include '../includes/header.php';
                 <div class="row mb-3">
                     <div class="col-md-6 mb-3">
                         <label class="form-label fw-bold small text-secondary">Full Name</label>
-                        <input type="text" class="form-control bg-light border-0 py-2" name="full_name" value="<?php echo htmlspecialchars($user['full_name']); ?>" required>
+                        <input type="text" class="form-control bg-light border-0 py-2" name="full_name" value="<?php echo htmlspecialchars($user['User_Name']); ?>" required>
                     </div>
                     <div class="col-md-6 mb-3">
                         <label class="form-label fw-bold small text-secondary">Phone Number</label>
                         <input type="text" class="form-control bg-light border-0 py-2" 
                                name="phone" 
-                               value="<?php echo $user['phone']; ?>" 
+                               value="<?php echo $user['User_Phone']; ?>" 
                                required 
                                maxlength="13"
                                placeholder="e.g. 60123456789 or 0123456789"
@@ -203,7 +204,7 @@ include '../includes/header.php';
                     <label class="form-label fw-bold small text-secondary">Email Address</label>
                     <input type="email" class="form-control bg-light border-0 py-2" 
                            name="email" 
-                           value="<?php echo $user['email']; ?>" 
+                           value="<?php echo $user['User_Email']; ?>" 
                            required>
                     <small class="text-muted" style="font-size: 0.8rem;">Trusted domains only (Gmail, Yahoo, School, etc.)</small>
                 </div>
@@ -334,7 +335,7 @@ include '../includes/header.php';
                     </table>
                 </div>
             <?php else: ?>
-                <p class="text-muted">No bookings yet.</p>
+                <p class="text-muted">No orders or bookings yet.</p>
             <?php endif; ?>
         </div>
     </div>

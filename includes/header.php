@@ -24,23 +24,41 @@ if (!isset($page_title)) $page_title = "Online Sport Shoes Store";
 
 $nav_is_logged_in = false;
 $nav_user_name = "";
-$nav_profile_pic = $path_mod_a . "uploads/default.png"; 
+$nav_profile_pic = $path_mod_a . "images/user_icon.png"; // 默认头像
 
+// ==========================================
+// 匹配真实的 USER 表和字段
+// ==========================================
 if (isset($_SESSION['user_id'])) {
     $nav_is_logged_in = true;
     $uid = $_SESSION['user_id'];
-    $sql = "SELECT full_name, profile_image FROM users WHERE user_id = '$uid'";
+    
+    // 使用真实的表名 USER 和 字段名 User_Name, User_Image
+    $sql = "SELECT User_Name, User_Image FROM `USER` WHERE User_Id = '$uid'";
     $res = $conn->query($sql);
+    
     if ($res && $res->num_rows > 0) {
         $row = $res->fetch_assoc();
-        $nav_user_name = $row['full_name'];
-        if (!empty($row['profile_image'])) {
-            $nav_profile_pic = $path_mod_a . "uploads/" . $row['profile_image'];
+        $nav_user_name = $row['User_Name'];
+        
+        // 如果用户有上传头像，则更新头像路径
+        if (!empty($row['User_Image'])) {
+            $nav_profile_pic = $path_mod_a . "uploads/" . $row['User_Image'];
         }
     }
 } elseif (isset($_SESSION['admin_id'])) {
     $nav_is_logged_in = true;
     $nav_user_name = isset($_SESSION['username']) ? $_SESSION['username'] . " (Admin)" : "Administrator";
+}
+
+// ==========================================
+// 新增：计算全局购物车数量 (用于显示在 Header 的小红点)
+// ==========================================
+$header_cart_count = 0;
+if (isset($_SESSION['cart']) && !empty($_SESSION['cart'])) {
+    foreach ($_SESSION['cart'] as $item) {
+        $header_cart_count += isset($item['qty']) ? intval($item['qty']) : 0;
+    }
 }
 ?>
 <!doctype html>
@@ -89,7 +107,7 @@ if (isset($_SESSION['user_id'])) {
               <a class="nav-link <?php echo ($current_page == 'index.php') ? 'active' : ''; ?>" href="<?php echo $path_root; ?>index.php">Home</a>
             </li>
             <li class="nav-item">
-              <a class="nav-link <?php echo ($current_page == 'catalogue.php' || $current_page == 'room_catalogue.php') ? 'active' : ''; ?>" href="<?php echo $path_mod_b; ?>catalogue.php">Catalogue</a>
+              <a class="nav-link <?php echo ($current_page == 'catalogue.php') ? 'active' : ''; ?>" href="<?php echo $path_mod_b; ?>catalogue.php">Catalogue</a>
             </li>
             <li class="nav-item">
               <a class="nav-link <?php echo ($current_page == 'about_us.php') ? 'active' : ''; ?>" href="<?php echo $path_mod_a; ?>about_us.php">About Us</a>
@@ -110,7 +128,7 @@ if (isset($_SESSION['user_id'])) {
             <?php if ($nav_is_logged_in): ?>
                 
                 <div class="d-flex align-items-center me-3 text-white">
-                    <img src="<?php echo $path_mod_a; ?>images/user_icon.png" onerror="this.src='https://ui-avatars.com/api/?name=<?php echo urlencode($nav_user_name); ?>&background=random'" class="rounded-circle me-2 border border-2 border-white" style="width: 35px; height: 35px; object-fit: cover;">
+                    <img src="<?php echo htmlspecialchars($nav_profile_pic); ?>" onerror="this.src='https://ui-avatars.com/api/?name=<?php echo urlencode($nav_user_name); ?>&background=random'" class="rounded-circle me-2 border border-2 border-white" style="width: 35px; height: 35px; object-fit: cover;">
                     <span class="d-none d-xl-block small"><?php echo htmlspecialchars($nav_user_name); ?></span>
                 </div>
 
@@ -119,7 +137,17 @@ if (isset($_SESSION['user_id'])) {
                         <i class="bi bi-speedometer2"></i>
                     </a>
                 <?php else: ?>
-                    <a class="btn btn-outline-light btn-sm me-2" href="<?php echo $path_mod_a; ?>profile.php" title="My Profile">
+                    
+                    <a class="btn btn-outline-light btn-sm me-2 position-relative" href="<?php echo $path_mod_b; ?>cart.php" onclick="if(typeof viewShoppingCart === 'function') { viewShoppingCart(); return false; }" title="Shopping Cart">
+                        <i class="bi bi-bag"></i>
+                        <?php if ($header_cart_count > 0): ?>
+                            <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="font-size: 0.6rem; padding: 3px 5px;">
+                                <?php echo $header_cart_count; ?>
+                            </span>
+                        <?php endif; ?>
+                    </a>
+                    
+                    <a class="btn btn-outline-light btn-sm me-2" href="<?php echo $path_mod_a; ?>user_dashboard.php" title="My Profile">
                         <i class="bi bi-person-circle"></i>
                     </a>
                 <?php endif; ?>

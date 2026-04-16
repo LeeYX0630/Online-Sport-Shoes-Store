@@ -1,6 +1,5 @@
 <?php
 // db_connection.php
-// 所有成员必须 include 这个文件，不要在各自页面单独写连接代码 
 
 $servername = "localhost";
 $username = "root";

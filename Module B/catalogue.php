@@ -59,9 +59,18 @@ if ($_SERVER['REQUEST_METHOD'] == 'GET') {
         $where_clauses[] = "product.Cat_Id IN (" . implode(',', $cat_ids) . ")";
     }
 
-    // Gender
+    // Gender: 选中 Men 或 Women 时，自动包含 Unisex
     if (isset($_GET['gender']) && is_array($_GET['gender'])) {
-        $genders = array_map(function($g) use ($conn) { return "'" . $conn->real_escape_string($g) . "'"; }, $_GET['gender']);
+        $genders = [];
+        foreach ($_GET['gender'] as $g) {
+            $safe_g = $conn->real_escape_string($g);
+            $genders[] = "'$safe_g'";
+            if (($safe_g == 'Men' || $safe_g == 'Women') && !in_array('Unisex', $_GET['gender'])) {
+                if(!in_array("'Unisex'", $genders)) {
+                    $genders[] = "'Unisex'";
+                }
+            }
+        }
         $where_clauses[] = "product.Pro_Gender IN (" . implode(',', $genders) . ")";
     }
 
@@ -99,7 +108,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'GET') {
         $where_clauses[] = "product.Pro_Price <= $max";
     }
 
-    // Sale (Toggle Switch)
+    // Sale
     if (isset($_GET['on_sale']) && $_GET['on_sale'] == '1') {
         $where_clauses[] = "product.Pro_Sale = 1";
     }
@@ -126,26 +135,48 @@ $where_clause = count($where_clauses) > 0 ? "WHERE " . implode(" AND ", $where_c
         .shop-layout { display: grid; grid-template-columns: 260px 1fr; gap: 40px; align-items: start; }
         
         /* --- 左侧 Sidebar Filter --- */
-        .filter-sidebar { background: #fff; position: sticky; top: 20px; }
-        .filter-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 15px; }
+        .filter-sidebar { 
+            background: #fff; 
+            position: sticky; 
+            top: 20px; 
+            max-height: calc(100vh - 40px);
+            overflow-y: auto; 
+            padding-right: 10px; 
+        }
+        .filter-sidebar::-webkit-scrollbar { width: 4px; }
+        .filter-sidebar::-webkit-scrollbar-thumb { background: #ddd; border-radius: 4px; }
+        
+        .filter-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 15px; position: sticky; top: 0; background: #fff; z-index: 10; }
         .filter-header h3 { margin: 0; font-size: 18px; }
         .clear-all { color: #666; text-decoration: underline; font-size: 13px; }
         .clear-all:hover { color: #FF6B00; }
         
-        /* 折叠面板 (JD Sports 风格) */
+        /* 折叠面板 */
         details.filter-group { border-bottom: 1px solid #eee; padding: 15px 0; }
         details.filter-group summary { font-weight: bold; font-size: 15px; cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; outline: none; }
         details.filter-group summary::-webkit-details-marker { display: none; }
         details.filter-group summary::after { content: "⌄"; font-size: 20px; color: #333; transition: transform 0.3s; }
         details.filter-group[open] summary::after { transform: rotate(180deg); }
         
-        .filter-options { margin-top: 15px; display: flex; flex-direction: column; gap: 12px; max-height: 220px; overflow-y: auto; padding-right: 5px;}
-        .filter-options::-webkit-scrollbar { width: 5px; }
-        .filter-options::-webkit-scrollbar-thumb { background: #ccc; border-radius: 5px; }
+        .filter-options { margin-top: 15px; display: flex; flex-direction: column; gap: 12px; padding-right: 5px;}
         .filter-options label { font-size: 14px; color: #444; display: flex; align-items: center; cursor: pointer; }
         .filter-options input[type="checkbox"] { margin-right: 10px; accent-color: #333; width: 16px; height: 16px; cursor: pointer;}
         
-        /* ================= 进度条滑块 (Price Range Slider) ================= */
+        /* 视觉化颜色筛选器 (Visual Color Grid) */
+        .color-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px 5px; margin-top: 15px; }
+        .color-swatch-wrapper { display: flex; flex-direction: column; align-items: center; cursor: pointer; text-align: center; }
+        .color-swatch-wrapper input { display: none; } 
+        .color-swatch-circle { width: 36px; height: 36px; border-radius: 50%; border: 1px solid #e0e0e0; display: flex; align-items: center; justify-content: center; margin-bottom: 6px; transition: 0.2s; position: relative; }
+        .color-swatch-wrapper:hover .color-swatch-circle { transform: scale(1.1); box-shadow: 0 4px 8px rgba(0,0,0,0.15); }
+        
+        .color-swatch-wrapper input:checked + .color-swatch-circle::after {
+            content: ''; width: 6px; height: 12px; border: solid #fff; border-width: 0 2px 2px 0; 
+            transform: rotate(45deg); margin-bottom: 2px;
+        }
+        .color-swatch-wrapper input[value="White"]:checked + .color-swatch-circle::after { border-color: #333; }
+        .color-name { font-size: 12px; color: #333; }
+        
+        /* 进度条滑块 (Price Range Slider) */
         .range-slider { position: relative; width: 100%; height: 40px; margin-top: 20px; }
         .slider-track { width: 100%; height: 5px; background: #ddd; position: absolute; top: 50%; transform: translateY(-50%); border-radius: 5px; }
         .slider-range { height: 5px; background: #333; position: absolute; top: 50%; transform: translateY(-50%); border-radius: 5px; }
@@ -154,7 +185,7 @@ $where_clause = count($where_clauses) > 0 ? "WHERE " . implode(" AND ", $where_c
         .range-slider input[type="range"]::-moz-range-thumb { height: 20px; width: 20px; background: #333; border-radius: 50%; cursor: pointer; pointer-events: auto; border: none; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
         .price-display { display: flex; justify-content: space-between; font-size: 13px; color: #555; margin-top: 5px; font-weight: bold; }
         
-        /* ================= 开关 (Toggle Switch) ================= */
+        /* 开关 (Toggle Switch) */
         .toggle-container { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
         .switch { position: relative; display: inline-block; width: 44px; height: 24px; }
         .switch input { opacity: 0; width: 0; height: 0; }
@@ -163,9 +194,6 @@ $where_clause = count($where_clauses) > 0 ? "WHERE " . implode(" AND ", $where_c
         input:checked + .slider-round { background-color: #333; }
         input:checked + .slider-round:before { transform: translateX(20px); }
         
-        .btn-apply { width: 100%; background: #008060; color: white; padding: 12px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; margin-top: 25px; transition: 0.3s; font-size: 15px;}
-        .btn-apply:hover { background: #006048; }
-
         /* --- 模式 A: 品牌墙 --- */
         .brand-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 50px; }
         .brand-card-img { width: 100%; height: 250px; background: #333; border-radius: 8px; overflow: hidden; position: relative; display: block; transition: transform 0.3s; }
@@ -174,14 +202,17 @@ $where_clause = count($where_clauses) > 0 ? "WHERE " . implode(" AND ", $where_c
         .brand-card-img:hover img { opacity: 1; }
         .brand-card-title { margin-top: 15px; font-weight: bold; font-size: 16px; color: #333; display: block; text-decoration: none; text-align: center; }
         .brand-card-title:hover { color: #FF6B00; }
-        .az-filter { display: flex; flex-wrap: wrap; gap: 8px; margin: 40px 0 30px; justify-content: center; padding-bottom: 30px; border-bottom: 1px solid #eee; }
-        .az-btn { width: 35px; height: 35px; display: flex; align-items: center; justify-content: center; border: 1px solid #ccc; background: #fff; color: #333; text-decoration: none; font-size: 14px; transition: 0.2s; border-radius: 4px;}
-        .az-btn:hover { border-color: #FF6B00; color: #FF6B00; }
-        .az-btn.disabled { color: #eee; border-color: #eee; pointer-events: none; }
-        .brand-list-group { margin-bottom: 30px; display: flex; border-bottom: 1px solid #f4f4f4; padding-bottom: 20px; scroll-margin-top: 100px; }
-        .brand-letter { width: 100px; font-size: 24px; font-weight: bold; color: #333; }
+        
+        /* A-Z 分类格子 */
+        .az-filter { display: flex; flex-wrap: wrap; gap: 12px; margin: 40px 0 40px; justify-content: center; padding-bottom: 40px; border-bottom: 1px solid #eee; }
+        .az-btn { width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; border: 1px solid #e0e0e0; background: #fff; color: #222; text-decoration: none; font-size: 20px; font-weight: 700; transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); border-radius: 10px; }
+        .az-btn:hover { background: #222; color: #fff; border-color: #222; transform: translateY(-4px); box-shadow: 0 6px 15px rgba(0,0,0,0.15); }
+        .az-btn.disabled { color: #d1d1d1; border-color: #f0f0f0; background: #fafafa; pointer-events: none; }
+        
+        .brand-list-group { margin-bottom: 30px; display: flex; border-bottom: 1px solid #f4f4f4; padding-bottom: 20px; scroll-margin-top: 100px; align-items: flex-start; }
+        .brand-letter { width: 100px; font-size: 32px; font-weight: 900; color: #111; }
         .brand-items { flex: 1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; }
-        .brand-link { color: #555; text-decoration: none; font-size: 15px; transition: color 0.2s;}
+        .brand-link { color: #444; text-decoration: none; font-size: 16px; font-weight: 500; transition: color 0.2s;}
         .brand-link:hover { color: #FF6B00; text-decoration: underline; }
         
         /* --- 模式 B: 产品卡片 --- */
@@ -202,7 +233,7 @@ $where_clause = count($where_clauses) > 0 ? "WHERE " . implode(" AND ", $where_c
         /* 响应式 */
         @media (max-width: 992px) { .shop-layout { grid-template-columns: 1fr; } .room-grid { grid-template-columns: repeat(3, 1fr); } }
         @media (max-width: 768px) { .brand-grid, .room-grid { grid-template-columns: repeat(2, 1fr); } .brand-items { grid-template-columns: repeat(2, 1fr); } }
-        @media (max-width: 576px) { .brand-grid, .room-grid, .brand-items { grid-template-columns: 1fr; } .brand-list-group { flex-direction: column; } .brand-letter { margin-bottom: 15px; } .catalogue-container{ padding: 20px; } }
+        @media (max-width: 576px) { .brand-grid, .room-grid, .brand-items { grid-template-columns: 1fr; } .brand-list-group { flex-direction: column; } .brand-letter { margin-bottom: 15px; } .catalogue-container{ padding: 20px; } .az-btn { width: 40px; height: 40px; font-size: 16px; } }
     </style>
 </head>
 <body>
@@ -219,16 +250,21 @@ $where_clause = count($where_clauses) > 0 ? "WHERE " . implode(" AND ", $where_c
             </form>
 
             <div class="page-header" style="border: none;">
-                <h2 style="text-align: center;">All Brands</h2>
+                <h2 style="text-align: center;">Brands</h2>
             </div>
 
             <div class="brand-grid">
                 <?php
-                $top_brands = $conn->query("SELECT * FROM brand WHERE Brand_Logo IS NOT NULL AND Brand_Logo != '' ORDER BY Brand_Name ASC LIMIT 4");
+                $top_brands = $conn->query("SELECT * FROM brand ORDER BY Brand_Name ASC LIMIT 8");
                 if ($top_brands && $top_brands->num_rows > 0) {
                     while($tb = $top_brands->fetch_assoc()) {
-                        $logo = "../uploads/" . $tb['Brand_Logo'];
-                        echo '<div><a href="catalogue.php?brand_id='.$tb['Brand_Id'].'" class="brand-card-img"><img src="'.$logo.'" alt="'.$tb['Brand_Name'].'"></a><a href="catalogue.php?brand_id='.$tb['Brand_Id'].'" class="brand-card-title">'.$tb['Brand_Name'].'</a></div>';
+                        $logo = !empty($tb['Brand_Logo']) ? "../images/brands/" . $tb['Brand_Logo'] : "../images/brands/placeholder.png";
+                        echo '<div>
+                                <a href="catalogue.php?brand_id='.$tb['Brand_Id'].'" class="brand-card-img">
+                                    <img src="'.$logo.'" alt="'.$tb['Brand_Name'].'" onerror="this.onerror=null; this.src=\'../images/brands/placeholder.png\'">
+                                </a>
+                                <a href="catalogue.php?brand_id='.$tb['Brand_Id'].'" class="brand-card-title">'.$tb['Brand_Name'].'</a>
+                              </div>';
                     }
                 }
                 ?>
@@ -355,14 +391,23 @@ $where_clause = count($where_clauses) > 0 ? "WHERE " . implode(" AND ", $where_c
                             </div>
                         </details>
 
-                        <details class="filter-group">
+                        <details class="filter-group" open>
                             <summary>Colour</summary>
-                            <div class="filter-options">
+                            <div class="color-grid">
                                 <?php
-                                $common_colours = ['Black', 'White', 'Red', 'Blue', 'Grey', 'Green'];
-                                foreach($common_colours as $col) {
-                                    $checked = (isset($_GET['colours']) && in_array($col, $_GET['colours'])) ? "checked" : "";
-                                    echo '<label><input type="checkbox" name="colours[]" value="'.$col.'" '.$checked.'> '.$col.'</label>';
+                                $color_map = [
+                                    'Purple' => '#7B3B9C', 'Black' => '#000000', 'Red' => '#E7352B',
+                                    'Orange' => '#F36B26', 'Blue' => '#1790C8', 'White' => '#FFFFFF',
+                                    'Brown' => '#835C3E', 'Green' => '#7BB342', 'Yellow' => '#FCD53F',
+                                    'Grey' => '#828282', 'Pink' => '#F0728F'
+                                ];
+                                foreach($color_map as $col_name => $hex) {
+                                    $checked = (isset($_GET['colours']) && in_array($col_name, $_GET['colours'])) ? "checked" : "";
+                                    echo '<label class="color-swatch-wrapper">
+                                            <input type="checkbox" name="colours[]" value="'.$col_name.'" '.$checked.'>
+                                            <div class="color-swatch-circle" style="background-color: '.$hex.';"></div>
+                                            <span class="color-name">'.$col_name.'</span>
+                                          </label>';
                                 }
                                 ?>
                             </div>
@@ -396,9 +441,8 @@ $where_clause = count($where_clauses) > 0 ? "WHERE " . implode(" AND ", $where_c
                                 </label>
                             </div>
                         </details>
-
-                        <button type="submit" class="btn-apply">Search</button>
-                    </form>
+                        
+                        </form>
                 </aside>
 
                 <main class="product-listing">
@@ -414,7 +458,24 @@ $where_clause = count($where_clauses) > 0 ? "WHERE " . implode(" AND ", $where_c
 
                         if ($result && $result->num_rows > 0) {
                             while($row = $result->fetch_assoc()) {
-                                $img_src = !empty($row['Pro_Image']) ? "../uploads/" . $row['Pro_Image'] : "../assets/images/placeholder.jpg";
+                                // --- 新增：智能抓取封面图逻辑 ---
+                                $base_img = $row['Pro_Image'];
+                                $img_src = "../images/brands/placeholder.png"; 
+                                
+                                if (!empty($base_img)) {
+                                    if (file_exists("../uploads/" . $base_img)) {
+                                        $img_src = "../uploads/" . $base_img;
+                                    } else {
+                                        // 尝试抓取变体图
+                                        $path_parts = pathinfo($base_img);
+                                        $base_name = preg_replace('/_\d+$/', '', $path_parts['filename']);
+                                        $found_images = glob("../uploads/{$base_name}*.*");
+                                        if (!empty($found_images)) {
+                                            $img_src = $found_images[0]; 
+                                        }
+                                    }
+                                }
+                                
                                 $desc = !empty($row['Pro_Description']) ? substr($row['Pro_Description'], 0, 60) . '...' : 'Premium quality sports shoes.';
                                 ?>
                                 
@@ -424,7 +485,7 @@ $where_clause = count($where_clauses) > 0 ? "WHERE " . implode(" AND ", $where_c
                                     <?php endif; ?>
                                     
                                     <div class="card-image">
-                                        <img src="<?php echo $img_src; ?>" alt="<?php echo $row['Pro_Name']; ?>" onerror="this.src='../assets/images/placeholder.jpg'">
+                                        <img src="<?php echo htmlspecialchars($img_src); ?>" alt="<?php echo htmlspecialchars($row['Pro_Name']); ?>" onerror="this.onerror=null; this.src='../images/brands/placeholder.png'">
                                     </div>
                                     <div class="card-content">
                                         <div class="category-badge"><?php echo $row['Brand_Name']; ?></div>
@@ -450,6 +511,52 @@ $where_clause = count($where_clauses) > 0 ? "WHERE " . implode(" AND ", $where_c
 <?php include '../includes/footer.php'; ?>
 
 <script>
+    // ==========================================
+    // 新增：保持页面滚动位置不变 (Scroll Restoration)
+    // ==========================================
+    // 在页面即将刷新/离开前，保存当前的滚动坐标
+    window.addEventListener("beforeunload", function() {
+        sessionStorage.setItem('scrollpos', window.scrollY);
+    });
+
+    // 页面加载完成后，瞬间跳回之前保存的坐标
+    document.addEventListener("DOMContentLoaded", function() {
+        let scrollpos = sessionStorage.getItem('scrollpos');
+        if (scrollpos) {
+            window.scrollTo({ top: parseInt(scrollpos), behavior: 'instant' });
+            sessionStorage.removeItem('scrollpos'); // 用完即删
+        }
+    });
+
+    // ==========================================
+    // 自动提交表单逻辑 (Auto-Submit)
+    // ==========================================
+    document.addEventListener('DOMContentLoaded', function() {
+        const filterForm = document.getElementById('filterForm');
+        
+        if (filterForm) {
+            const checkboxes = filterForm.querySelectorAll('input[type="checkbox"]');
+            checkboxes.forEach(chk => {
+                chk.addEventListener('change', function() {
+                    filterForm.submit();
+                });
+            });
+
+            const minPriceSlider = document.getElementById('slider-min');
+            const maxPriceSlider = document.getElementById('slider-max');
+            
+            if (minPriceSlider && maxPriceSlider) {
+                minPriceSlider.addEventListener('change', function() {
+                    filterForm.submit();
+                });
+                maxPriceSlider.addEventListener('change', function() {
+                    filterForm.submit();
+                });
+            }
+        }
+    });
+
+    // 原有的滑块 UI 视觉更新逻辑 (拖动中即时更新数字和颜色)
     let sliderMin = document.getElementById("slider-min");
     let sliderMax = document.getElementById("slider-max");
     let displayMin = document.getElementById("display-min");
