@@ -142,10 +142,12 @@ $free_shipping_threshold = 250.00;
                             
                             $color = isset($item['color']) && $item['color'] !== 'Default' ? $item['color'] : '';
 
-                            $sql = "SELECT product.*, brand.Brand_Name 
-                                    FROM product 
-                                    JOIN brand ON product.Brand_Id = brand.Brand_Id 
-                                    WHERE Pro_Id = '$pro_id'";
+                            // 现在需要连接 PRODUCT_STOCK 来获取该特定尺码的真实库存
+                            $sql = "SELECT p.*, b.Brand_Name, s.Quantity AS Size_Stock 
+                                    FROM product p 
+                                    JOIN brand b ON p.Brand_Id = b.Brand_Id 
+                                    LEFT JOIN PRODUCT_STOCK s ON p.Pro_Id = s.Pro_Id AND s.Pro_Size = '$size'
+                                    WHERE p.Pro_Id = '$pro_id'";
                             $res = $conn->query($sql);
 
                             if ($res && $res->num_rows > 0) {
@@ -183,7 +185,11 @@ $free_shipping_threshold = 250.00;
                                         RM <?php echo number_format($product['Pro_Price'], 2); ?>
                                     </div>
                                     <div>
-                                        <input type="number" name="qty[<?php echo $cart_key; ?>]" value="<?php echo $qty; ?>" min="1" max="<?php echo $product['Pro_Stock_Quantity']; ?>" class="qty-input" onchange="this.form.submit()">
+                                        <input type="number" name="qty[<?php echo $cart_key; ?>]" 
+                                                value="<?php echo $qty; ?>" 
+                                                min="1" 
+                                                max="<?php echo $product['Size_Stock']; ?>" 
+                                                class="qty-input" onchange="this.form.submit()">
                                     </div>
                                     <div style="text-align: right;">
                                         <div class="item-price">RM <?php echo number_format($item_total, 2); ?></div>

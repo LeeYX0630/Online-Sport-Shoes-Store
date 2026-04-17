@@ -26,9 +26,7 @@ $nav_is_logged_in = false;
 $nav_user_name = "";
 $nav_profile_pic = $path_mod_a . "images/user_icon.png"; // 默认头像
 
-// ==========================================
-// 匹配真实的 USER 表和字段
-// ==========================================
+
 if (isset($_SESSION['user_id'])) {
     $nav_is_logged_in = true;
     $uid = $_SESSION['user_id'];
@@ -41,7 +39,7 @@ if (isset($_SESSION['user_id'])) {
         $row = $res->fetch_assoc();
         $nav_user_name = $row['User_Name'];
         
-        // 如果用户有上传头像，则更新头像路径
+        
         if (!empty($row['User_Image'])) {
             $nav_profile_pic = $path_mod_a . "uploads/" . $row['User_Image'];
         }
@@ -51,9 +49,6 @@ if (isset($_SESSION['user_id'])) {
     $nav_user_name = isset($_SESSION['username']) ? $_SESSION['username'] . " (Admin)" : "Administrator";
 }
 
-// ==========================================
-// 新增：计算全局购物车数量 (用于显示在 Header 的小红点)
-// ==========================================
 $header_cart_count = 0;
 if (isset($_SESSION['cart']) && !empty($_SESSION['cart'])) {
     foreach ($_SESSION['cart'] as $item) {
@@ -74,11 +69,11 @@ if (isset($_SESSION['cart']) && !empty($_SESSION['cart'])) {
     
     <style>
       body { background-color: #f8f9fa; font-family: 'Segoe UI', sans-serif; }
-      /* 遵循 UI 规范：导航栏背景 #333333 */
-      .bg-brand-dark { background-color: #333333 !important; }
+
+      .bg-brand-dark { background-color: #333333; }
       .navbar-nav .nav-link { color: rgba(255,255,255,0.85); font-weight: 500; margin-right: 15px; }
       .navbar-nav .nav-link:hover { color: #fff; }
-      /* 遵循 UI 规范：强调色 #FF6B00 */
+
       .navbar-nav .nav-link.active { color: #fff; font-weight: 700; border-bottom: 2px solid #FF6B00; }
       
       .search-form { width: 100%; max-width: 400px; }
