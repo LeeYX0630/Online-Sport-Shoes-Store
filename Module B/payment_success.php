@@ -3,51 +3,181 @@
 session_start();
 require_once '../includes/db_connection.php';
 
+if (!isset($_GET['order_id']) || !isset($_SESSION['user_id'])) {
+    header("Location: ../index.php");
+    exit();
+}
+
 $order_id = intval($_GET['order_id']);
 $uid = $_SESSION['user_id'];
 
-// 联合查询生成收据 
-$sql = "SELECT o.*, p.Pro_Name, u.User_Name 
-        FROM `ORDER` o 
-        JOIN ORDER_DETAIL od ON o.Order_Id = od.Order_Id
-        JOIN PRODUCT p ON od.Pro_Id = p.Pro_Id
-        JOIN USER u ON o.User_Id = u.User_Id
-        WHERE o.Order_Id = '$order_id' AND o.User_Id = '$uid'";
+// 1. 获取订单总表信息
+$sql_order = "SELECT o.*, u.User_Name, u.User_Email, u.User_Phone 
+              FROM `ORDER` o 
+              JOIN USER u ON o.User_Id = u.User_Id
+              WHERE o.Order_Id = '$order_id' AND o.User_Id = '$uid'";
+$res_order = $conn->query($sql_order);
 
-$data = $conn->query($sql)->fetch_assoc();
+if ($res_order->num_rows == 0) {
+    die("Order not found.");
+}
+$order = $res_order->fetch_assoc();
+
+// 2. 获取该订单的所有商品明细
+$sql_details = "SELECT od.*, p.Pro_Name, p.Pro_Price, p.Pro_Image 
+                FROM ORDER_DETAIL od 
+                JOIN product p ON od.Pro_Id = p.Pro_Id 
+                WHERE od.Order_Id = '$order_id'";
+$res_details = $conn->query($sql_details);
 ?>
 
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Receipt #<?php echo $order_id; ?></title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Successful - Order #<?php echo $order_id; ?></title>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+
     <style>
-        .receipt-card { max-width: 600px; margin: 50px auto; border: 2px solid #FF6B00; border-radius: 15px; padding: 30px; }
-        .brand { color: #FF6B00; font-weight: bold; }
+        body { background-color: #f8f9fa; font-family: 'Segoe UI', sans-serif; }
+        
+        /* 收据盒子样式，模拟纸张 */
+        #receipt-content {
+            background: white;
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 40px;
+            border: 1px solid #eee;
+            border-radius: 8px;
+        }
+
+        .brand-logo { color: #FF6B00; font-weight: 800; font-size: 24px; }
+        .receipt-header { border-bottom: 2px solid #333; padding-bottom: 20px; margin-bottom: 30px; }
+        .table thead { background-color: #f8f9fa; }
+        .total-section { border-top: 2px solid #eee; padding-top: 20px; }
+        
+        /* 打印/下载时的特定样式控制 */
+        @media print {
+            .no-print { display: none; }
+        }
     </style>
 </head>
 <body>
-    <div class="receipt-card bg-white shadow">
-        <div class="text-center mb-4">
-            <h2 class="brand">SPORT SHOES STORE</h2>
-            <p class="text-muted">Official Purchase Receipt</p>
-        </div>
-        <hr>
-        <div class="row mb-3">
-            <div class="col-6"><strong>Order ID:</strong> #<?php echo $order_id; ?></div>
-            <div class="col-6 text-end"><strong>Date:</strong> <?php echo $data['Order_Date']; ?></div>
-        </div>
-        <p><strong>Customer:</strong> <?php echo $data['User_Name']; ?></p>
-        <p><strong>Product:</strong> <?php echo $data['Pro_Name']; ?></p>
-        <p><strong>Shipping To:</strong><br><?php echo nl2br($data['Order_Shipping_Addr']); ?></p>
-        <div class="bg-light p-3 rounded d-flex justify-content-between">
-            <span class="h5 mb-0">Total Amount Paid</span>
-            <span class="h5 mb-0 text-success">RM <?php echo number_format($data['Order_Amount'], 2); ?></span>
-        </div>
-        <div class="text-center mt-4">
-            <a href="../index.php" class="btn btn-warning">Back to Home</a>
+
+<div class="container py-5">
+    
+    <div class="text-center mb-5 no-print">
+        <div class="display-1 text-success"><i class="bi bi-check-circle-fill"></i></div>
+        <h1 class="fw-bold">Payment Successful!</h1>
+        <p class="text-muted">Thank you for your purchase. Your order is now being processed.</p>
+        
+        <div class="mt-4">
+            <button onclick="downloadPDF()" class="btn btn-dark px-4 py-2 me-2">
+                <i class="bi bi-file-earmark-pdf me-2"></i>Download Receipt (PDF)
+            </button>
+            <a href="../index.php" class="btn btn-outline-secondary px-4 py-2">Back to Home</a>
         </div>
     </div>
+
+    <div id="receipt-content" class="shadow-sm">
+        
+        <div class="receipt-header d-flex justify-content-between align-items-center">
+            <div class="brand">
+                <div class="brand-logo">SPORT SHOES STORE</div>
+                <p class="text-muted mb-0 small">Multimedia University, Melaka, Malaysia</p>
+                <p class="text-muted mb-0 small">Email: sportshoes.system@gmail.com</p>
+            </div>
+            <div class="text-end">
+                <h2 class="fw-bold mb-0">OFFICIAL RECEIPT</h2>
+                <p class="mb-0 text-muted">Order ID: <strong>#<?php echo $order_id; ?></strong></p>
+                <p class="mb-0 text-muted">Date: <?php echo date('d M Y, h:i A', strtotime($order['Order_Date'])); ?></p>
+            </div>
+        </div>
+
+        <div class="row mb-5">
+            <div class="col-6">
+                <h6 class="text-uppercase fw-bold text-muted">Billed To:</h6>
+                <p class="mb-0"><strong><?php echo htmlspecialchars($order['User_Name']); ?></strong></p>
+                <p class="mb-0"><?php echo htmlspecialchars($order['User_Email']); ?></p>
+                <p class="mb-0"><?php echo htmlspecialchars($order['User_Phone']); ?></p>
+            </div>
+            <div class="col-6 text-end">
+                <h6 class="text-uppercase fw-bold text-muted">Shipping Address:</h6>
+                <p class="mb-0 text-break"><?php echo nl2br(htmlspecialchars($order['Order_Shipping_Addr'])); ?></p>
+            </div>
+        </div>
+
+        <table class="table table-borderless align-middle mb-5">
+            <thead class="border-bottom">
+                <tr>
+                    <th style="width: 50%;">Item Description</th>
+                    <th class="text-center">Price</th>
+                    <th class="text-center">Qty</th>
+                    <th class="text-end">Subtotal</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php while($item = $res_details->fetch_assoc()): ?>
+                <tr class="border-bottom">
+                    <td>
+                        <div class="d-flex align-items-center">
+                            <img src="../uploads/<?php echo $item['Pro_Image']; ?>" width="50" class="me-3 rounded shadow-sm" onerror="this.src='../images/placeholder.png'">
+                            <span class="fw-bold"><?php echo htmlspecialchars($item['Pro_Name']); ?></span>
+                        </div>
+                    </td>
+                    <td class="text-center">RM <?php echo number_format($item['Pro_Price'], 2); ?></td>
+                    <td class="text-center"><?php echo $item['Order_Qty']; ?></td>
+                    <td class="text-end fw-bold">RM <?php echo number_format($item['Order_Subtotal'], 2); ?></td>
+                </tr>
+                <?php endwhile; ?>
+            </tbody>
+        </table>
+
+        <div class="row total-section justify-content-end">
+            <div class="col-md-5">
+                <div class="d-flex justify-content-between mb-2">
+                    <span class="text-muted">Payment Status:</span>
+                    <span class="badge bg-success">PAID (<?php echo $order['Payment_Status']; ?>)</span>
+                </div>
+                <div class="d-flex justify-content-between mb-2">
+                    <span class="text-muted">Order Status:</span>
+                    <span class="fw-bold"><?php echo $order['Order_Status']; ?></span>
+                </div>
+                <hr>
+                <div class="d-flex justify-content-between align-items-center">
+                    <h4 class="fw-bold">Total Paid:</h4>
+                    <h4 class="fw-bold text-success">RM <?php echo number_format($order['Order_Amount'], 2); ?></h4>
+                </div>
+            </div>
+        </div>
+
+        <div class="text-center mt-5">
+            <p class="text-muted small">This is a computer-generated receipt. No signature is required.</p>
+            <p class="fw-bold">Thank you for shopping with Sport Shoes Store!</p>
+        </div>
+    </div>
+</div>
+
+<script>
+    // PDF 下载逻辑
+    function downloadPDF() {
+        const element = document.getElementById('receipt-content');
+        const options = {
+            margin:       [10, 10, 10, 10],
+            filename:     'Receipt_Order_<?php echo $order_id; ?>.pdf',
+            image:        { type: 'jpeg', quality: 0.98 },
+            html2canvas:  { scale: 2, useCORS: true },
+            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+
+        // 执行转换并下载
+        html2pdf().set(options).from(element).save();
+    }
+</script>
+
 </body>
 </html>

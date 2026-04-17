@@ -159,7 +159,7 @@ include '../includes/header.php';
   </div>
 
   <div class="row justify-content-center">
-    
+        
     <div class="col-md-4 mb-4">
         <div class="card text-center p-4 shadow-sm border-0 h-100 rounded-4">
             <div class="mb-3">
@@ -167,7 +167,15 @@ include '../includes/header.php';
             </div>
             <h4><?php echo htmlspecialchars($user['User_Name']); ?></h4>
             <p class="badge bg-secondary"><?php echo isset($_SESSION['role']) ? $_SESSION['role'] : 'Customer'; ?></p>
-            <p class="text-muted small"><?php echo $user['User_Email']; ?></p>
+            
+            <div class="mt-3 p-3 rounded-3" style="background-color: #fff5eb; border: 1px dashed #FF6B00;">
+                <small class="text-muted d-block text-uppercase fw-bold" style="font-size: 0.7rem;">Wallet Balance</small>
+                <h3 class="fw-bold" style="color: #FF6B00;">RM <?php echo number_format($user['User_Balance'], 2); ?></h3>
+                <a href="../Module B/wallet.php" class="btn btn-sm btn-warning text-dark fw-bold w-100 mt-2">
+                    Manage Wallet
+                </a>
+            </div>
+            <p class="text-muted small mt-3"><?php echo $user['User_Email']; ?></p>
         </div>
     </div>
 

@@ -3,3 +3,4 @@ includes/db_connection.php
 includes/PHPMailer
 includes/api_config.php
 Module A/test.php
+includes/stripe
