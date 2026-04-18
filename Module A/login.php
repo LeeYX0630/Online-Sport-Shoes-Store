@@ -21,20 +21,20 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $email = trim($_POST['email']);
     $password = trim($_POST['password']);
     
-    $stmt = $conn->prepare("SELECT user_id, full_name, password, role, status FROM users WHERE email = ?");
+    $stmt = $conn->prepare("SELECT User_id, User_Name, User_Password FROM user WHERE User_Email = ?");
     $stmt->bind_param("s", $email);
     $stmt->execute();
     $result = $stmt->get_result();
 
     if ($result->num_rows === 1) {
         $row = $result->fetch_assoc();
-        if (password_verify($password, $row['password'])) {
+        if (password_verify($password, $row['User_Password'])) {
             if ($row['status'] === 'Blocked') {
                 $error = "Account suspended. Contact support.";
             } else {
                 session_regenerate_id(true); 
-                $_SESSION['user_id'] = $row['user_id'];
-                $_SESSION['user_name'] = $row['full_name'];
+                $_SESSION['user_id'] = $row['User_id'];
+                $_SESSION['user_name'] = $row['User_Name'];
                 $_SESSION['role'] = $row['role'];
                 header("Location: user_dashboard.php");
                 exit();

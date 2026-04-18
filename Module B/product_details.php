@@ -5,10 +5,8 @@
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
-
-// 检查是否已登录
 $is_logged_in = isset($_SESSION['user_id']);
-// 计算该产品所有尺码的总库存
+
 
 // ==========================================
 // 核心逻辑：处理加入购物车 (Add to Cart / Checkout)
