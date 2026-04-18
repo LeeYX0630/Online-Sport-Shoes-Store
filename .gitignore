@@ -2,4 +2,3 @@ includes/mail_config.php
 includes/db_connection.php
 includes/PHPMailer
 includes/api_config.php
-includes/stripe
