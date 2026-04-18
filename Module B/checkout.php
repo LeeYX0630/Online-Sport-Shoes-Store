@@ -4,6 +4,7 @@ ob_start();
 session_start();
 require_once '../includes/db_connection.php';
 
+
 // 1. 登录与购物车安全检查
 if (!isset($_SESSION['user_id'])) {
     header("Location: ../Module A/login.php");
@@ -14,16 +15,16 @@ if (!isset($_SESSION['cart']) || empty($_SESSION['cart'])) {
     exit();
 }
 
+
 $uid = $_SESSION['user_id'];
 $error = "";
 $success_msg = "";
 
-// 2. 获取用户基础信息 (来自 USER 表)
 $user_sql = "SELECT * FROM `USER` WHERE User_Id = '$uid'";
 $user_res = $conn->query($user_sql);
 $user_info = $user_res->fetch_assoc();
+$current_balance = floatval($user_info['User_Balance']);
 
-// 简单的姓名拆分逻辑
 $name_parts = explode(' ', $user_info['User_Name'], 2);
 $first_name = $name_parts[0];
 $last_name = isset($name_parts[1]) ? $name_parts[1] : "";
@@ -88,7 +89,40 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
         $error = "Invalid Malaysia phone number format (max 12 digits).";
     } elseif (!preg_match("/^[0-9]{5}$/", $postcode)) {
         $error = "Postcode must be 5 digits.";
-    } else {
+    } elseif ($_POST['pay_type'] === 'fpx' && (empty($_POST['fpx_bank']) || $_POST['fpx_bank'] === '')) {
+        $error = "Please select a bank for FPX payment.";
+    } elseif ($_POST['pay_type'] === 'wallet' && $current_balance < $grand_total) {
+        $error = "Insufficient wallet balance. Please select another payment method.";
+    } elseif ($_POST['pay_type'] === 'card') {
+        // Credit/Debit Card validation
+        $card_no = trim($_POST['card_no'] ?? '');
+        $card_name = trim($_POST['cardholder_name'] ?? '');
+        $expiry = trim($_POST['expiry'] ?? '');
+        $cvv = trim($_POST['cvv'] ?? '');
+        
+        if (empty($card_no) || strlen($card_no) !== 16 || !ctype_digit($card_no)) {
+            $error = "Card Number must be exactly 16 digits.";
+        } elseif (empty($card_name) || !preg_match("/^[a-zA-Z\s]+$/", $card_name)) {
+            $error = "Invalid Cardholder Name. Only letters are allowed.";
+        } elseif (empty($expiry) || !preg_match("/^(0[1-9]|1[0-2])\/([0-9]{2})$/", $expiry)) {
+            $error = "Invalid Expiry format. Use MM/YY format.";
+        } elseif (empty($cvv) || strlen($cvv) !== 3 || !ctype_digit($cvv)) {
+            $error = "CVV must be exactly 3 digits.";
+        } else {
+            // Validate expiry date is not in the past
+            list($month, $year) = explode('/', $expiry);
+            $currentYear = intval(date('y'));
+            $currentMonth = intval(date('m'));
+            $expiryYear = intval($year);
+            $expiryMonth = intval($month);
+            
+            if ($expiryYear < $currentYear || ($expiryYear == $currentYear && $expiryMonth < $currentMonth)) {
+                $error = "Card has expired.";
+            }
+        }
+    }
+    
+    if (empty($error)) {
         $email = $conn->real_escape_string($_POST['contact_email']);
         $addr = $conn->real_escape_string($_POST['address']);
         $apt = $conn->real_escape_string($_POST['apartment']);
@@ -105,6 +139,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
             $conn->query($sql_order);
             $order_id = $conn->insert_id;
 
+            // B. 【关键逻辑】执行钱包扣款与记录
+            $pay_type = $_POST['pay_type'];
+            if ($pay_type === 'wallet') {
+                // 扣除余额
+                $conn->query("UPDATE `USER` SET User_Balance = User_Balance - $grand_total WHERE User_Id = '$uid'");
+                
+                // 插入一条负数的交易流水记录
+                $trans_desc = "Purchased Order #$order_id";
+                $conn->query("INSERT INTO WALLET_TRANSACTION (User_Id, Amount, Type, Description) VALUES ('$uid', '-$grand_total', 'Payment', '$trans_desc')");
+            }
+
             foreach ($_SESSION['cart'] as $item) {
                 $item_pid = $item['pro_id'];
                 $item_qty = $item['qty'];
@@ -117,7 +162,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
             }
             $conn->commit();
             unset($_SESSION['cart']);
-            header("Location: payment_success.php?order_id=" . $order_id);
+            
+            // Handle payment redirection
+            if ($pay_type === 'fpx') {
+                $fpx_bank = $conn->real_escape_string($_POST['fpx_bank']);
+                header("Location: fpx_payment.php?order_id=" . $order_id . "&bank=" . $fpx_bank);
+            } else {
+                header("Location: payment_success.php?order_id=" . $order_id);
+            }
             exit();
         } catch (Exception $e) { $conn->rollback(); $error = "Order Failed: " . $e->getMessage(); }
     }
@@ -133,13 +185,17 @@ include '../includes/header.php';
     @media (max-width: 992px) { .checkout-grid { grid-template-columns: 1fr; } }
     
     .section-title { font-size: 1.2rem; font-weight: 600; margin-bottom: 20px; color: #000; }
-    .input-field { width: 100%; padding: 12px; border: 1px solid #d9d9d9; border-radius: 5px; font-size: 0.95rem; margin-bottom: 12px; transition: border 0.2s; background-color: #fff; }
+    .input-field { width: 100%; padding: 12px; border: 1px solid #d9d9d9; border-radius: 5px; font-size: 0.95rem; margin-bottom: 12px; transition: border 0.2s; background-color: #fff; box-sizing: border-box; height: 48px; line-height: 1.4;  }
     .input-field:focus { border: 2px solid #000; outline: none; }
-    .row-cols-2 { display: flex; gap: 15px; }
+    .row-cols-2 { display: flex; gap: 15px; align-items: baseline; }
     .row-cols-2 > div { flex: 1; }
     
     .payment-option { border: 1px solid #d9d9d9; border-radius: 5px; padding: 15px; margin-bottom: 10px; cursor: pointer; display: flex; align-items: center; gap: 15px; background: #fff; }
     .payment-option.active { border: 2px solid #17735b; background: #f4f9f8; }
+
+    .save-postcode { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+    .save-postcode input { margin-top: 0; }
+    .save-postcode label { margin: 0; }
 
     .sidebar { background: #fafafa; border-left: 1px solid #e6e6e6; padding: 20px; border-radius: 10px; }
     .cart-item { display: flex; gap: 15px; align-items: center; margin-bottom: 20px; position: relative; }
@@ -147,6 +203,7 @@ include '../includes/header.php';
     .item-img-wrapper img { width: 90%; mix-blend-mode: multiply; }
     .qty-badge { position: absolute; top: -10px; right: -10px; background: #666; color: #fff; font-size: 12px; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
     
+    .btn-apply { height: 46px; align-self: center; border-radius: 12px; font-weight: 700; transition: 0.3s; }
     .btn-pay-now { width: 100%; background: #17735b; color: #fff; border: none; padding: 18px; border-radius: 5px; font-weight: 600; font-size: 1.1rem; cursor: pointer; margin-top: 25px; transition: background 0.3s; }
 </style>
 
@@ -183,30 +240,99 @@ include '../includes/header.php';
                         </div>
                     </div>
                     <div class="row-cols-2">
-                         <div>
+                        <div>
                             <select name="postcode" id="postcodeSelect" class="input-field" required onchange="toggleCustomPostcode()">
                                 <option value="" disabled selected>Postcode</option>
                             </select>
                         </div>
                         <div>
-                             <input type="text" name="phone" id="phone_field" class="input-field" placeholder="Phone (e.g. 0123456789)" maxlength="12" required oninput="this.value = this.value.replace(/[^0-9]/g, '')">
+                            <input type="text" name="phone" id="phone_field" class="input-field" placeholder="Phone (e.g. 0123456789)" maxlength="12" required oninput="this.value = this.value.replace(/[^0-9]/g, '')">
                         </div>
                     </div>
                     <div id="customPostcodeDiv" style="display:none;">
                         <input type="text" name="custom_postcode" id="customPostcode" class="input-field" placeholder="Enter your postcode (5 digits)" maxlength="5" oninput="this.value = this.value.replace(/[^0-9]/g, '')">
                     </div>
+                    
+                    <div class="save-postcode">
+                        <input type="checkbox" name="save_postcode" id="save_postcode" class="form-check-input" <?php echo (isset($_COOKIE['saved_postcode']) && $_COOKIE['saved_postcode'] === $user_info['User_Postcode']) ? 'checked' : ''; ?>>
+                        <label for="save_postcode" class="form-check-label small text-muted">Save this postcode for future orders</label>
+                    </div>
                 </div>
 
                 <div class="mb-5">
                     <h5 class="section-title">Payment</h5>
+                    <div class="payment-option <?php echo ($current_balance < $grand_total) ? 'disabled' : 'active'; ?>" 
+                        onclick="<?php echo ($current_balance < $grand_total) ? 'return false;' : 'selectPay(this)'; ?>"
+                        style="<?php echo ($current_balance < $grand_total) ? 'opacity: 0.6; cursor: not-allowed;' : ''; ?>">
+    
+                    <input type="radio" name="pay_type" value="wallet" 
+                        <?php echo ($current_balance >= $grand_total) ? 'checked' : 'disabled'; ?>>
+                    
+                    <div class="flex-grow-1">
+                        <div class="fw-bold"><i class="bi bi-wallet2 me-2"></i>Store Wallet</div>
+                        <div class="small text-muted">Balance: <strong>RM <?php echo number_format($current_balance, 2); ?></strong></div>
+                    </div>
+
+                    <?php if($current_balance < $grand_total): ?>
+                        <span class="badge bg-danger">Insufficient Funds</span>
+                    <?php endif; ?>
+                    </div>
                     <div class="payment-option active" onclick="selectPay(this)">
                         <input type="radio" name="pay_type" value="card" checked>
                         <div><div class="fw-bold">Credit / Debit Card</div><div class="small text-muted">Visa, Mastercard</div></div>
+                    </div>
+                    <div id="cardFieldsDiv" style="display:none; margin-left: 15px; padding: 15px; background: #f9f9f9; border-radius: 5px;">
+                        <div>
+                            <div class="col-12">
+                                <label class="small fw-bold">Card Number</label>
+                                <input type="text" name="card_no" class="input-field" placeholder="16-digit card number" maxlength="16" oninput="this.value = this.value.replace(/[^0-9]/g, '')">
+                            </div>
+                        </div>
+                        <div>
+                            <div class="col-12">
+                                <label class="small fw-bold">Cardholder Name</label>
+                                <input type="text" name="cardholder_name" class="input-field" placeholder="JOHN DOE" oninput="this.value = this.value.replace(/[^a-zA-Z\s]/g, '')">
+                            </div>
+                        </div>
+                        <div style="display: block; gap: 15px;">
+                            <div style="block: 1;">
+                                <label class="small fw-bold">Expiry Date</label>
+                                <input type="text" name="expiry" id="expiry" class="input-field" placeholder="MM/YY" maxlength="5" oninput="formatExpiry(this)">
+                            </div>
+                            <div style="block: 1;">
+                                <label class="small fw-bold">CVV</label>
+                                <input type="password" name="cvv" class="input-field" placeholder="123" maxlength="3" oninput="this.value = this.value.replace(/[^0-9]/g, '')">
+                            </div>
+                        </div>
                     </div>
                     <div class="payment-option" onclick="selectPay(this)">
                         <input type="radio" name="pay_type" value="fpx">
                         <div><div class="fw-bold">FPX</div><div class="small text-muted">Online Banking</div></div>
                     </div>
+                    <div id="fpxBankDiv" style="display:none; margin-left: 15px; padding: 15px; background: #f9f9f9; border-radius: 5px;">
+                        <label for="fpxBank" class="small fw-bold">Select Your Bank</label>
+                        <select name="fpx_bank" id="fpxBank" class="input-field" required>
+                            <option value="" disabled selected>Choose Bank</option>
+                            <option value="MAYBANK">Maybank (MB)</option>
+                            <option value="CIMB">CIMB (CIMB)</option>
+                            <option value="PUBLIC">Public Bank (PB)</option>
+                            <option value="RHB">RHB Bank (RHB)</option>
+                            <option value="AMBANK">AmBank (AB)</option>
+                            <option value="AFFIN">AFFIN Bank (AF)</option>
+                            <option value="ALLIANCE">Alliance Bank (AB)</option>
+                            <option value="BOOST">Boost (MY)</option>
+                            <option value="UOB">UOB (UOB)</option>
+                            <option value="OCBC">OCBC Bank (OCBC)</option>
+                            <option value="HSBC">HSBC (HB)</option>
+                            <option value="SCB">Standard Chartered (SCB)</option>
+                            <option value="DBS">DBS (DB)</option>
+                            <option value="BIM">Bank Islam (BI)</option>
+                            <option value="IMM">Islamic Bank Mal (IM)</option>
+                            <option value="BANK_MUAMALAT">Bank Muamalat (MB)</option>
+                        </select>
+                    </div>
+
+                    
                 </div>
 
                 <input type="hidden" name="place_order" value="1">
@@ -235,7 +361,7 @@ include '../includes/header.php';
                 <form method="POST" action="" class="mb-4">
                     <div class="input-group">
                         <input type="text" name="coupon_code" class="form-control" placeholder="Discount code" value="<?php echo $applied_code; ?>">
-                        <button type="submit" name="apply_coupon" class="btn btn-dark">Apply</button>
+                        <button type="submit" name="apply_coupon" class="btn btn-dark btn-apply">Apply</button>
                     </div>
                     <?php if($error): ?><div class="text-danger small mt-2"><?php echo $error; ?></div><?php endif; ?>
                     <?php if($success_msg): ?><div class="text-success small mt-2"><?php echo $success_msg; ?></div><?php endif; ?>
@@ -443,6 +569,23 @@ function selectPay(el) {
     document.querySelectorAll('.payment-option').forEach(opt => opt.classList.remove('active'));
     el.classList.add('active');
     el.querySelector('input[type="radio"]').checked = true;
+    
+    // Show/hide payment method sections
+    const fpxDiv = document.getElementById('fpxBankDiv');
+    const cardDiv = document.getElementById('cardFieldsDiv');
+    const payType = document.querySelector('input[name="pay_type"]:checked').value;
+    
+    fpxDiv.style.display = (payType === 'fpx') ? 'block' : 'none';
+    cardDiv.style.display = (payType === 'card') ? 'block' : 'none';
+}
+
+function formatExpiry(input) {
+    let val = input.value.replace(/\D/g, '');
+    if (val.length >= 2) {
+        input.value = val.slice(0, 2) + '/' + val.slice(2, 4);
+    } else {
+        input.value = val;
+    }
 }
 
 function toggleCustomPostcode() {
