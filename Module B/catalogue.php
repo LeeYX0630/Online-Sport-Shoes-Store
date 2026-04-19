@@ -242,12 +242,6 @@ $where_clause = count($where_clauses) > 0 ? "WHERE " . implode(" AND ", $where_c
     <div class="catalogue-container">
 
         <?php if ($show_brands_mode): ?>
-            <form method="GET" action="catalogue.php" style="margin-bottom: 40px; display: flex; justify-content: center;">
-                <div style="display: flex; width: 100%; max-width: 600px; border: 1px solid #ddd; border-radius: 4px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.05);">
-                    <input type="text" name="search" placeholder="Search for a brand or product.." style="flex: 1; padding: 15px; border: none; outline: none; font-size: 15px;">
-                    <button type="submit" style="background: #008060; color: white; border: none; padding: 0 30px; font-weight: bold; cursor: pointer; font-size: 16px;">Search</button>
-                </div>
-            </form>
 
             <div class="page-header" style="border: none;">
                 <h2 style="text-align: center;">Brands</h2>

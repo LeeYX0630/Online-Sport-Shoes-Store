@@ -1118,17 +1118,19 @@ if (!empty($_SESSION['cart'])) {
     }
 
     function addToCartAndOpen() {
-        // 验证是否选择了size
+        if (!isLoggedIn) {
+            promptLogin('add items to your cart');
+            return;
+        }
+        
         if (!selectedSize) {
             document.getElementById('sizeError').style.display = 'inline';
             Swal.fire({ icon: 'warning', title: 'Select Size', text: 'Please select a size before adding to basket' });
             return;
         }
 
-        // 隐藏错误提示
         document.getElementById('sizeError').style.display = 'none';
 
-        // 禁用按钮防止重复提交
         this.disabled = true;
         this.style.opacity = '0.6';
         let originalText = this.textContent;
@@ -1137,7 +1139,7 @@ if (!empty($_SESSION['cart'])) {
         // 使用AJAX提交表单
         let formData = new FormData(document.getElementById('addToCartForm'));
         formData.append('add_to_cart', '1');
-        let btn = this; // 保存按钮引用
+        let btn = this;
 
         fetch('product_details.php?pro_id=<?php echo $product['Pro_Id']; ?>', {
             method: 'POST',
