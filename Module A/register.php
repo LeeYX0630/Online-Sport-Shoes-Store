@@ -223,11 +223,11 @@ include_once '../includes/header.php';
 
                 <div class="row">
                     <div class="col-6 mb-3">
-                        <label class="form-label">Phone</label>
+                        <label class="form-label">Phone Number</label>
                         <input type="text" name="phone" class="form-control no-group-radius" placeholder="01x-xxxxxxx" required>
                     </div>
                     <div class="col-6 mb-3">
-                        <label class="form-label">DOB</label>
+                        <label class="form-label">Date of Birthday</label>
                         <input type="date" name="dob" class="form-control no-group-radius" required>
                     </div>
                 </div>
