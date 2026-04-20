@@ -164,14 +164,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['submit_contact'])) {
         
         <section class="team-section">
             <div class="team-card">
-                <img src="../Module B/picture/Lee Prof Pic.png" alt="Mr. Lee">
+                <img src="../images/picture/Lee Prof Pic.png" alt="Mr. Lee">
                 <h5>Mr. Lee Yun Xiang</h5>
                 <p>Founder & Chief Executive Officer</p>
                 <p class="team-id">ID: 242DT2420T</p>
             </div>
 
             <div class="team-card">
-                <img src="../Module B/picture/Chong Prof Pic.png" alt="Ms. Cindy">
+                <img src="../images/picture/Chong Prof Pic.png" alt="Ms. Cindy">
                 <h5>Ms. Cindy Tiong Yi Sin</h5>
                 <p>Head of Business Development</p>
                 <p class="team-id">ID: 242DT242BZ</p>
