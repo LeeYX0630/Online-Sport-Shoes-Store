@@ -316,8 +316,23 @@ include 'includes/header.php';
             $count = 0;
             while($row = $result->fetch_assoc()) {
                 $count++;
-                // 适配 PRODUCT 表字段 [cite: 54, 51, 53, 49]
-                $img_path = !empty($row['Pro_Image']) ? "uploads/" . $row['Pro_Image'] : "images/placeholder.jpg";
+                
+                // 使用模糊匹配逻辑，与 product_details.php 一致
+                $img_path = "images/placeholder.jpg";
+                if (!empty($row['Pro_Image'])) {
+                    $base_img = $row['Pro_Image'];
+                    $path_parts = pathinfo($base_img);
+                    $base_name = preg_replace('/_\d+$/', '', $path_parts['filename']);
+                    
+                    // 扫描 uploads 文件夹找到匹配的文件
+                    $all_files = glob("uploads/{$base_name}*.*");
+                    if ($all_files && !empty($all_files)) {
+                        $img_path = $all_files[0];  // 取第一张图
+                    } else {
+                        $img_path = "uploads/" . $base_img;  // 备用
+                    }
+                }
+                
                 $original_price = $row['Pro_Price'];
                 
                 /**

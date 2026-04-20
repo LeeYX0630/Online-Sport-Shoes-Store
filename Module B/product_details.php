@@ -207,6 +207,20 @@ $recommended_products = [];
 $rec_res = $conn->query($rec_sql);
 if ($rec_res && $rec_res->num_rows > 0) { while($r = $rec_res->fetch_assoc()) { $recommended_products[] = $r; } }
 
+// 处理推荐产品的图片路径 (Apply glob matching for recommended products)
+foreach ($recommended_products as &$rp) {
+    if (!empty($rp['Pro_Image'])) {
+        $base_img = $rp['Pro_Image'];
+        $path_parts = pathinfo($base_img);
+        $base_name = preg_replace('/_\d+$/', '', $path_parts['filename']);
+        $all_files = glob("../uploads/{$base_name}*.*");
+        if ($all_files && !empty($all_files)) {
+            $rp['Pro_Image'] = basename($all_files[0]);
+        }
+    }
+}
+unset($rp);
+
 $bs_sql = "SELECT product.*, brand.Brand_Name 
            FROM product 
            JOIN brand ON product.Brand_Id = brand.Brand_Id 
@@ -271,6 +285,21 @@ if ($current_count < 8) {
     }
 }
 
+// 处理最近浏览产品的图片路径 (Apply glob matching for recently viewed products)
+foreach ($recently_viewed_products as &$rv) {
+    if (!empty($rv['Pro_Image'])) {
+        $base_img = $rv['Pro_Image'];
+        $path_parts = pathinfo($base_img);
+        $base_name = preg_replace('/_\d+$/', '', $path_parts['filename']);
+        $all_files = glob("../uploads/{$base_name}*.*");
+        if ($all_files && !empty($all_files)) {
+            $rv['Pro_Image'] = basename($all_files[0]);
+        }
+    }
+}
+unset($rv);
+
+
 // 计算最大库存用于JavaScript
 $max_stock_qty = 10; // 默认值
 if (!empty($size_stock_map)) {
@@ -299,6 +328,20 @@ if (!empty($_SESSION['cart'])) {
         }
     }
 }
+
+// 处理购物车商品的图片路径 (Apply glob matching for mini cart items)
+foreach ($mini_cart_items as &$mci) {
+    if (!empty($mci['Pro_Image'])) {
+        $base_img = $mci['Pro_Image'];
+        $path_parts = pathinfo($base_img);
+        $base_name = preg_replace('/_\d+$/', '', $path_parts['filename']);
+        $all_files = glob("../uploads/{$base_name}*.*");
+        if ($all_files && !empty($all_files)) {
+            $mci['Pro_Image'] = basename($all_files[0]);
+        }
+    }
+}
+unset($mci);
 ?>
 
 <!DOCTYPE html>
@@ -1156,7 +1199,6 @@ if (!empty($_SESSION['cart'])) {
                 confirmButtonText: 'Continue Shopping',
                 timer: 1500,
                 didClose: () => {
-                    // 刷新页面让PHP重新生成miniCartItems，然后自动打开购物车
                     window.location.href = 'product_details.php?pro_id=<?php echo $product["Pro_Id"]; ?>&status=added';
                 }
             });

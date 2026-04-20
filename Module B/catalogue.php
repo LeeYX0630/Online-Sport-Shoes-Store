@@ -446,49 +446,98 @@ $where_clause = count($where_clauses) > 0 ? "WHERE " . implode(" AND ", $where_c
                                 FROM product 
                                 JOIN brand ON product.Brand_Id = brand.Brand_Id
                                 $where_clause 
-                                ORDER BY Pro_Id DESC";
+                                ORDER BY product.Pro_Id DESC";
                         
                         $result = $conn->query($sql);
 
                         if ($result && $result->num_rows > 0) {
                             while($row = $result->fetch_assoc()) {
-                                // --- 新增：智能抓取封面图逻辑 ---
-                                $base_img = $row['Pro_Image'];
-                                $img_src = "../images/brands/placeholder.png"; 
+                                // 获取该产品的所有颜色
+                                $color_sql = "SELECT DISTINCT Pro_Colour FROM PRODUCT_STOCK WHERE Pro_Id = '{$row['Pro_Id']}' ORDER BY Pro_Colour ASC";
+                                $color_result = $conn->query($color_sql);
                                 
-                                if (!empty($base_img)) {
-                                    if (file_exists("../uploads/" . $base_img)) {
-                                        $img_src = "../uploads/" . $base_img;
-                                    } else {
-                                        // 尝试抓取变体图
-                                        $path_parts = pathinfo($base_img);
-                                        $base_name = preg_replace('/_\d+$/', '', $path_parts['filename']);
-                                        $found_images = glob("../uploads/{$base_name}*.*");
-                                        if (!empty($found_images)) {
-                                            $img_src = $found_images[0]; 
+                                $colors = [];
+                                if ($color_result && $color_result->num_rows > 0) {
+                                    while ($color_row = $color_result->fetch_assoc()) {
+                                        $colors[] = $color_row['Pro_Colour'];
+                                    }
+                                } else {
+                                    // 如果没有库存记录，使用产品表中的颜色
+                                    // 支持 / 和 , 两种分隔符
+                                    if (!empty($row['Pro_Colour'])) {
+                                        // 先用 / 分割，然后再用 , 分割
+                                        $raw_colors = preg_split('/[,\/]/', $row['Pro_Colour']);
+                                        // 清理和去重
+                                        $seen_colors = [];
+                                        foreach ($raw_colors as $c) {
+                                            $c = trim($c);
+                                            if (!empty($c) && !in_array(strtolower($c), array_map('strtolower', $seen_colors))) {
+                                                $seen_colors[] = $c;
+                                            }
                                         }
+                                        $colors = $seen_colors;
                                     }
                                 }
                                 
-                                $desc = !empty($row['Pro_Description']) ? substr($row['Pro_Description'], 0, 60) . '...' : 'Premium quality sports shoes.';
-                                ?>
+                                // 如果没有颜色信息，使用默认值
+                                if (empty($colors)) {
+                                    $colors = ['Default'];
+                                }
                                 
-                                <a href="product_details.php?pro_id=<?php echo $row['Pro_Id']; ?>" class="room-card">
-                                    <?php if(isset($row['Pro_Sale']) && $row['Pro_Sale'] == 1): ?>
-                                        <div class="badge-sale">↗ TRENDING / SALE</div>
-                                    <?php endif; ?>
+                                // 为每个颜色生成一张卡片
+                                foreach ($colors as $current_variant_color) {
+                                    // --- 智能抓取颜色对应的封面图 ---
+                                    $base_img = $row['Pro_Image'];
+                                    $img_src = "../images/brands/placeholder.png"; 
                                     
-                                    <div class="card-image">
-                                        <img src="<?php echo htmlspecialchars($img_src); ?>" alt="<?php echo htmlspecialchars($row['Pro_Name']); ?>" onerror="this.onerror=null; this.src='../images/brands/placeholder.png'">
-                                    </div>
-                                    <div class="card-content">
-                                        <div class="category-badge"><?php echo $row['Brand_Name']; ?></div>
-                                        <h3 class="room-title"><?php echo $row['Pro_Name']; ?></h3>
-                                        <div class="room-price">RM <?php echo number_format($row['Pro_Price'], 2); ?></div>
-                                    </div>
-                                </a>
+                                    if (!empty($base_img)) {
+                                        $path_parts = pathinfo($base_img);
+                                        $filename = $path_parts['filename'];
+                                        $extension = isset($path_parts['extension']) ? "." . $path_parts['extension'] : "";
+                                        
+                                        // 将颜色转换为小写并处理空格
+                                        $color_slug = strtolower(str_replace(' ', '_', $current_variant_color));
+                                        
+                                        // 拼接配色图片路径，例如 ../uploads/nb530_white_1.jpg
+                                        $color_variant_img = "../uploads/" . $filename . "_" . $color_slug . "_1" . $extension;
 
-                                <?php
+                                        if (file_exists($color_variant_img)) {
+                                            $img_src = $color_variant_img;
+                                        } else {
+                                            // 备用：查找任何以这个颜色开头的图片
+                                            $found_images = glob("../uploads/{$filename}_{$color_slug}*.*");
+                                            if (!empty($found_images)) {
+                                                $img_src = $found_images[0];
+                                            } else {
+                                                // 再备用：查找任何相关图片
+                                                $found_images = glob("../uploads/{$filename}*.*");
+                                                if (!empty($found_images)) {
+                                                    $img_src = $found_images[0];
+                                                }
+                                            }
+                                        }
+                                    }
+                                    
+                                    $desc = !empty($row['Pro_Description']) ? substr($row['Pro_Description'], 0, 60) . '...' : 'Premium quality sports shoes.';
+                                    ?>
+                                    
+                                    <a href="product_details.php?pro_id=<?php echo $row['Pro_Id']; ?>&color=<?php echo urlencode($current_variant_color); ?>" class="room-card">
+                                        <?php if(isset($row['Pro_Sale']) && $row['Pro_Sale'] == 1): ?>
+                                            <div class="badge-sale">↗ TRENDING / SALE</div>
+                                        <?php endif; ?>
+                                        
+                                        <div class="card-image">
+                                            <img src="<?php echo htmlspecialchars($img_src); ?>" alt="<?php echo htmlspecialchars($row['Pro_Name']); ?>" onerror="this.onerror=null; this.src='../images/brands/placeholder.png'">
+                                        </div>
+                                        <div class="card-content">
+                                            <div class="category-badge"><?php echo $row['Brand_Name']; ?></div>
+                                            <h3 class="room-title"><?php echo $row['Pro_Name']; ?> - <?php echo htmlspecialchars($current_variant_color); ?></h3>
+                                            <div class="room-price">RM <?php echo number_format($row['Pro_Price'], 2); ?></div>
+                                        </div>
+                                    </a>
+
+                                    <?php
+                                }
                             }
                         } else {
                             echo "<div class='no-results'>No products match your filters.<br><a href='catalogue.php' style='color:#FF6B00; text-decoration:underline; margin-top:10px; display:inline-block;'>Clear Filters</a></div>";
