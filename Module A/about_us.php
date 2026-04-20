@@ -178,7 +178,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['submit_contact'])) {
             </div>
 
             <div class="team-card">
-                <img src="../Module B/picture/Tung Prof Pic.png" alt="Mr. Tung">
+                <img src="../images/picture/Tung Prof Pic.png" alt="Mr. Tung">
                 <h5>Mr. Tung Khai Jun</h5>
                 <p>Head of Finance</p>
                 <p class="team-id">ID: 242DT242DB</p>
