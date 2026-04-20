@@ -6,10 +6,10 @@ if (session_status() === PHP_SESSION_NONE) {
 
 // 2. 引入必要文件 (请确保路径正确)
 require_once '../includes/db_connection.php';
-require_once '../includes/mail_config.php'; 
-require '../includes/PHPMailer/Exception.php';
-require '../includes/PHPMailer/PHPMailer.php';
-require '../includes/PHPMailer/SMTP.php';
+//require_once '../includes/mail_config.php'; 
+//require '../includes/PHPMailer/Exception.php';
+//require '../includes/PHPMailer/PHPMailer.php';
+//require '../includes/PHPMailer/SMTP.php';
 
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
@@ -135,7 +135,7 @@ include_once '../includes/header.php';
 
                         <div class="row">
                             <div class="col-md-6 mb-4">
-                                <label class="form-label fw-bold">Phone Number (MY Only)</label>
+                                <label class="form-label fw-bold">Phone Number</label>
                                 <input type="text" name="phone" class="form-control bg-light py-3" placeholder="0123456789" required>
                             </div>
                             <div class="col-md-6 mb-4">
