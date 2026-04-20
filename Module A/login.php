@@ -1,12 +1,10 @@
 <?php
-/** * Design focus: High-end sports aesthetic.
- * Colors: #FF6B00 (Primary), #FFFFFF (Secondary), #0F172A (Deep Slate for contrast).
+/** * Design: Stealth Sport Shoes - Light Aesthetic
+ * Palette: Pink (Background), #FF6B00 (Action), #FFFFFF (Form)
  */
 ob_start();
 session_start();
 require_once '../includes/db_connection.php';
-
-// Redirection logic remains the same as your functional code...
 ?>
 
 <!DOCTYPE html>
@@ -22,85 +20,79 @@ require_once '../includes/db_connection.php';
     <style>
         :root {
             --brand-orange: #FF6B00;
-            --deep-bg: #F8FAFC;
-            --glass-white: rgba(255, 255, 255, 0.9);
+            --soft-pink: #FDF2F8; /* Very light pink background */
+            --deep-slate: #0F172A;
         }
 
         body {
-            background-color: var(--deep-bg);
-            background-image: radial-gradient(circle at 20% 30%, rgba(255, 107, 0, 0.05) 0%, transparent 40%);
+            background-color: var(--soft-pink);
             font-family: 'Plus Jakarta Sans', sans-serif;
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 20px;
+            margin: 0;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* LIGHT PINK SHOE BACKGROUND LAYER */
+        body::before {
+            content: "";
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            /* Using a light/pink high-end shoe as requested */
+            background-image: url('https://images.unsplash.com/photo-1595950653106-6c9ebd614d3a?q=80&w=2000'); 
+            background-size: 60%; /* Keeps shoe scale large but subtle */
+            background-repeat: no-repeat;
+            background-position: -5% 50%; /* Pushes shoe to the far left background */
+            opacity: 0.15; /* Keeps it very light so words are readable */
+            filter: grayscale(10%) sepia(20%) hue-rotate(300deg); /* Shifts color toward pink tones */
+            z-index: -1;
         }
 
         .master-container {
             width: 1050px;
-            background: var(--glass-white);
-            backdrop-filter: blur(15px);
+            height: 600px;
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(20px);
             border-radius: 40px;
             display: flex;
             overflow: hidden;
-            box-shadow: 0 40px 100px rgba(0,0,0,0.08);
-            border: 1px solid rgba(255, 255, 255, 0.6);
+            box-shadow: 0 40px 100px rgba(255, 107, 0, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.8);
         }
 
-        /* LEFT PANEL: The "Aura" Branding */
-        .aura-panel {
-            flex: 1.2;
+        /* Left side stays clean for the Pink background to show through */
+        .branding-panel {
+            flex: 1;
             padding: 80px;
-            background: linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%);
             display: flex;
             flex-direction: column;
             justify-content: center;
-            position: relative;
+            z-index: 1;
         }
 
-        .aura-panel h1 {
+        .branding-panel h1 {
             font-family: 'Space Grotesk', sans-serif;
             font-size: 5rem;
-            font-weight: 800;
+            font-weight: 900;
             line-height: 0.85;
-            letter-spacing: -3px;
-            color: #0F172A;
-            margin-bottom: 25px;
+            color: var(--deep-slate);
         }
 
-        .aura-panel h1 span { color: var(--brand-orange); }
+        .branding-panel h1 span { color: var(--brand-orange); }
 
-        .aura-panel p {
-            font-size: 1.2rem;
-            color: #64748B;
-            line-height: 1.6;
-            max-width: 350px;
-        }
-
-        /* RIGHT PANEL: Sleek Form */
+        /* Form side stays pure White/Orange focus */
         .form-panel {
             flex: 1;
-            padding: 70px;
-            background: #ffffff;
+            padding: 80px;
+            background: #FFFFFF; /* Pure white focus as requested */
             display: flex;
             flex-direction: column;
             justify-content: center;
-            border-left: 1px solid #f1f5f9;
-        }
-
-        .input-group-custom {
-            position: relative;
-            margin-bottom: 25px;
-        }
-
-        .input-group-custom i {
-            position: absolute;
-            left: 20px;
-            top: 50%;
-            transform: translateY(-50%);
-            color: #94A3B8;
-            transition: 0.3s;
+            box-shadow: -20px 0 50px rgba(0,0,0,0.02);
         }
 
         .form-label {
@@ -108,62 +100,44 @@ require_once '../includes/db_connection.php';
             font-size: 0.7rem;
             text-transform: uppercase;
             letter-spacing: 1.5px;
-            color: #475569;
-            margin-bottom: 10px;
-            display: block;
+            color: #94A3B8;
         }
 
         .form-control {
-            height: 60px;
-            padding-left: 55px !important;
-            border-radius: 18px;
+            height: 55px;
+            border-radius: 15px;
             border: 2px solid #F1F5F9;
             background: #F8FAFC;
             font-weight: 600;
-            transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            margin-bottom: 25px;
         }
 
         .form-control:focus {
+            border-color: var(--brand-orange); /* Keep orange focus */
             background: #fff;
-            border-color: var(--brand-orange);
-            box-shadow: 0 10px 25px rgba(255, 107, 0, 0.1);
+            box-shadow: 0 10px 20px rgba(255, 107, 0, 0.05);
         }
 
-        .form-control:focus + i { color: var(--brand-orange); }
-
         .btn-access {
-            background: var(--brand-orange);
+            background: var(--brand-orange); /* Orange button focus */
             color: white;
-            border: none;
-            height: 64px;
-            border-radius: 20px;
+            height: 60px;
+            border-radius: 18px;
             font-weight: 800;
             text-transform: uppercase;
             letter-spacing: 2px;
-            font-size: 1rem;
+            border: none;
             transition: 0.4s;
-            margin-top: 15px;
         }
 
         .btn-access:hover {
             background: #E66000;
-            transform: translateY(-3px);
-            box-shadow: 0 20px 40px rgba(255, 107, 0, 0.3);
-            color: white;
-        }
-
-        .badge-stealth {
-            background: rgba(255, 107, 0, 0.1);
-            color: var(--brand-orange);
-            font-weight: 800;
-            font-size: 0.7rem;
-            padding: 8px 16px;
-            border-radius: 100px;
-            display: inline-block;
+            transform: translateY(-2px);
+            box-shadow: 0 15px 30px rgba(255, 107, 0, 0.2);
         }
 
         @media (max-width: 992px) {
-            .aura-panel { display: none; }
+            .branding-panel { display: none; }
             .master-container { width: 100%; max-width: 450px; }
         }
     </style>
@@ -171,47 +145,37 @@ require_once '../includes/db_connection.php';
 <body>
 
 <div class="master-container">
-    <div class="aura-panel">
-        <div class="mb-4"><span class="badge-stealth">2026 EDITION</span></div>
+    <div class="branding-panel">
+        <span class="badge rounded-pill mb-3" style="background: rgba(255,107,0,0.1); color: var(--brand-orange); width: fit-content; font-weight: 800;">LITE COLLECTION</span>
         <h1>Welcome<br>Back<span></span></h1>
-        <p>Your journey to peak performance starts here. Sign in to your locker.</p>
+        <p class="text-muted mt-3">Access your exclusive locker at Stealth Sport Shoes.</p>
     </div>
 
     <div class="form-panel">
-        <div class="mb-5 text-center text-lg-start">
-            <h3 class="fw-800" style="font-weight: 800;">Sign In</h3>
-            <p class="text-muted small">Access your member profile</p>
+        <div class="mb-5">
+            <h2 class="fw-800" style="font-weight: 800;">Sign In</h2>
+            <p class="text-muted small">Orange branding, Light aesthetic.</p>
         </div>
 
         <form method="POST">
-            <div class="input-group-custom">
+            <div>
                 <label class="form-label">Email Handle</label>
-                <input type="email" name="email" class="form-control" required placeholder="your@email.com">
-                <i class="bi bi-envelope-at-fill"></i>
+                <input type="email" name="email" class="form-control" placeholder="your@email.com" required>
             </div>
 
-            <div class="input-group-custom mb-2">
+            <div>
                 <div class="d-flex justify-content-between">
                     <label class="form-label">Security Key</label>
-                    <a href="forgot_password.php" class="text-decoration-none small fw-bold" style="color: var(--brand-orange); font-size: 0.7rem;">LOST?</a>
+                    <a href="forgot_password.php" class="text-decoration-none small fw-bold" style="color: var(--brand-orange);">LOST?</a>
                 </div>
-                <input type="password" name="password" id="p" class="form-control" required placeholder="••••••••">
-                <i class="bi bi-shield-lock-fill"></i>
+                <input type="password" name="password" class="form-control" placeholder="••••••••" required>
             </div>
 
-            <div class="form-check mb-4 mt-3">
-                <input class="form-check-input" type="checkbox" id="rem">
-                <label class="form-check-label small text-muted" for="rem">Keep me authenticated</label>
-            </div>
-
-            <div class="d-grid">
-                <button type="submit" class="btn-access">Access Account</button>
-            </div>
+            <button type="submit" class="btn btn-access w-100">Access Account</button>
         </form>
 
-        <div class="text-center mt-5 pt-4 border-top" style="border-color: #f1f5f9 !important;">
-            <p class="small text-muted mb-2">Not a member yet?</p>
-            <a href="register.php" class="fw-bold text-decoration-none" style="color: var(--brand-orange);">Apply for Membership</a>
+        <div class="text-center mt-5">
+            <p class="small text-muted">New member? <a href="register.php" class="fw-bold text-decoration-none" style="color: var(--brand-orange);">Join Now</a></p>
         </div>
     </div>
 </div>
