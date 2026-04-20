@@ -178,6 +178,22 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
 include '../includes/header.php';
 ?>
 
+<!-- 在页面顶部显示错误或成功消息 -->
+<?php if($error || $success_msg): ?>
+<div style="max-width: 1100px; margin: 20px auto 0; padding: 0 20px;">
+    <?php if($error): ?>
+    <div style="background-color: #f8d7da; color: #721c24; padding: 15px; border-radius: 5px; border-left: 4px solid #f5c6cb; margin-bottom: 20px;">
+        <strong>❌ 出错：</strong> <?php echo htmlspecialchars($error); ?>
+    </div>
+    <?php endif; ?>
+    <?php if($success_msg): ?>
+    <div style="background-color: #d4edda; color: #155724; padding: 15px; border-radius: 5px; border-left: 4px solid #c3e6cb; margin-bottom: 20px;">
+        <strong>✓ 成功：</strong> <?php echo htmlspecialchars($success_msg); ?>
+    </div>
+    <?php endif; ?>
+</div>
+<?php endif; ?>
+
 <style>
     body { background-color: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #333; }
     .checkout-container { max-width: 1100px; margin: 0 auto; padding: 40px 20px; }
@@ -336,7 +352,7 @@ include '../includes/header.php';
                 </div>
 
                 <input type="hidden" name="place_order" value="1">
-                <button type="submit" class="btn-pay-now">Pay now</button>
+                <button type="submit" class="btn-pay-now" onclick="return validateCheckoutForm()">Pay now</button>
             </form>
         </div>
 
@@ -577,6 +593,21 @@ function selectPay(el) {
     
     fpxDiv.style.display = (payType === 'fpx') ? 'block' : 'none';
     cardDiv.style.display = (payType === 'card') ? 'block' : 'none';
+    
+    // 更新卡支付字段的 required 属性
+    const cardFields = ['card_no', 'cardholder_name', 'expiry', 'cvv'];
+    const fpxBank = document.getElementById('fpxBank');
+    
+    cardFields.forEach(fieldId => {
+        const field = document.querySelector(`[name="${fieldId}"]`);
+        if (field) {
+            field.required = (payType === 'card');
+        }
+    });
+    
+    if (fpxBank) {
+        fpxBank.required = (payType === 'fpx');
+    }
 }
 
 function formatExpiry(input) {
@@ -603,8 +634,102 @@ function toggleCustomPostcode() {
     }
 }
 
+// 表单验证函数
+function validateCheckoutForm() {
+    const payType = document.querySelector('input[name="pay_type"]:checked').value;
+    
+    // 基本信息验证
+    if (!document.querySelector('input[name="first_name"]').value) {
+        alert('请输入名字');
+        return false;
+    }
+    if (!document.querySelector('input[name="last_name"]').value) {
+        alert('请输入姓氏');
+        return false;
+    }
+    if (!document.querySelector('input[name="address"]').value) {
+        alert('请输入地址');
+        return false;
+    }
+    if (!document.querySelector('select[name="state"]').value) {
+        alert('请选择州属');
+        return false;
+    }
+    if (!document.querySelector('select[name="city"]').value) {
+        alert('请选择城市');
+        return false;
+    }
+    if (!document.querySelector('select[name="postcode"]').value) {
+        alert('请选择邮编');
+        return false;
+    }
+    if (document.querySelector('select[name="postcode"]').value === 'other' && !document.getElementById('customPostcode').value) {
+        alert('请输入邮编');
+        return false;
+    }
+    const phone = document.querySelector('input[name="phone"]').value;
+    if (!phone || phone.length < 9 || phone.length > 12) {
+        alert('请输入有效的电话号码 (9-12位数字)');
+        return false;
+    }
+    
+    // 支付方式特定验证
+    if (payType === 'card') {
+        const cardNo = document.querySelector('input[name="card_no"]').value;
+        const cardName = document.querySelector('input[name="cardholder_name"]').value;
+        const expiry = document.querySelector('input[name="expiry"]').value;
+        const cvv = document.querySelector('input[name="cvv"]').value;
+        
+        if (!cardNo || cardNo.length !== 16) {
+            alert('请输入有效的16位卡号');
+            return false;
+        }
+        if (!cardName) {
+            alert('请输入持卡人姓名');
+            return false;
+        }
+        if (!expiry || !/^\d{2}\/\d{2}$/.test(expiry)) {
+            alert('请输入有效的过期日期 (MM/YY格式)');
+            return false;
+        }
+        if (!cvv || cvv.length !== 3) {
+            alert('请输入有效的3位CVV');
+            return false;
+        }
+    } else if (payType === 'fpx') {
+        const fpxBank = document.querySelector('select[name="fpx_bank"]').value;
+        if (!fpxBank) {
+            alert('请选择银行');
+            return false;
+        }
+    }
+    
+    return true;
+}
+
 // 页面加载时初始化
-document.addEventListener('DOMContentLoaded', initStates);
+document.addEventListener('DOMContentLoaded', function() {
+    initStates();
+    
+    // 初始化支付方式的显示/隐藏状态
+    const payType = document.querySelector('input[name="pay_type"]:checked').value;
+    const fpxDiv = document.getElementById('fpxBankDiv');
+    const cardDiv = document.getElementById('cardFieldsDiv');
+    
+    if (payType === 'card') {
+        cardDiv.style.display = 'block';
+        // 设置卡支付字段为必填
+        const cardFields = ['card_no', 'cardholder_name', 'expiry', 'cvv'];
+        cardFields.forEach(fieldId => {
+            const field = document.querySelector(`[name="${fieldId}"]`);
+            if (field) field.required = true;
+        });
+    } else if (payType === 'fpx') {
+        fpxDiv.style.display = 'block';
+        const fpxBank = document.getElementById('fpxBank');
+        if (fpxBank) fpxBank.required = true;
+    }
+});
 </script>
 
 <?php include '../includes/footer.php'; ?>
