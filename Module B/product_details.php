@@ -399,11 +399,15 @@ unset($mci);
         .btn-add-cart {  flex: 1; background-color: #008060; color: white; padding: 15px 20px; font-weight: bold; text-transform: uppercase; border: none; border-radius: 4px; cursor: pointer; transition: 0.3s;}
         .btn-add-cart:hover { background-color: #00664c; }
 
+        .product-info {
+            position: relative;
+        }
+
         .btn-wishlist-main {
-            position: absolute; top: 15px; right: 15px; background: #fff; width: 40px; height: 40px;
+            position: absolute; top: 0; right: 0; background: #fff; width: 50px; height: 50px;
             border-radius: 50%; display: flex; align-items: center; justify-content: center;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.1); font-size: 18px; color: #666;
-            cursor: pointer; border: none; transition: 0.3s; z-index: 2;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1); font-size: 20px; color: #666;
+            cursor: pointer; border: none; transition: 0.3s; z-index: 10;
         }
         .btn-wishlist-main:hover { color: #E7352B; transform: scale(1.1); }
         
@@ -548,6 +552,7 @@ unset($mci);
             </div>
             
             <div class="product-info">
+                <button class="btn-wishlist-main" onclick="toggleWishlist(event, this)"><i class="bi bi-heart"></i></button>
                 <div class="brand-name"><?php echo $product['Brand_Name']; ?></div>
                 <h1 class="product-title"><?php echo $product['Pro_Name']; ?></h1>
                 <span class="current-price">RM <?php echo number_format($product['Pro_Price'], 2); ?></span>
@@ -757,7 +762,6 @@ unset($mci);
             let badges = '';
             if (idx === 0) {
                 if (isSale === 1) badges += '<div class="badge-sale">↗ TRENDING / SALE</div>';
-                badges += `<button class="btn-wishlist-main" onclick="toggleWishlist(event, this)"><i class="bi bi-heart"></i></button>`;
             }
             html += `
                 <div class="gallery-img-box">
