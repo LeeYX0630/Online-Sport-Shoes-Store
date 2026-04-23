@@ -25,9 +25,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_btn'])) {
     $state = trim($_POST['state']);
 
     // 1. ✅ GMAIL ONLY VALIDATION
-    if (!str_ends_with($email, '@gmail.com')) {
-        $error = "Registration requires an @gmail.com account.";
-    }
+    
 
     // 2. ✅ DOB & AGE VALIDATION (16 - 100 Years)
     $birthDate = new DateTime($dob);
