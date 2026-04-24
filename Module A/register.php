@@ -9,6 +9,19 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 require_once '../includes/db_connection.php';
+require '../includes/PHPMailer/Exception.php';
+require '../includes/PHPMailer/PHPMailer.php';
+require '../includes/PHPMailer/SMTP.php';
+require '../includes/mail_config.php';
+
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\Exception;
+
+if (isset($_SESSION['user_id'])) {
+    $dashboard_link = (isset($_SESSION['role']) && ($_SESSION['role'] === 'Admin')) ? '../Module C/admin_dashboard.php' : 'user_dashboard.php';
+    header("Location: $dashboard_link");
+    exit();
+}
 
 $error = "";
 
@@ -66,18 +79,48 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_btn'])) {
             if ($checkStmt->get_result()->num_rows > 0) {
                 $error = "This account already exists.";
             } else {
+                $otp = rand(100000, 999999);
+                $hashed_password = password_hash($password, PASSWORD_DEFAULT);
+                
+                // 暂存所有数据到 Session
                 $_SESSION['temp_user'] = [
-                    'full_name' => $full_name, 'email' => $email, 'phone' => $clean_phone,
-                    'password' => password_hash($password, PASSWORD_DEFAULT),
-                    'dob' => $dob, 'address' => $address,
-                    'postcode' => $postcode, 'state' => $state
+                    'full_name' => $full_name,
+                    'email' => $email,
+                    'phone' => $clean_phone,
+                    'password' => $hashed_password,
+                    'dob' => $dob,
+                    'address' => $address,
+                    'postcode' => $postcode,
+                    'state' => $state,
+                    'otp' => $otp,
+                    'expiry' => strtotime("+5 minutes")
                 ];
-                header("Location: verify_otp.php");
-                exit();
+
+                $mail = new PHPMailer(true);
+                try {
+                    $mail->isSMTP();
+                    $mail->Host       = 'smtp.gmail.com'; 
+                    $mail->SMTPAuth   = true;
+                    $mail->Username   = SMTP_EMAIL; 
+                    $mail->Password   = SMTP_PASS;
+                    $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+                    $mail->Port       = 587;
+
+                    $mail->setFrom('sportshoes.system@gmail.com', 'Online Sport Shoes Store');
+                    $mail->addAddress($email);
+                    $mail->isHTML(true);
+                    $mail->Subject = 'Verify Your Registration';
+                    $mail->Body    = "Hello $full_name, your OTP is: <b style='font-size:20px; color:#FF6B00;'>$otp</b>. Valid for 5 minutes.";
+
+                    $mail->send();
+                    header("Location: verify_otp.php");
+                    exit();
+            } catch (Exception $e) {
+                $error = "Email could not be sent. Error: {$mail->ErrorInfo}";
             }
         }
     }
-}
+}}
 
 $page_title = "Join Stealth - Premium Registration";
 include_once '../includes/header.php'; 
