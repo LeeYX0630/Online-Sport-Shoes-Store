@@ -1,7 +1,7 @@
 <?php
 /**
- * STEALTH SPORT SHOES - ADVANCED PREMIUM REGISTRATION UI
- * Design Profile: Wide, High-End, Orange & White Only
+ * STEALTH SPORT SHOES - MULTI-ACCOUNT REGISTRATION
+ * Logic: Same Email allowed if Phone Number is different.
  */
 
 if (session_status() === PHP_SESSION_NONE) {
@@ -9,16 +9,12 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 require_once '../includes/db_connection.php';
-require '../includes/PHPMailer/Exception.php';
-require '../includes/PHPMailer/PHPMailer.php';
-require '../includes/PHPMailer/SMTP.php';
-require '../includes/mail_config.php';
 
-use PHPMailer\PHPMailer\PHPMailer;
-use PHPMailer\PHPMailer\Exception;
-
+// Redirect if already logged in
 if (isset($_SESSION['user_id'])) {
-    $dashboard_link = (isset($_SESSION['role']) && ($_SESSION['role'] === 'Admin')) ? '../Module C/admin_dashboard.php' : 'user_dashboard.php';
+    $dashboard_link = (isset($_SESSION['role']) && ($_SESSION['role'] === 'Admin')) 
+        ? '../Module C/admin_dashboard.php' 
+        : 'user_dashboard.php';
     header("Location: $dashboard_link");
     exit();
 }
@@ -37,92 +33,65 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_btn'])) {
     $postcode = trim($_POST['postcode']);
     $state = trim($_POST['state']);
 
-    // 1. ✅ GMAIL ONLY VALIDATION
-    
-
-    // 2. ✅ DOB & AGE VALIDATION (16 - 100 Years)
-    $birthDate = new DateTime($dob);
-    $today = new DateTime();
-    $age = $today->diff($birthDate)->y;
-
-    if ($birthDate > $today) {
-        $error = "Date of birth cannot be in the future.";
-    } elseif ($age > 100) {
-        $error = "Date of birth cannot exceed 100 years.";
-    } elseif ($age < 16) {
-        $error = "You must be at least 16 years old to register.";
-    }
-
-    // 3. ✅ PHONE VALIDATION (011 = 11 digits, Others = 10 digits)
+    // Clean phone number (remove dashes/spaces)
     $clean_phone = preg_replace('/[^0-9]/', '', $phone_input);
-    if (!str_starts_with($clean_phone, '01')) {
-        $error = "Phone number must start with 01.";
-    } elseif (str_starts_with($clean_phone, '011')) {
-        if (strlen($clean_phone) != 11) $error = "011 format must be 11 digits.";
-    } else {
-        if (strlen($clean_phone) != 10) $error = "Phone must be 10 digits (012-019).";
+
+    // Basic Validations
+    if (preg_match('/[0-9]/', $full_name)) {
+        $error = "Full Name cannot contain numbers.";
     }
 
-    // 4. ✅ POSTCODE VALIDATION
-    if (!preg_match('/^[0-9]{5}$/', $postcode)) {
-        $error = "Postcode must be exactly 5 digits.";
+    if (!$error && !str_ends_with($email, '@gmail.com')) {
+        $error = "Only Gmail addresses are allowed.";
     }
+
+    // Assign Role
+    $role = ($email === "sportshoes.system@gmail.com") ? "Admin" : "User";
 
     if (!$error) {
         if ($password !== $confirm_password) {
             $error = "Passwords do not match.";
         } else {
-            $checkStmt = $conn->prepare("SELECT User_Email FROM `USER` WHERE User_Email = ? OR User_Phone = ?");
-            $checkStmt->bind_param("ss", $email, $clean_phone);
-            $checkStmt->execute();
+            // DATABASE CHECK:
+            // We check if THIS specific Email AND Phone combo already exists.
+            // This allows the same Gmail to register again with a NEW phone number.
+            $checkUser = $conn->prepare("SELECT * FROM USER WHERE User_Email = ? AND User_Phone = ?");
+            $checkUser->bind_param("ss", $email, $clean_phone);
+            $checkUser->execute();
+            $result = $checkUser->get_result();
 
-            if ($checkStmt->get_result()->num_rows > 0) {
-                $error = "This account already exists.";
+            if ($result->num_rows > 0) {
+                $error = "This Email is already registered with this Phone Number.";
             } else {
+                // SUCCESS: Generate OTP
                 $otp = rand(100000, 999999);
                 $hashed_password = password_hash($password, PASSWORD_DEFAULT);
                 
-                // 暂存所有数据到 Session
                 $_SESSION['temp_user'] = [
-                    'full_name' => $full_name,
-                    'email' => $email,
+                    'full_name' => $full_name, 
+                    'email' => $email, 
                     'phone' => $clean_phone,
-                    'password' => $hashed_password,
-                    'dob' => $dob,
+                    'password' => $hashed_password, 
+                    'dob' => $dob, 
                     'address' => $address,
-                    'postcode' => $postcode,
-                    'state' => $state,
-                    'otp' => $otp,
+                    'postcode' => $postcode, 
+                    'state' => $state, 
+                    'role' => $role,
+                    'otp' => $otp, 
                     'expiry' => strtotime("+5 minutes")
                 ];
 
-                $mail = new PHPMailer(true);
-                try {
-                    $mail->isSMTP();
-                    $mail->Host       = 'smtp.gmail.com'; 
-                    $mail->SMTPAuth   = true;
-                    $mail->Username   = SMTP_EMAIL; 
-                    $mail->Password   = SMTP_PASS;
-                    $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
-                    $mail->Port       = 587;
-
-                    $mail->setFrom('sportshoes.system@gmail.com', 'Online Sport Shoes Store');
-                    $mail->addAddress($email);
-                    $mail->isHTML(true);
-                    $mail->Subject = 'Verify Your Registration';
-                    $mail->Body    = "Hello $full_name, your OTP is: <b style='font-size:20px; color:#FF6B00;'>$otp</b>. Valid for 5 minutes.";
-
-                    $mail->send();
-                    header("Location: verify_otp.php");
-                    exit();
-            } catch (Exception $e) {
-                $error = "Email could not be sent. Error: {$mail->ErrorInfo}";
+                // OPTION B: Show OTP in alert and redirect
+                echo "<script>
+                    alert('STEALTH SYSTEM\\n\\nAccount detected for: $email\\nYour OTP is: $otp');
+                    window.location.href='verify_otp.php';
+                </script>";
+                exit();
             }
         }
     }
-}}
+}
 
-$page_title = "Join Stealth - Premium Registration";
 include_once '../includes/header.php'; 
 ?>
 
@@ -141,7 +110,7 @@ include_once '../includes/header.php';
     }
 
     .reg-wrapper { 
-        max-width: 850px; /* Wider layout for premium aesthetic */
+        max-width: 850px; 
         margin: 60px auto; 
     }
 
@@ -211,6 +180,16 @@ include_once '../includes/header.php';
         margin-top: 10px; 
     }
 
+    .pw-tip {
+        font-size: 0.75rem;
+        color: #64748B;
+        background: #F1F5F9;
+        padding: 10px;
+        border-radius: 10px;
+        margin-top: 10px;
+        border-left: 3px solid var(--brand-orange);
+    }
+
     .btn-stealth-prime { 
         background: var(--brand-orange); 
         color: white; 
@@ -255,13 +234,13 @@ include_once '../includes/header.php';
                     <label class="form-label">Full Name</label>
                     <div class="input-group">
                         <span class="input-group-text"><i class="bi bi-person"></i></span>
-                        <input type="text" name="full_name" class="form-control" required placeholder="Enter your full name">
+                        <input type="text" id="fullname" name="full_name" class="form-control" required placeholder="Enter your full name">
                     </div>
                 </div>
 
                 <div class="row g-4">
                     <div class="col-md-6 mb-3">
-                        <label class="form-label">Phone Number</label>
+                        <label class="form-label">Phone Number (Max 3 accounts)</label>
                         <input type="text" id="phone" name="phone" class="form-control no-group-radius" placeholder="01x-xxxxxxx" required>
                     </div>
                     <div class="col-md-6 mb-3">
@@ -311,6 +290,14 @@ include_once '../includes/header.php';
                         <label class="form-label">Password</label>
                         <input type="password" name="password" id="pwd" class="form-control no-group-radius" required>
                         <small id="strength" style="display:block; margin-top:5px;"></small>
+                        <div class="pw-tip">
+                            <strong>How to make it stronger?</strong>
+                            <ul class="mb-0 ps-3 mt-1">
+                                <li>Use at least 8 characters</li>
+                                <li>Mix uppercase (A) and lowercase (a)</li>
+                                <li>Include numbers (0-9) and symbols (@#!)</li>
+                            </ul>
+                        </div>
                     </div>
                     <div class="col-md-6">
                         <label class="form-label">Confirm Password</label>
@@ -327,14 +314,15 @@ include_once '../includes/header.php';
 </div>
 
 <script>
-// 1. Phone Auto-format (Malaysia Logic)
+document.getElementById('fullname').addEventListener('input', function(e) {
+    e.target.value = e.target.value.replace(/[0-9]/g, '');
+});
+
 document.getElementById('phone').addEventListener('input', function(e) {
     let v = e.target.value.replace(/\D/g, ''); 
     if (v.length > 0 && !v.startsWith('01')) v = '01' + v.replace(/^0+/, '');
-    
     let maxDigits = v.startsWith('011') ? 11 : 10;
     v = v.substring(0, maxDigits);
-
     if (v.length > 3) {
         e.target.value = v.substring(0, 3) + '-' + v.substring(3);
     } else {
@@ -342,20 +330,17 @@ document.getElementById('phone').addEventListener('input', function(e) {
     }
 });
 
-// 2. Postcode Constraint (Digits only)
 document.getElementById('postcode').addEventListener('input', function(e) {
     e.target.value = e.target.value.replace(/[^0-9]/g, '');
 });
 
-// 3. Password Strength
 document.getElementById('pwd').addEventListener('input', function(e) {
     let v = e.target.value;
     let txt = document.getElementById('strength');
-    let score = (v.length >= 6) + (/[A-Z]/.test(v)) + (/[0-9]/.test(v));
-    
+    let score = (v.length >= 8) + (/[A-Z]/.test(v)) + (/[0-9]/.test(v)) + (/[^A-Za-z0-9]/.test(v));
     if (v.length === 0) txt.innerHTML = "";
     else if (score < 2) { txt.innerHTML = "Weak 🔴"; txt.style.color = "red"; }
-    else if (score < 3) { txt.innerHTML = "Medium 🟡"; txt.style.color = "orange"; }
+    else if (score < 4) { txt.innerHTML = "Medium 🟡"; txt.style.color = "orange"; }
     else { txt.innerHTML = "Strong 🟢"; txt.style.color = "green"; }
 });
 </script>

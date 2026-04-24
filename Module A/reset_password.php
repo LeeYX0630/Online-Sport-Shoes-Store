@@ -1,31 +1,34 @@
 <?php
-// for resetting user password via OTP
+/**
+ * STEALTH SPORT SHOES - ADVANCED RESET PASSWORD
+ * Features: Password toggler, Real-time strength meter, Professional UI.
+ */
 session_start();
-require_once '../includes/db_connection.php';
+require_once __DIR__ . '/../includes/db_connection.php';
 
 $error = "";
 $token_valid = false;
 
-// 1. 验证是否合法进入 (是否有请求过重置的 Session)
+// 1. [AUTH CHECK] Ensure the user is authorized to be on this page
 if (isset($_SESSION['reset_email']) && isset($_SESSION['reset_otp'])) {
     $token_valid = true;
 }
 
-// 2. 处理 OTP 验证与新密码提交
+// 2. [LOGIC] Handle Password Update
 if ($_SERVER["REQUEST_METHOD"] == "POST" && $token_valid) {
     $entered_otp = trim($_POST['otp']);
     $pass1 = $_POST['password'];
     $pass2 = $_POST['confirm_password'];
 
-    // 验证 OTP 验证码是否正确
+    // Validation Chain
     if ($entered_otp != $_SESSION['reset_otp']) {
-        $error = "Invalid OTP code. Please check your email.";
+        $error = "The OTP code you entered is incorrect.";
     } elseif ($pass1 !== $pass2) {
-        $error = "Passwords do not match.";
-    } elseif (strlen($pass1) < 6) {
-        $error = "Password must be at least 6 characters.";
+        $error = "Confirmation password does not match.";
+    } elseif (strlen($pass1) < 8) {
+        $error = "Security requirement: Password must be at least 8 characters.";
     } else {
-        // [修复点] 更新匹配数据库的 User_Password 和 User_Email 字段
+        // [DB SYNC] Match with your database fields: User_Password & User_Email
         $hashed_password = password_hash($pass1, PASSWORD_DEFAULT);
         $email = $_SESSION['reset_email'];
         
@@ -33,121 +36,174 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && $token_valid) {
         $update->bind_param("ss", $hashed_password, $email);
         
         if ($update->execute()) {
-            // 清理重置用的 Session
-            unset($_SESSION['reset_email']);
-            unset($_SESSION['reset_otp']);
-            unset($_SESSION['reset_name']);
+            // Success: Clear sensitive sessions
+            session_unset();
+            session_destroy();
             
-            echo "<script>alert('Password reset successful! Please login with your new password.'); window.location.href='login.php';</script>";
+            echo "<script>alert('Password updated successfully!'); window.location.href='login.php';</script>";
             exit();
         } else {
-            $error = "System error during password update.";
+            $error = "Server Error: Unable to update database.";
         }
     }
 }
 
-$page_title = "Reset Password | Sport Shoes Store";
 include_once '../includes/header.php'; 
 ?>
 
-<div class="container mt-5 mb-5">
-    <div class="row justify-content-center">
-        <div class="col-md-11 col-lg-8">
-            <div class="card shadow-lg border-0 rounded-4">
-                <div class="card-body p-5"> 
-                    
-                    <div class="text-center mb-5">
-                        <div class="mb-3"><i class="bi bi-shield-lock-fill text-dark" style="font-size: 3rem;"></i></div>
-                        <h2 class="fw-bold text-dark">Reset Password</h2>
-                        <p class="text-muted">Enter the OTP sent to <strong><?php echo isset($_SESSION['reset_email']) ? $_SESSION['reset_email'] : ''; ?></strong> and create your new password.</p>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+
+<style>
+    :root { --brand-orange: #FF6B00; --soft-gray: #F1F5F9; }
+    body { background-color: #F8FAFC; font-family: 'Plus Jakarta Sans', sans-serif; }
+
+    .reset-container { max-width: 550px; margin: 80px auto; }
+    .glass-card { 
+        background: #FFFFFF; 
+        padding: 50px; 
+        border-radius: 30px; 
+        box-shadow: 0 20px 40px rgba(0,0,0,0.06); 
+        border: 1px solid rgba(0,0,0,0.02);
+    }
+
+    .brand-icon {
+        width: 70px; height: 70px;
+        background: rgba(255, 107, 0, 0.1);
+        color: var(--brand-orange);
+        border-radius: 20px;
+        display: flex; align-items: center; justify-content: center;
+        margin: 0 auto 25px; font-size: 2rem;
+    }
+
+    .form-label { font-weight: 800; font-size: 0.7rem; color: #64748B; text-transform: uppercase; letter-spacing: 1px; }
+    
+    .input-group-custom { 
+        background: var(--soft-gray); border-radius: 15px; padding: 5px 15px; 
+        display: flex; align-items: center; border: 2px solid transparent; transition: 0.3s;
+    }
+    .input-group-custom:focus-within { border-color: var(--brand-orange); background: #FFF; }
+    
+    .input-group-custom input { 
+        border: none; background: transparent; padding: 12px; width: 100%; outline: none; font-weight: 600;
+    }
+
+    .btn-update { 
+        background: var(--brand-orange); color: white; border: none; padding: 18px; 
+        border-radius: 15px; font-weight: 800; width: 100%; transition: 0.3s; margin-top: 20px;
+    }
+    .btn-update:hover { background: #E66000; transform: translateY(-2px); box-shadow: 0 10px 20px rgba(255,107,0,0.2); }
+
+    .strength-meter { font-size: 0.75rem; margin-top: 8px; font-weight: 700; }
+    .tip-item { font-size: 0.65rem; color: #94A3B8; display: block; font-weight: 400; }
+</style>
+
+<div class="container">
+    <div class="reset-container">
+        <div class="glass-card">
+            <div class="brand-icon"><i class="bi bi-shield-lock"></i></div>
+            <div class="text-center mb-5">
+                <h2 class="fw-extrabold" style="letter-spacing:-1px;">New Password</h2>
+                <p class="text-muted small">Enter the code sent to your Gmail to proceed.</p>
+            </div>
+
+            <?php if (!$token_valid): ?>
+                <div class="alert alert-light text-center border-0 shadow-sm">
+                    <p class="mb-3">Session expired.</p>
+                    <a href="forgot_password.php" class="btn btn-sm btn-dark px-4 rounded-pill">Restart Process</a>
+                </div>
+            <?php else: ?>
+
+                <?php if($error): ?>
+                    <div class="alert alert-danger border-0 small text-center mb-4" style="border-radius: 12px;"><?php echo $error; ?></div>
+                <?php endif; ?>
+
+                <form method="POST" id="resetForm">
+                    <div class="mb-4">
+                        <label class="form-label">Verification Code</label>
+                        <div class="input-group-custom">
+                            <i class="bi bi-hash"></i>
+                            <input type="text" name="otp" maxlength="6" placeholder="6-digit OTP" required autofocus>
+                        </div>
                     </div>
 
-                    <?php if (!$token_valid): ?>
-                        <div class="alert alert-danger text-center rounded-3 p-4">
-                            <h4 class="alert-heading fw-bold"><i class="bi bi-x-circle-fill"></i> Access Denied</h4>
-                            <p>Your session has expired or is invalid.</p>
-                            <hr>
-                            <a href="forgot_password.php" class="btn btn-outline-danger fw-bold">Request New OTP</a>
+                    <div class="mb-4">
+                        <label class="form-label">New Secure Password</label>
+                        <div class="input-group-custom">
+                            <i class="bi bi-key"></i>
+                            <input type="password" name="password" id="main-pwd" placeholder="Min 8 characters" required>
+                            <i class="bi bi-eye-slash toggle-pwd" style="cursor:pointer" data-target="main-pwd"></i>
                         </div>
-                    
-                    <?php else: ?>
-                        
-                        <?php if($error): ?>
-                            <div class="alert alert-danger text-center rounded-3 mb-4"><?php echo $error; ?></div>
-                        <?php endif; ?>
+                        <div id="pwd-feedback" class="mt-2">
+                            <span id="strength-label" class="strength-meter"></span>
+                            <div id="guidance-list"></div>
+                        </div>
+                    </div>
 
-                        <form method="POST" action="">
-                            
-                            <div class="mb-4">
-                                <label class="form-label fw-bold small text-secondary">6-Digit Verification Code (OTP)</label>
-                                <div class="input-group">
-                                    <span class="input-group-text bg-light border-0 px-3"><i class="bi bi-123 fs-5"></i></span>
-                                    <input type="text" name="otp" class="form-control form-control-lg bg-light border-0 py-3" placeholder="000000" maxlength="6" required>
-                                </div>
-                            </div>
+                    <div class="mb-4">
+                        <label class="form-label">Repeat Password</label>
+                        <div class="input-group-custom">
+                            <i class="bi bi-check2-circle"></i>
+                            <input type="password" name="confirm_password" id="confirm-pwd" placeholder="Confirm password" required>
+                            <i class="bi bi-eye-slash toggle-pwd" style="cursor:pointer" data-target="confirm-pwd"></i>
+                        </div>
+                    </div>
 
-                            <div class="mb-1">
-                                <label class="form-label fw-bold small text-secondary">New Password</label>
-                                <div class="input-group">
-                                    <span class="input-group-text bg-light border-0 px-3"><i class="bi bi-key fs-5"></i></span>
-                                    <input type="password" name="password" id="passwordInput" class="form-control form-control-lg bg-light border-0 py-3" placeholder="Enter new password" required>
-                                </div>
-                            </div>
-
-                            <div class="mb-4 d-flex align-items-center flex-wrap mt-2">
-                                <small class="text-muted me-2">Strength:</small> 
-                                <span id="strengthText" class="fw-bold small text-muted">Enter password...</span>
-                            </div>
-
-                            <div class="mb-5">
-                                <label class="form-label fw-bold small text-secondary">Confirm New Password</label>
-                                <div class="input-group">
-                                    <span class="input-group-text bg-light border-0 px-3"><i class="bi bi-key-fill fs-5"></i></span>
-                                    <input type="password" name="confirm_password" class="form-control form-control-lg bg-light border-0 py-3" placeholder="Confirm your password" required>
-                                </div>
-                            </div>
-
-                            <div class="d-grid gap-2">
-                                <button type="submit" class="btn btn-dark btn-lg py-3 rounded-3 fw-bold">Update Password</button>
-                            </div>
-                        </form>
-
-                    <?php endif; ?>
-
-                </div>
-            </div>
+                    <button type="submit" class="btn-update" id="submitBtn">SAVE NEW PASSWORD</button>
+                </form>
+            <?php endif; ?>
         </div>
     </div>
 </div>
 
 <script>
-    const passwordInput = document.getElementById('passwordInput');
-    const strengthText = document.getElementById('strengthText');
+// 1. Password Visibility Toggle (Function to see password)
+document.querySelectorAll('.toggle-pwd').forEach(icon => {
+    icon.addEventListener('click', function() {
+        const targetId = this.getAttribute('data-target');
+        const input = document.getElementById(targetId);
+        if (input.type === 'password') {
+            input.type = 'text';
+            this.classList.replace('bi-eye-slash', 'bi-eye');
+        } else {
+            input.type = 'password';
+            this.classList.replace('bi-eye', 'bi-eye-slash');
+        }
+    });
+});
 
-    if (passwordInput) {
-        passwordInput.addEventListener('input', function() {
-            const val = passwordInput.value;
-            let missing = []; 
+// 2. Advanced Strength Logic (With instructions)
+const pwdInput = document.getElementById('main-pwd');
+const label = document.getElementById('strength-label');
+const list = document.getElementById('guidance-list');
 
-            if (val.length < 6) missing.push("6+ Chars");
-            if (!/[A-Z]/.test(val)) missing.push("Uppercase");
-            if (!/[0-9]/.test(val)) missing.push("Number");
-            if (!/[^A-Za-z0-9]/.test(val)) missing.push("Symbol");
+pwdInput.addEventListener('input', function() {
+    const val = this.value;
+    if (!val) { label.innerHTML = ""; list.innerHTML = ""; return; }
 
-            if (val.length === 0) {
-                strengthText.textContent = "Enter password...";
-                strengthText.className = "fw-bold small text-muted";
-            } 
-            else if (missing.length > 0) {
-                strengthText.innerHTML = "Weak <span class='text-muted fw-normal'>(Add: " + missing.join(", ") + ")</span>";
-                strengthText.className = "fw-bold small text-danger";
-            } 
-            else {
-                strengthText.textContent = "Strong 🟢";
-                strengthText.className = "fw-bold small text-success";
-            }
-        });
+    let missing = [];
+    if (val.length < 8) missing.push("• Use 8 or more characters");
+    if (!/[A-Z]/.test(val)) missing.push("• Add an uppercase letter (A-Z)");
+    if (!/[0-9]/.test(val)) missing.push("• Add a number (0-9)");
+    if (!/[^A-Za-z0-9]/.test(val)) missing.push("• Add a symbol (!@#$)");
+
+    if (missing.length >= 3) {
+        label.innerHTML = "WEAK 🔴"; label.style.color = "#EF4444";
+    } else if (missing.length > 0) {
+        label.innerHTML = "MEDIUM 🟡"; label.style.color = "#F59E0B";
+    } else {
+        label.innerHTML = "STRONG 🟢"; label.style.color = "#10B981";
     }
+
+    list.innerHTML = missing.map(m => `<span class="tip-item">${m}</span>`).join('');
+});
+
+// 3. Loading State (Prevents multiple clicks)
+document.getElementById('resetForm').addEventListener('submit', function() {
+    const btn = document.getElementById('submitBtn');
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Updating...';
+    btn.disabled = true;
+});
 </script>
 
 <?php include_once '../includes/footer.php'; ?>
