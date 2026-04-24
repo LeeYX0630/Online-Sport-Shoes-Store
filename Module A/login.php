@@ -5,6 +5,42 @@
 ob_start();
 session_start();
 require_once '../includes/db_connection.php';
+
+// --- 在原有代码的 ob_start(); 之后插入这段逻辑 ---
+
+$login_error = ""; // 用于存放错误提示
+
+if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    $email = $conn->real_escape_string(trim($_POST['email']));
+    $password = $_POST['password']; // 密码先不转义，因为要进行验证
+
+    // 1. 查询数据库中是否存在该邮箱
+    $sql = "SELECT * FROM `USER` WHERE User_Email = '$email'";
+    $result = $conn->query($sql);
+
+    if ($result && $result->num_rows > 0) {
+        $user = $result->fetch_assoc();
+
+        // 2. 验证密码
+        // 提示：如果你的密码是加密存储的，请使用 password_verify($password, $user['User_Password'])
+        // 如果目前是明文存储（仅限开发测试），则直接对比：
+        if (password_verify($password, $user['User_Password'])) {
+            
+            // 3. 登录成功，写入 Session
+            $_SESSION['user_id'] = $user['User_Id'];
+            $_SESSION['user_name'] = $user['User_Name'];
+            $_SESSION['role'] = $user['User_Role']; // 如果有权限区分
+
+            // 4. 重定向到商城目录页 (Module B)
+            header("Location: ../Module B/catalogue.php");
+            exit();
+        } else {
+            $login_error = "Security Key (Password) is incorrect.";
+        }
+    } else {
+        $login_error = "Email Handle not found in our records.";
+    }
+}
 ?>
 
 <!DOCTYPE html>
@@ -182,3 +218,9 @@ require_once '../includes/db_connection.php';
 
 </body>
 </html>
+
+<?php if (!empty($login_error)): ?>
+    <div class="alert alert-danger" style="border-radius: 12px; font-size: 0.85rem; font-weight: 600; border: none; background: rgba(220, 53, 69, 0.1); color: #dc3545;">
+        <i class="bi bi-exclamation-circle me-2"></i><?php echo $login_error; ?>
+    </div>
+<?php endif; ?>

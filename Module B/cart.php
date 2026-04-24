@@ -173,13 +173,40 @@ $free_shipping_threshold = 250.00;
                                 ?>
                                 <div class="cart-item-row">
                                     <div class="item-img">
-                                        <img src="<?php echo htmlspecialchars($img_src); ?>" onerror="this.src='../assets/images/placeholder.jpg'">
+                                        <?php 
+                                        // 【核心修复】：优先检查是否有 3D 定制快照
+                                        if (!empty($item['custom_preview'])) {
+                                            // 直接使用 Session 里的 Base64 图片数据
+                                            $img_src = $item['custom_preview'];
+                                        } else {
+                                            // 如果没有定制图，走原有的逻辑
+                                            $base_img = $product['Pro_Image'];
+                                            $img_src = !empty($base_img) ? "../uploads/" . $base_img : "../assets/images/placeholder.jpg";
+                                            
+                                            // (原有的配色图片逻辑保持不变...)
+                                            if (!empty($color)) {
+                                                // ... (你原有的代码)
+                                            }
+                                        }
+                                        ?>
+                                        <img src="<?php echo $img_src; ?>" onerror="this.src='../assets/images/placeholder.jpg'">
                                     </div>
                                     <div class="item-details">
                                         <span class="item-brand"><?php echo htmlspecialchars($product['Brand_Name']); ?></span>
                                         <a href="product_details.php?pro_id=<?php echo $pro_id; ?>" class="item-name"><?php echo htmlspecialchars($product['Pro_Name']); ?></a>
                                         
-                                        <span class="item-size">Size (UK): <?php echo htmlspecialchars($size); ?> <?php if($color) echo "&nbsp;|&nbsp; Col: " . htmlspecialchars($color); ?></span>
+                                        <span class="item-size">
+                                            Size (UK): <?php echo htmlspecialchars($size); ?> 
+                                            <?php 
+                                            if(isset($item['design_details'])) {
+                                                $details = json_decode($item['design_details'], true);
+                                                echo " | <span style='color:#008060; font-weight:bold;'>[3D Custom Design]</span><br>";
+                                                echo "<small style='font-size:11px; color:#999;'>Upper: " . htmlspecialchars($details['Outupper']['color']) . ", Laces: " . htmlspecialchars($details['Laces']['color']) . "</small>";
+                                            } elseif($color) {
+                                                echo "&nbsp;|&nbsp; Col: " . htmlspecialchars($color);
+                                            } 
+                                            ?>
+                                        </span>
                                     </div>
                                     <div class="item-price desktop-only">
                                         RM <?php echo number_format($product['Pro_Price'], 2); ?>
