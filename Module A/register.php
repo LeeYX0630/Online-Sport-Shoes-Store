@@ -1,8 +1,4 @@
 <?php
-/**
- * STEALTH SPORT SHOES - ADVANCED PREMIUM REGISTRATION UI
- * Design Profile: Wide, High-End, Orange & White Only
- */
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
