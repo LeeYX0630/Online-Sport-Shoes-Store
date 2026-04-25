@@ -1,25 +1,34 @@
 <?php
-// for user logout
+/**
+ * STEALTH SPORT SHOES - USER LOGOUT
+ * Module A: User Permissions & Profile
+ */
+
+// Start session to access existing data
 session_start();
 
-$redirect_to = "login.php"; 
+// Determine the destination after logout
+// Default is to stay within Module A's login page
+$target_page = "login.php"; 
 
-if (isset($_GET['redirect']) && $_GET['redirect'] == 'home') {
-    // 【关键修复】加上 ../ 回到根目录的 index.php
-    $redirect_to = "../index.php?msg=logged_out";
-}
-$_SESSION = array();
-
-if (ini_get("session.use_cookies")) {
-    $params = session_get_cookie_params();
-    setcookie(session_name(), '', time() - 42000,
-        $params["path"], $params["domain"],
-        $params["secure"], $params["httponly"]
-    );
+// If a specific logout source is detected (like from the Home page nav)
+if (isset($_GET['action']) && $_GET['action'] === 'exit_to_home') {
+    // Navigate up one level to reach the root index.php 
+    $target_page = "../index.php?status=success_logout";
 }
 
+// 1. Clear all session variables
+$_SESSION = [];
+
+// 2. Invalidate the session cookie in the browser
+if (isset($_COOKIE[session_name()])) {
+    setcookie(session_name(), '', time() - 86400, '/');
+}
+
+// 3. Completely destroy the session on the server
 session_destroy();
 
-header("Location: " . $redirect_to);
+// 4. Redirect the user to the decided target page
+header("Location: " . $target_page);
 exit();
 ?>
