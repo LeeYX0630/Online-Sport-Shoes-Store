@@ -6,51 +6,58 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 if (!isset($_SESSION['user_id'])) {
-    echo "<script>
-            alert('Please login to view your shopping cart.'); 
-            window.location.href='../Module A/login.php';
-          </script>";
+    echo "<script>alert('Please login to view your shopping cart.'); window.location.href='../Module A/login.php';</script>";
     exit;
 }
 
-// 确保购物车 Session 已初始化
 if (!isset($_SESSION['cart'])) {
     $_SESSION['cart'] = [];
 }
 
 // ---------------------------------------------------------
-// 1. 处理表单提交 (更新数量 / 删除商品)
+// 1. 【后端逻辑核心修复】处理表单提交
 // ---------------------------------------------------------
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-    
-    // 【核心修复】：将 remove_item 的优先级调到最高！
-    // 因为 update_cart 是隐藏域，每次都会提交。必须先检查用户是不是按了垃圾桶。
-    if (isset($_POST['remove_item'])) {
+    if (isset($_POST['remove_item']) && $_POST['remove_item'] == "1") {
         $key_to_remove = $_POST['remove_key'];
         if (isset($_SESSION['cart'][$key_to_remove])) {
             unset($_SESSION['cart'][$key_to_remove]);
         }
     } 
-    // 如果没有按垃圾桶，才执行修改数量的逻辑
-    elseif (isset($_POST['update_cart'])) {
-        if (isset($_POST['qty']) && is_array($_POST['qty'])) {
-            foreach ($_POST['qty'] as $cart_key => $quantity) {
-                $quantity = intval($quantity);
-                if ($quantity > 0 && isset($_SESSION['cart'][$cart_key])) {
-                    $_SESSION['cart'][$cart_key]['qty'] = $quantity;
+    elseif (isset($_POST['update_cart']) || isset($_POST['qty'])) {
+        foreach ($_SESSION['cart'] as $session_key => $item) {
+            $php_converted_key = str_replace([' ', '.'], '_', $session_key);
+            
+            if (isset($_POST['qty'][$php_converted_key])) {
+                $quantity = intval($_POST['qty'][$php_converted_key]);
+                
+                $pid = $item['pro_id'];
+                $sz  = $item['size'];
+                $color_in_session = $item['color'] ?? 'Default';
+
+                if ($pid == 16 && ($color_in_session == 'Custom Design' || $color_in_session == 'Default')) {
+                    $col_for_db = 'Custom'; 
+                } else {
+                    $col_for_db = $color_in_session;
                 }
+
+                $st_sql = "SELECT Quantity FROM PRODUCT_STOCK WHERE Pro_Id = '$pid' AND Pro_Size = '$sz' AND Pro_Colour = '$col_for_db'";
+                $st_res = $conn->query($st_sql);
+                $db_stock = ($st_res && $st_res->num_rows > 0) ? intval($st_res->fetch_assoc()['Quantity']) : 0;
+
+                if ($quantity > $db_stock) $quantity = $db_stock;
+                if ($quantity < 1) $quantity = 1;
+
+                $_SESSION['cart'][$session_key]['qty'] = $quantity;
             }
         }
     }
-    
-    // 刷新页面以防止表单重复提交
     header("Location: cart.php");
     exit;
 }
 
 $cart_empty = empty($_SESSION['cart']);
 $subtotal = 0;
-$shipping_fee = 0;
 $free_shipping_threshold = 250.00;
 ?>
 
@@ -59,57 +66,28 @@ $free_shipping_threshold = 250.00;
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Shopping Cart | Online Sport Shoes Store</title>
+    <title>Shopping Cart | Stealth Sport Shoes</title>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <style>
-        body { font-family: 'Segoe UI', Arial, sans-serif; background-color: #f4f6f9; color: #212529; margin: 0; padding: 0; display: flex; flex-direction: column; min-height: 100vh; }
-        .flex-wrapper { flex: 1 0 auto; width: 100%; padding-bottom: 60px; }
+        body { font-family: 'Segoe UI', sans-serif; background-color: #f4f6f9; margin: 0; padding: 0; }
+        .flex-wrapper { min-height: 100vh; padding-bottom: 60px; }
         .cart-container { max-width: 1200px; margin: 40px auto; padding: 0 20px; }
-        .page-title { font-size: 28px; font-weight: 800; color: #333333; margin-bottom: 30px; border-bottom: 2px solid #eee; padding-bottom: 15px; }
-        
-        .cart-layout { display: grid; grid-template-columns: 2fr 1fr; gap: 40px; align-items: start; }
-        @media (max-width: 992px) { .cart-layout { grid-template-columns: 1fr; } }
-
-        /* 购物车列表区 */
-        .cart-items { background: #ffffff; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); padding: 20px; }
+        .page-title { font-size: 28px; font-weight: 800; border-bottom: 2px solid #eee; padding-bottom: 15px; margin-bottom: 30px; }
+        .cart-layout { display: grid; grid-template-columns: 2fr 1fr; gap: 40px; }
+        .cart-items { background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
         .cart-item-row { display: grid; grid-template-columns: 100px 2fr 1fr 1fr auto; gap: 20px; align-items: center; padding: 20px 0; border-bottom: 1px solid #eee; }
-        .cart-item-row:last-child { border-bottom: none; }
-        @media (max-width: 768px) { .cart-item-row { grid-template-columns: 80px 1fr; } .desktop-only { display: none; } }
-
-        .item-img { width: 100px; height: 100px; background: #f9f9f9; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
-        .item-img img { width: 90%; mix-blend-mode: multiply; }
+        .item-img img { width: 100px; height: 100px; object-fit: contain; mix-blend-mode: multiply; }
+        .qty-input { width: 80px; padding: 8px; border: 1px solid #ccc; border-radius: 4px; text-align: center; font-weight: bold; }
+        .order-summary { background: #fff; border-radius: 8px; padding: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); height: fit-content; position: sticky; top: 20px; }
+        .btn-checkout { display: block; width: 100%; background: #008060; color: #fff; text-align: center; padding: 15px; font-weight: bold; border-radius: 4px; text-decoration: none; margin-top: 20px; transition: 0.3s; }
+        .btn-checkout:hover { background: #00664c; }
         
-        .item-details { display: flex; flex-direction: column; gap: 5px; }
-        .item-brand { font-size: 12px; font-weight: bold; color: #666; text-transform: uppercase; }
-        .item-name { font-size: 16px; font-weight: bold; color: #333; text-decoration: none; }
-        .item-name:hover { color: #FF6B00; }
-        .item-size { font-size: 13px; color: #666; }
-
-        .item-price { font-weight: bold; font-size: 16px; color: #333; }
-        
-        .qty-input { width: 60px; padding: 8px; border: 1px solid #ccc; border-radius: 4px; text-align: center; font-weight: bold; cursor: pointer; transition: 0.2s;}
-        .qty-input:hover, .qty-input:focus { border-color: #333; outline: none; }
-
-        .btn-remove { background: none; border: none; color: #999; cursor: pointer; font-size: 18px; transition: 0.2s; }
-        .btn-remove:hover { color: #DC3545; }
-
-        .cart-actions { display: flex; justify-content: space-between; margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee; }
-        .btn-outline { background: #fff; border: 1px solid #333; color: #333; padding: 10px 20px; border-radius: 4px; font-weight: bold; cursor: pointer; transition: 0.3s; text-decoration: none; }
-        .btn-outline:hover { background: #f4f4f4; }
-
-        /* 订单摘要区 */
-        .order-summary { background: #ffffff; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); padding: 25px; position: sticky; top: 20px; }
-        .summary-title { font-size: 20px; font-weight: bold; margin-bottom: 20px; color: #333; }
-        .summary-row { display: flex; justify-content: space-between; margin-bottom: 15px; font-size: 15px; color: #555; }
-        .summary-total { display: flex; justify-content: space-between; margin-top: 20px; padding-top: 20px; border-top: 2px solid #eee; font-size: 20px; font-weight: bold; color: #333; }
-        
-        .btn-checkout { display: block; width: 100%; background: #FF6B00; color: #fff; text-align: center; padding: 15px; font-size: 16px; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; margin-top: 25px; text-decoration: none; transition: 0.3s; }
-        .btn-checkout:hover { background: #E56000; box-shadow: 0 4px 10px rgba(255,107,0,0.2); }
-
-        .empty-cart { text-align: center; padding: 60px 20px; background: #fff; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
-        .empty-cart i { font-size: 60px; color: #ccc; margin-bottom: 20px; }
-        .empty-cart h3 { font-size: 24px; color: #333; margin-bottom: 10px; }
-        .empty-cart p { color: #666; margin-bottom: 30px; }
+        /* 新增：Continue Shopping 按钮样式 */
+        .btn-continue-shopping { 
+            display: block; width: 100%; background: #fff; color: #333; text-align: center; padding: 15px; font-weight: bold; border-radius: 4px; text-decoration: none; margin-top: 12px; border: 1px solid #ccc; transition: 0.3s; 
+        }
+        .btn-continue-shopping:hover { background: #f8f9fa; border-color: #333; }
     </style>
 </head>
 <body>
@@ -121,106 +99,71 @@ $free_shipping_threshold = 250.00;
         <h1 class="page-title">Your Shopping Cart</h1>
 
         <?php if ($cart_empty): ?>
-            <div class="empty-cart">
-                <i class="bi bi-cart-x"></i>
-                <h3>Your cart is currently empty.</h3>
-                <p>Looks like you haven't added anything to your cart yet.</p>
-                <a href="catalogue.php" class="btn-checkout" style="display: inline-block; width: auto; padding: 12px 30px;">Continue Shopping</a>
+            <div style="text-align:center; padding:60px; background:#fff; border-radius:8px;">
+                <i class="bi bi-cart-x" style="font-size:3rem; color:#ccc;"></i>
+                <h3 class="mt-3">Your cart is empty</h3>
+                <a href="catalogue.php" class="btn btn-dark mt-3">Continue Shopping</a>
             </div>
         <?php else: ?>
             <div class="cart-layout">
-                
-                <form method="POST" action="cart.php" id="cartForm">
+                <form method="POST" action="cart.php" id="cartForm" onsubmit="return false;">
                     <input type="hidden" name="update_cart" value="1">
-                    
+                    <input type="hidden" name="remove_item" id="remove_item_trigger" value="0">
+                    <input type="hidden" name="remove_key" id="remove_key" value="">
+
                     <div class="cart-items">
                         <?php
                         foreach ($_SESSION['cart'] as $cart_key => $item) {
                             $pro_id = $item['pro_id'];
-                            $size = $item['size'];
-                            $qty = $item['qty'];
-                            
-                            $color = isset($item['color']) && $item['color'] !== 'Default' ? $item['color'] : '';
+                            $size   = $item['size'];
+                            $qty    = $item['qty'];
+                            $color_in_session = $item['color'] ?? 'Default';
 
-                            // 现在需要连接 PRODUCT_STOCK 来获取该特定尺码的真实库存
-                            $sql = "SELECT p.*, b.Brand_Name, s.Quantity AS Size_Stock 
+                            if ($pro_id == 16 && ($color_in_session == 'Custom Design' || $color_in_session == 'Default')) {
+                                $display_color = 'Custom'; 
+                            } else {
+                                $display_color = $color_in_session;
+                            }
+
+                            $sql = "SELECT p.*, b.Brand_Name, s.Quantity AS DB_Stock 
                                     FROM product p 
                                     JOIN brand b ON p.Brand_Id = b.Brand_Id 
-                                    LEFT JOIN PRODUCT_STOCK s ON p.Pro_Id = s.Pro_Id AND s.Pro_Size = '$size'
+                                    LEFT JOIN PRODUCT_STOCK s ON p.Pro_Id = s.Pro_Id AND s.Pro_Size = '$size' AND s.Pro_Colour = '$display_color'
                                     WHERE p.Pro_Id = '$pro_id'";
                             $res = $conn->query($sql);
 
                             if ($res && $res->num_rows > 0) {
                                 $product = $res->fetch_assoc();
+                                $current_stock = intval($product['DB_Stock'] ?? 0);
                                 
                                 $base_img = $product['Pro_Image'];
-                                $img_src = !empty($base_img) ? "../uploads/" . $base_img : "../assets/images/placeholder.jpg";
-                                
-                                if (!empty($color)) {
-                                    $path_parts = pathinfo($base_img);
-                                    $base_name = preg_replace('/_\d+$/', '', $path_parts['filename']);
-                                    $ext = isset($path_parts['extension']) ? "." . $path_parts['extension'] : "";
-                                    $color_slug = strtolower(explode('/', str_replace(' ', '_', $color))[0]);
-                                    
-                                    $color_img_test = "../uploads/" . $base_name . "_" . $color_slug . "_1" . $ext;
-                                    if (file_exists($color_img_test)) {
-                                        $img_src = $color_img_test;
-                                    }
-                                }
+                                $path_parts = pathinfo($base_img);
+                                $base_name = preg_replace('/_\d+$/', '', $path_parts['filename']);
+                                $found_files = glob("../uploads/{$base_name}*.*");
+                                $display_img = (!empty($found_files)) ? $found_files[0] : "../images/placeholder.png";
                                 
                                 $item_total = $product['Pro_Price'] * $qty;
                                 $subtotal += $item_total;
                                 ?>
                                 <div class="cart-item-row">
-                                    <div class="item-img">
-                                        <?php 
-                                        // 【核心修复】：优先检查是否有 3D 定制快照
-                                        if (!empty($item['custom_preview'])) {
-                                            // 直接使用 Session 里的 Base64 图片数据
-                                            $img_src = $item['custom_preview'];
-                                        } else {
-                                            // 如果没有定制图，走原有的逻辑
-                                            $base_img = $product['Pro_Image'];
-                                            $img_src = !empty($base_img) ? "../uploads/" . $base_img : "../assets/images/placeholder.jpg";
-                                            
-                                            // (原有的配色图片逻辑保持不变...)
-                                            if (!empty($color)) {
-                                                // ... (你原有的代码)
-                                            }
-                                        }
-                                        ?>
-                                        <img src="<?php echo $img_src; ?>" onerror="this.src='../assets/images/placeholder.jpg'">
+                                    <div class="item-img"><img src="<?php echo $display_img; ?>"></div>
+                                    <div>
+                                        <div style="font-size:12px; font-weight:bold; color:#666;"><?php echo $product['Brand_Name']; ?></div>
+                                        <strong style="color:#333;"><?php echo $product['Pro_Name']; ?></strong>
+                                        <div style="font-size:13px; color:#666; margin-top:5px;">Size: <?php echo $size; ?> | Col: <?php echo $display_color; ?></div>
+                                        <div style="font-size:11px; color:#dc3545; font-weight:bold;">Stock: <?php echo $current_stock; ?> left</div>
                                     </div>
-                                    <div class="item-details">
-                                        <span class="item-brand"><?php echo htmlspecialchars($product['Brand_Name']); ?></span>
-                                        <a href="product_details.php?pro_id=<?php echo $pro_id; ?>" class="item-name"><?php echo htmlspecialchars($product['Pro_Name']); ?></a>
-                                        
-                                        <span class="item-size">
-                                            Size (UK): <?php echo htmlspecialchars($size); ?> 
-                                            <?php 
-                                            if(isset($item['design_details'])) {
-                                                $details = json_decode($item['design_details'], true);
-                                                echo " | <span style='color:#008060; font-weight:bold;'>[3D Custom Design]</span><br>";
-                                                echo "<small style='font-size:11px; color:#999;'>Upper: " . htmlspecialchars($details['Outupper']['color']) . ", Laces: " . htmlspecialchars($details['Laces']['color']) . "</small>";
-                                            } elseif($color) {
-                                                echo "&nbsp;|&nbsp; Col: " . htmlspecialchars($color);
-                                            } 
-                                            ?>
-                                        </span>
-                                    </div>
-                                    <div class="item-price desktop-only">
-                                        RM <?php echo number_format($product['Pro_Price'], 2); ?>
-                                    </div>
+                                    <div style="font-weight:bold;">RM <?php echo number_format($product['Pro_Price'], 2); ?></div>
                                     <div>
                                         <input type="number" name="qty[<?php echo $cart_key; ?>]" 
-                                                value="<?php echo $qty; ?>" 
-                                                min="1" 
-                                                max="<?php echo $product['Size_Stock']; ?>" 
-                                                class="qty-input" onchange="this.form.submit()">
+                                               value="<?php echo $qty; ?>" 
+                                               class="qty-input" 
+                                               onkeydown="if(event.key==='Enter'){ event.preventDefault(); checkStockQty(this, '<?php echo $cart_key; ?>', <?php echo $current_stock; ?>); }"
+                                               onchange="checkStockQty(this, '<?php echo $cart_key; ?>', <?php echo $current_stock; ?>)">
                                     </div>
                                     <div style="text-align: right;">
-                                        <div class="item-price">RM <?php echo number_format($item_total, 2); ?></div>
-                                        <button type="submit" name="remove_item" value="1" onclick="document.getElementById('remove_key').value='<?php echo $cart_key; ?>'" class="btn-remove" title="Remove Item">
+                                        <div style="font-weight:bold;">RM <?php echo number_format($item_total, 2); ?></div>
+                                        <button type="button" onclick="removeItem('<?php echo $cart_key; ?>')" style="background:none; border:none; color:#999; cursor:pointer;">
                                             <i class="bi bi-trash3"></i>
                                         </button>
                                     </div>
@@ -229,60 +172,58 @@ $free_shipping_threshold = 250.00;
                             }
                         }
                         ?>
-                        
-                        <input type="hidden" name="remove_key" id="remove_key" value="">
-                        
-                        <div class="cart-actions">
-                            <a href="catalogue.php" class="btn-outline">Continue Shopping</a>
-                        </div>
                     </div>
                 </form>
 
                 <div class="order-summary">
-                    <h3 class="summary-title">Order Summary</h3>
+                    <h3 style="font-size:20px; margin-bottom:20px;">Order Summary</h3>
+                    <div style="display:flex; justify-content:space-between; margin-bottom:10px;"><span>Subtotal</span><span>RM <?php echo number_format($subtotal, 2); ?></span></div>
+                    <div style="display:flex; justify-content:space-between; margin-bottom:10px;"><span>Shipping</span><span><?php echo ($subtotal >= $free_shipping_threshold) ? '<span style="color:#008060; font-weight:bold;">Free</span>' : 'RM 15.00'; ?></span></div>
+                    <hr>
+                    <div style="display:flex; justify-content:space-between; font-size:22px; font-weight:bold;"><span>Total</span><span>RM <?php echo number_format($subtotal + ($subtotal >= $free_shipping_threshold ? 0 : 15), 2); ?></span></div>
                     
-                    <div class="summary-row">
-                        <span>Subtotal</span>
-                        <span style="font-weight: bold; color: #333;">RM <?php echo number_format($subtotal, 2); ?></span>
-                    </div>
-
-                    <div class="summary-row">
-                        <span>Estimated Shipping</span>
-                        <?php 
-                        if ($subtotal >= $free_shipping_threshold) {
-                            $shipping_fee = 0;
-                            echo "<span style='color: #28A745; font-weight: bold;'>Free</span>";
-                        } else {
-                            $shipping_fee = 15.00; 
-                            echo "<span style='font-weight: bold; color: #333;'>RM " . number_format($shipping_fee, 2) . "</span>";
-                        }
-                        ?>
-                    </div>
-                    
-                    <?php if($shipping_fee > 0): ?>
-                        <div style="font-size: 13px; color: #666; margin-top: -10px; margin-bottom: 15px;">
-                            Add RM <?php echo number_format($free_shipping_threshold - $subtotal, 2); ?> more for FREE shipping!
-                        </div>
-                    <?php endif; ?>
-
-                    <div class="summary-total">
-                        <span>Grand Total</span>
-                        <span>RM <?php echo number_format($subtotal + $shipping_fee, 2); ?></span>
-                    </div>
-
-                    <a href="checkout.php" class="btn-checkout">Proceed to Checkout securely</a>
-                    
-                    <div style="margin-top: 20px; font-size: 13px; color: #999; text-align: center;">
-                        <i class="bi bi-shield-lock" style="margin-right: 5px;"></i> Secure Checkout Process
-                    </div>
+                    <a href="checkout.php" class="btn-checkout">Proceed to Checkout</a>
+                    <a href="catalogue.php" class="btn-continue-shopping">Continue Shopping</a>
                 </div>
-
             </div>
         <?php endif; ?>
     </div>
 </div>
 
 <?php include '../includes/footer.php'; ?>
+
+<script>
+function checkStockQty(input, cartKey, maxStock) {
+    let val = parseInt(input.value);
+    if (val < 1 || isNaN(val)) {
+        input.value = 1;
+        document.getElementById('cartForm').submit();
+    } else if (val > maxStock) {
+        Swal.fire({ icon: 'warning', title: 'Stock Limit', text: 'Resetting to max available: ' + maxStock }).then(() => {
+            input.value = maxStock;
+            document.getElementById('cartForm').submit();
+        });
+    } else {
+        document.getElementById('cartForm').submit();
+    }
+}
+
+function removeItem(cartKey) {
+    Swal.fire({
+        title: 'Remove item?',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#d33',
+        confirmButtonText: 'Yes, remove it'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            document.getElementById('remove_key').value = cartKey;
+            document.getElementById('remove_item_trigger').value = "1";
+            document.getElementById('cartForm').submit();
+        }
+    });
+}
+</script>
 
 </body>
 </html>

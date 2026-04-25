@@ -23,7 +23,7 @@ if ($res_order->num_rows == 0) {
 }
 $order = $res_order->fetch_assoc();
 
-// 2. 获取该订单的所有商品明细
+// 2. 获取订单详情（包含产品信息和可能的定制预览图）
 $sql_details = "SELECT od.*, p.Pro_Name, p.Pro_Price, p.Pro_Image 
                 FROM ORDER_DETAIL od 
                 JOIN product p ON od.Pro_Id = p.Pro_Id 
@@ -44,26 +44,21 @@ $res_details = $conn->query($sql_details);
 
     <style>
         body { background-color: #f8f9fa; font-family: 'Segoe UI', sans-serif; }
-        
-        /* 收据盒子样式，模拟纸张 */
         #receipt-content {
             background: white;
-            max-width: 800px;
+            max-width: 850px;
             margin: 20px auto;
-            padding: 40px;
+            padding: 50px;
             border: 1px solid #eee;
             border-radius: 8px;
         }
-
-        .brand-logo { color: #FF6B00; font-weight: 800; font-size: 24px; }
+        .brand-logo { color: #FF6B00; font-weight: 800; font-size: 26px; text-transform: uppercase; }
         .receipt-header { border-bottom: 2px solid #333; padding-bottom: 20px; margin-bottom: 30px; }
         .table thead { background-color: #f8f9fa; }
         .total-section { border-top: 2px solid #eee; padding-top: 20px; }
+        .item-img { width: 60px; height: 60px; object-fit: contain; background: #f9f9f9; mix-blend-mode: multiply; }
         
-        /* 打印/下载时的特定样式控制 */
-        @media print {
-            .no-print { display: none; }
-        }
+        @media print { .no-print { display: none; } }
     </style>
 </head>
 <body>
@@ -79,7 +74,7 @@ $res_details = $conn->query($sql_details);
             <button onclick="downloadPDF()" class="btn btn-dark px-4 py-2 me-2">
                 <i class="bi bi-file-earmark-pdf me-2"></i>Download Receipt (PDF)
             </button>
-            <a href="../index.php" class="btn btn-outline-secondary px-4 py-2">Back to Home</a>
+            <a href="../Module B/catalogue.php" class="btn btn-outline-secondary px-4 py-2">Back to Shopping</a>
         </div>
     </div>
 
@@ -100,21 +95,21 @@ $res_details = $conn->query($sql_details);
 
         <div class="row mb-5">
             <div class="col-6">
-                <h6 class="text-uppercase fw-bold text-muted">Billed To:</h6>
+                <h6 class="text-uppercase fw-bold text-muted small">Billed To:</h6>
                 <p class="mb-0"><strong><?php echo htmlspecialchars($order['User_Name']); ?></strong></p>
-                <p class="mb-0"><?php echo htmlspecialchars($order['User_Email']); ?></p>
-                <p class="mb-0"><?php echo htmlspecialchars($order['User_Phone']); ?></p>
+                <p class="mb-0 small"><?php echo htmlspecialchars($order['User_Email']); ?></p>
+                <p class="mb-0 small"><?php echo htmlspecialchars($order['User_Phone']); ?></p>
             </div>
             <div class="col-6 text-end">
-                <h6 class="text-uppercase fw-bold text-muted">Shipping Address:</h6>
-                <p class="mb-0 text-break"><?php echo nl2br(htmlspecialchars($order['Order_Shipping_Addr'])); ?></p>
+                <h6 class="text-uppercase fw-bold text-muted small">Shipping Address:</h6>
+                <p class="mb-0 text-break small"><?php echo nl2br(htmlspecialchars($order['Order_Shipping_Addr'])); ?></p>
             </div>
         </div>
 
         <table class="table table-borderless align-middle mb-5">
             <thead class="border-bottom">
                 <tr>
-                    <th style="width: 50%;">Item Description</th>
+                    <th style="width: 45%;">Item Description</th>
                     <th class="text-center">Price</th>
                     <th class="text-center">Qty</th>
                     <th class="text-end">Subtotal</th>
@@ -124,12 +119,29 @@ $res_details = $conn->query($sql_details);
                 <?php while($item = $res_details->fetch_assoc()): ?>
                 <tr class="border-bottom">
                     <td>
-                        <div class="d-flex align-items-center">
-                            <img src="../uploads/<?php echo $item['Pro_Image']; ?>" width="50" class="me-3 rounded shadow-sm" onerror="this.src='../images/placeholder.png'">
-                            <span class="fw-bold"><?php echo htmlspecialchars($item['Pro_Name']); ?></span>
+                        <div class="d-flex align-items-center py-2">
+                            <?php 
+                                // 图片路径处理逻辑
+                                if (!empty($item['Custom_Preview'])) {
+                                    // A. 如果是定制商品，使用存放在 ORDER_DETAIL 里的 Base64 预览图
+                                    $display_img = $item['Custom_Preview'];
+                                } else {
+                                    // B. 如果是普通商品，尝试寻找对应图片
+                                    $base_img = $item['Pro_Image'];
+                                    $path_parts = pathinfo($base_img);
+                                    $base_name = preg_replace('/_\d+$/', '', $path_parts['filename']);
+                                    $found_files = glob("../uploads/{$base_name}*.*");
+                                    $display_img = (!empty($found_files)) ? $found_files[0] : "../images/placeholder.png";
+                                }
+                            ?>
+                            <img src="<?php echo $display_img; ?>" class="item-img me-3 rounded border" onerror="this.src='../images/placeholder.png'">
+                            <div>
+                                <div class="fw-bold"><?php echo htmlspecialchars($item['Pro_Name']); ?></div>
+                                <div class="text-muted small">Item ID: #<?php echo $item['Pro_Id']; ?></div>
+                            </div>
                         </div>
                     </td>
-                    <td class="text-center">RM <?php echo number_format($item['Pro_Price'], 2); ?></td>
+                    <td class="text-center">RM <?php echo number_format($item['Order_Subtotal'] / $item['Order_Qty'], 2); ?></td>
                     <td class="text-center"><?php echo $item['Order_Qty']; ?></td>
                     <td class="text-end fw-bold">RM <?php echo number_format($item['Order_Subtotal'], 2); ?></td>
                 </tr>
@@ -141,11 +153,11 @@ $res_details = $conn->query($sql_details);
             <div class="col-md-5">
                 <div class="d-flex justify-content-between mb-2">
                     <span class="text-muted">Payment Status:</span>
-                    <span class="badge bg-success">PAID (<?php echo $order['Payment_Status']; ?>)</span>
+                    <span class="badge bg-success">PAID (<?php echo strtoupper($order['Payment_Status']); ?>)</span>
                 </div>
                 <div class="d-flex justify-content-between mb-2">
                     <span class="text-muted">Order Status:</span>
-                    <span class="fw-bold"><?php echo $order['Order_Status']; ?></span>
+                    <span class="fw-bold text-primary"><?php echo $order['Order_Status']; ?></span>
                 </div>
                 <hr>
                 <div class="d-flex justify-content-between align-items-center">
@@ -163,18 +175,15 @@ $res_details = $conn->query($sql_details);
 </div>
 
 <script>
-    // PDF 下载逻辑
     function downloadPDF() {
         const element = document.getElementById('receipt-content');
         const options = {
             margin:       [10, 10, 10, 10],
-            filename:     'Receipt_Order_<?php echo $order_id; ?>.pdf',
+            filename:     'Receipt_Order_#<?php echo $order_id; ?>.pdf',
             image:        { type: 'jpeg', quality: 0.98 },
             html2canvas:  { scale: 2, useCORS: true },
             jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
         };
-
-        // 执行转换并下载
         html2pdf().set(options).from(element).save();
     }
 </script>

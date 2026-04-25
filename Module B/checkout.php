@@ -25,22 +25,69 @@ $user_res = $conn->query($user_sql);
 $user_info = $user_res->fetch_assoc();
 $current_balance = floatval($user_info['User_Balance']);
 
+// 提取用户基础资料
+$user_phone = $user_info['User_Phone'];
+$user_address = $user_info['User_Address'];
+$user_state = $user_info['User_State'];
+$user_postcode = $user_info['User_Postcode'];
+// 假设城市信息也存在，若不存在则留空
+$user_city = isset($user_info['User_City']) ? $user_info['User_City'] : "";
+
 $name_parts = explode(' ', $user_info['User_Name'], 2);
 $first_name = $name_parts[0];
 $last_name = isset($name_parts[1]) ? $name_parts[1] : "";
 
 // 3. 计算购物车总额与商品清单
+// 3. 计算购物车总额与商品清单
+// 3. 计算购物车总额与商品清单
 $subtotal = 0;
 $checkout_items = [];
 foreach ($_SESSION['cart'] as $cart_key => $item) {
     $pid = $item['pro_id'];
+    // 这里的 SQL 保持不变
     $sql_p = "SELECT Pro_Name, Pro_Price, Pro_Image FROM product WHERE Pro_Id = '$pid'";
     $res_p = $conn->query($sql_p);
+    
     if ($res_p && $res_p->num_rows > 0) {
         $p_data = $res_p->fetch_assoc();
         $p_data['qty'] = $item['qty'];
         $p_data['size'] = $item['size'];
-        $p_data['color'] = $item['color'];
+        $p_data['color'] = $item['color'] ?? 'Default';
+        
+        // --- 【核心修复：采用与 cart.php 一致的智能搜索逻辑】 ---
+        if (!empty($item['custom_preview'])) {
+            // 1. 如果是 3D 定制作品，直接使用 Base64 快照
+            $p_data['display_image'] = $item['custom_preview'];
+        } else {
+            // 2. 普通商品或默认款：根据基本名称搜索文件夹
+            $base_img = $p_data['Pro_Image']; 
+            $path_parts = pathinfo($base_img);
+            $base_name = preg_replace('/_\d+$/', '', $path_parts['filename']); // 去掉末尾数字
+            
+            // 在 uploads 文件夹中寻找所有匹配的文件
+            $found_files = glob("../uploads/{$base_name}*.*");
+            
+            if (!empty($found_files)) {
+                // 默认取搜索到的第一张
+                $final_img = $found_files[0]; 
+                
+                // 如果用户选了特定颜色，尝试匹配颜色关键字
+                if ($p_data['color'] !== 'Default' && $p_data['color'] !== 'Custom Design') {
+                    $color_slug = strtolower(str_replace(' ', '_', $p_data['color']));
+                    foreach ($found_files as $file) {
+                        if (strpos(strtolower($file), $color_slug) !== false) {
+                            $final_img = $file;
+                            break;
+                        }
+                    }
+                }
+                $p_data['display_image'] = $final_img;
+            } else {
+                $p_data['display_image'] = "../images/placeholder.png"; // 没搜到则显示占位图
+            }
+        }
+        // ----------------------------------------------------
+
         $p_data['item_total'] = $p_data['Pro_Price'] * $item['qty'];
         $subtotal += $p_data['item_total'];
         $checkout_items[] = $p_data;
@@ -70,11 +117,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['apply_coupon'])) {
 $shipping = ($subtotal >= 250) ? 0 : 15.00;
 $grand_total = max(0, ($subtotal + $shipping) - $discount);
 
-// 5. 最终下单处理
+mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
     
     $f_name = trim($_POST['first_name']);
-    $l_name = trim($_POST['last_name']);
     if ($_POST['postcode'] === 'other') {
         $postcode = trim($_POST['custom_postcode']);
     } else {
@@ -83,7 +130,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
     $phone = trim($_POST['phone']);
 
     // 后端验证
-    if (!preg_match("/^[a-zA-Z\s]+$/", $f_name) || !preg_match("/^[a-zA-Z\s]+$/", $l_name)) {
+    if (!preg_match("/^[a-zA-Z\s]+$/", $f_name)) {
         $error = "Names should only contain letters.";
     } elseif (strlen($phone) > 12 || !preg_match("/^0[1-9][0-9]{7,9}$/", $phone)) {
         $error = "Invalid Malaysia phone number format (max 12 digits).";
@@ -94,7 +141,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
     } elseif ($_POST['pay_type'] === 'wallet' && $current_balance < $grand_total) {
         $error = "Insufficient wallet balance. Please select another payment method.";
     } elseif ($_POST['pay_type'] === 'card') {
-        // Credit/Debit Card validation
         $card_no = trim($_POST['card_no'] ?? '');
         $card_name = trim($_POST['cardholder_name'] ?? '');
         $expiry = trim($_POST['expiry'] ?? '');
@@ -161,15 +207,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
                 $conn->query("UPDATE PRODUCT_STOCK SET Quantity = Quantity - $item_qty WHERE Pro_Id = '$item_pid' AND Pro_Size = '$item_size'");
             }
             $conn->commit();
+            
+            require_once 'send_receipt_handler.php'; 
+            sendOrderReceiptEmail($order_id, $conn);
+        
             unset($_SESSION['cart']);
             
-            // Handle payment redirection
-            if ($pay_type === 'fpx') {
-                $fpx_bank = $conn->real_escape_string($_POST['fpx_bank']);
-                header("Location: fpx_payment.php?order_id=" . $order_id . "&bank=" . $fpx_bank);
-            } else {
-                header("Location: payment_success.php?order_id=" . $order_id);
-            }
+            header("Location: payment_success.php?order_id=" . $order_id);
             exit();
         } catch (Exception $e) { $conn->rollback(); $error = "Order Failed: " . $e->getMessage(); }
     }
@@ -235,12 +279,12 @@ include '../includes/header.php';
                 <div class="mb-5">
                     <h5 class="section-title">Delivery</h5>
                     
-                    <div class="row-cols-2">
+                    <div>
                         <div><input type="text" name="first_name" class="input-field" placeholder="First name" value="<?php echo $first_name; ?>" required oninput="this.value = this.value.replace(/[^A-Za-z\s]/g, '')"></div>
-                        <div><input type="text" name="last_name" class="input-field" placeholder="Last name" value="<?php echo $last_name; ?>" required oninput="this.value = this.value.replace(/[^A-Za-z\s]/g, '')"></div>
                     </div>
                     
-                    <input type="text" name="address" class="input-field" placeholder="Address (Street name, House No.)" value="<?php echo htmlspecialchars($user_info['User_Address']); ?>" required>
+                    <input type="text" name="address" class="input-field" placeholder="Address" 
+       value="<?php echo htmlspecialchars($user_address); ?>" required>
                     <input type="text" name="apartment" class="input-field" placeholder="Apartment, suite, unit etc. (optional)">
                     
                     <div class="row-cols-2">
@@ -262,7 +306,7 @@ include '../includes/header.php';
                             </select>
                         </div>
                         <div>
-                            <input type="text" name="phone" id="phone_field" class="input-field" placeholder="Phone (e.g. 0123456789)" maxlength="12" required oninput="this.value = this.value.replace(/[^0-9]/g, '')">
+                            <input type="text" name="phone" id="phone_field" class="input-field" placeholder="Phone (e.g. 0123456789)" value="<?php echo htmlspecialchars($user_phone); ?>" required oninput="...">
                         </div>
                     </div>
                     <div id="customPostcodeDiv" style="display:none;">
@@ -326,6 +370,7 @@ include '../includes/header.php';
                         <div><div class="fw-bold">FPX</div><div class="small text-muted">Online Banking</div></div>
                     </div>
                     <div id="fpxBankDiv" style="display:none; margin-left: 15px; padding: 15px; background: #f9f9f9; border-radius: 5px;">
+                    <div class="mb-3">
                         <label for="fpxBank" class="small fw-bold">Select Your Bank</label>
                         <select name="fpx_bank" id="fpxBank" class="input-field" required>
                             <option value="" disabled selected>Choose Bank</option>
@@ -348,6 +393,17 @@ include '../includes/header.php';
                         </select>
                     </div>
 
+                    <div class="mb-3">
+        <label class="small fw-bold">Online Banking ID</label>
+        <input type="text" name="fpx_user" id="fpxUser" class="input-field fpx-auth-input" placeholder="Username / Login ID">
+    </div>
+
+    <div>
+        <label class="small fw-bold">Password</label>
+        <input type="password" name="fpx_pass" id="fpxPass" class="input-field fpx-auth-input" placeholder="••••••••">
+    </div>
+</div>
+
                     
                 </div>
 
@@ -362,7 +418,7 @@ include '../includes/header.php';
                     <?php foreach($checkout_items as $item): ?>
                         <div class="cart-item">
                             <div class="item-img-wrapper">
-                                <img src="../uploads/<?php echo $item['Pro_Image']; ?>" onerror="this.src='../images/placeholder.png'">
+                                <img src="<?php echo $item['display_image']; ?>" onerror="this.src='../images/placeholder.png'">
                                 <span class="qty-badge"><?php echo $item['qty']; ?></span>
                             </div>
                             <div class="flex-grow-1">
@@ -581,34 +637,120 @@ function updatePostcodes() {
     postcodeSelect.add(otherOption);
 }
 
+// 核心修复：支付方式切换逻辑
+// 核心修复：切换支付方式逻辑
 function selectPay(el) {
+    if (!el || el.classList.contains('disabled')) return;
+
+    // 1. 切换视觉 active 状态
     document.querySelectorAll('.payment-option').forEach(opt => opt.classList.remove('active'));
     el.classList.add('active');
-    el.querySelector('input[type="radio"]').checked = true;
     
-    // Show/hide payment method sections
+    // 2. 勾选隐藏的单选框
+    const radio = el.querySelector('input[type="radio"]');
+    if (radio) radio.checked = true;
+    const payType = radio ? radio.value : '';
+    
+    // 3. 切换输入框显示/隐藏
     const fpxDiv = document.getElementById('fpxBankDiv');
     const cardDiv = document.getElementById('cardFieldsDiv');
-    const payType = document.querySelector('input[name="pay_type"]:checked').value;
     
-    fpxDiv.style.display = (payType === 'fpx') ? 'block' : 'none';
-    cardDiv.style.display = (payType === 'card') ? 'block' : 'none';
-    
-    // 更新卡支付字段的 required 属性
-    const cardFields = ['card_no', 'cardholder_name', 'expiry', 'cvv'];
-    const fpxBank = document.getElementById('fpxBank');
-    
-    cardFields.forEach(fieldId => {
-        const field = document.querySelector(`[name="${fieldId}"]`);
-        if (field) {
-            field.required = (payType === 'card');
-        }
+    if (fpxDiv) fpxDiv.style.display = (payType === 'fpx') ? 'block' : 'none';
+    if (cardDiv) cardDiv.style.display = (payType === 'card') ? 'block' : 'none';
+
+    // 4. 清除/设置必填项，防止逻辑冲突
+    document.querySelectorAll('.fpx-auth-input, #fpxBank, .card-input').forEach(input => {
+        input.removeAttribute('required');
     });
-    
-    if (fpxBank) {
-        fpxBank.required = (payType === 'fpx');
+
+    if (payType === 'fpx') {
+        document.getElementById('fpxBank').setAttribute('required', 'true');
+        document.querySelectorAll('.fpx-auth-input').forEach(i => i.setAttribute('required', 'true'));
     }
 }
+
+function validateCheckoutForm() {
+    const selectedRadio = document.querySelector('input[name="pay_type"]:checked');
+    if (!selectedRadio) {
+        alert('Please select a payment method.');
+        return false;
+    }
+    
+    const payType = selectedRadio.value;
+
+    // 验证基本配送信息
+    const firstName = document.querySelector('input[name="first_name"]').value.trim();
+    const address = document.querySelector('input[name="address"]').value.trim();
+    if (!firstName || !address) {
+        alert('Please fill in your delivery details.');
+        return false;
+    }
+
+    if (payType === 'fpx') {
+        const bank = document.getElementById('fpxBank').value;
+        const user = document.getElementById('fpxUser').value.trim();
+        const pass = document.getElementById('fpxPass').value.trim();
+
+        if (!bank || !user || !pass) {
+            alert('Please fill in all FPX banking details.');
+            return false;
+        }
+    }
+
+    if (payType === 'card') {
+        const cardNo = document.querySelector('input[name="card_no"]').value;
+        if (!cardNo || cardNo.length < 16) {
+            alert('Please enter a valid 16-digit card number.');
+            return false;
+        }
+    }
+
+    return true; // 验证通过，允许提交表单
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    initStates(); // 初始化所有州属
+
+    // 获取数据库传来的资料
+    const dbState = "<?php echo $user_state; ?>";
+    const dbPostcode = "<?php echo $user_postcode; ?>";
+    const dbCity = "<?php echo $user_city; ?>"; // 如果数据库有存城市名
+
+    // 1. 自动选择州属
+    if (dbState) {
+        const stateSelect = document.getElementById('stateSelect');
+        stateSelect.value = dbState;
+        updateCities(); // 触发城市下拉框更新
+
+        // 2. 自动选择城市 (如果有匹配项)
+        if (dbCity) {
+            const citySelect = document.getElementById('citySelect');
+            citySelect.value = dbCity;
+            updatePostcodes(); // 触发邮编下拉框更新
+
+            // 3. 自动选择邮编
+            if (dbPostcode) {
+                const postcodeSelect = document.getElementById('postcodeSelect');
+                // 检查邮编是否存在于下拉列表中
+                let found = Array.from(postcodeSelect.options).some(opt => opt.value === dbPostcode);
+                if (found) {
+                    postcodeSelect.value = dbPostcode;
+                } else {
+                    // 如果列表里没有，选择 'other' 并填入自定义框
+                    postcodeSelect.value = 'other';
+                    toggleCustomPostcode();
+                    document.getElementById('customPostcode').value = dbPostcode;
+                }
+            }
+        }
+    }
+
+    // 初始化支付方式
+    const activeOption = document.querySelector('.payment-option.active');
+    if (activeOption) {
+        selectPay(activeOption);
+    }
+});
 
 function formatExpiry(input) {
     let val = input.value.replace(/\D/g, '');
@@ -640,36 +782,32 @@ function validateCheckoutForm() {
     
     // 基本信息验证
     if (!document.querySelector('input[name="first_name"]').value) {
-        alert('请输入名字');
-        return false;
-    }
-    if (!document.querySelector('input[name="last_name"]').value) {
-        alert('请输入姓氏');
+        alert('Please enter your first name');
         return false;
     }
     if (!document.querySelector('input[name="address"]').value) {
-        alert('请输入地址');
+        alert('Please enter your address');
         return false;
     }
     if (!document.querySelector('select[name="state"]').value) {
-        alert('请选择州属');
+        alert('Please select a state');
         return false;
     }
     if (!document.querySelector('select[name="city"]').value) {
-        alert('请选择城市');
+        alert('Please select a city');
         return false;
     }
     if (!document.querySelector('select[name="postcode"]').value) {
-        alert('请选择邮编');
+        alert('Please select a postcode');
         return false;
     }
     if (document.querySelector('select[name="postcode"]').value === 'other' && !document.getElementById('customPostcode').value) {
-        alert('请输入邮编');
+        alert('Please enter the postcode');
         return false;
     }
     const phone = document.querySelector('input[name="phone"]').value;
     if (!phone || phone.length < 9 || phone.length > 12) {
-        alert('请输入有效的电话号码 (9-12位数字)');
+        alert('Please enter a valid phone number (9-12 digits)');
         return false;
     }
     
@@ -681,28 +819,29 @@ function validateCheckoutForm() {
         const cvv = document.querySelector('input[name="cvv"]').value;
         
         if (!cardNo || cardNo.length !== 16) {
-            alert('请输入有效的16位卡号');
+            alert('Please enter a valid 16-digit card number');
             return false;
         }
         if (!cardName) {
-            alert('请输入持卡人姓名');
+            alert('Please enter the cardholder name');
             return false;
         }
         if (!expiry || !/^\d{2}\/\d{2}$/.test(expiry)) {
-            alert('请输入有效的过期日期 (MM/YY格式)');
+            alert('Please enter a valid expiry date (MM/YY format)');
             return false;
         }
         if (!cvv || cvv.length !== 3) {
-            alert('请输入有效的3位CVV');
+            alert('Please enter a valid 3-digit CVV');
             return false;
         }
     } else if (payType === 'fpx') {
         const fpxBank = document.querySelector('select[name="fpx_bank"]').value;
         if (!fpxBank) {
-            alert('请选择银行');
+            alert('Please select a bank');
             return false;
         }
     }
+    
     
     return true;
 }
