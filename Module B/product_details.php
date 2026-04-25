@@ -1,5 +1,3 @@
-
-
 <?php
 // 强制开启 Session 以确保浏览记录和购物车生效
 if (session_status() === PHP_SESSION_NONE) {
@@ -11,25 +9,30 @@ $is_logged_in = isset($_SESSION['user_id']);
 // ==========================================
 // 核心逻辑：处理加入购物车 (Add to Cart / Checkout)
 // ==========================================
-if ($_SERVER['REQUEST_METHOD'] == 'POST' && (isset($_POST['add_to_cart']) || isset($_POST['checkout_now']))) {
-    if (!$is_logged_in) {
-        header("Location: ../Module A/login.php");
-        exit;
-    }
-
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_to_cart'])) {
     $add_pro_id = intval($_POST['pro_id']);
     $add_size = $_POST['selected_size'];
-    $add_color = isset($_POST['selected_color']) ? $_POST['selected_color'] : 'Default';
-    $add_qty = intval($_POST['quantity']);
+    $design_id = isset($_POST['custom_design_id']) ? $_POST['custom_design_id'] : '';
 
-    if (!empty($add_pro_id) && !empty($add_size) && $add_qty > 0) {
-        if (!isset($_SESSION['cart'])) {
-            $_SESSION['cart'] = [];
-        }
+    if (!empty($add_pro_id) && !empty($add_size)) {
+        if (!isset($_SESSION['cart'])) $_SESSION['cart'] = [];
         
+        if (!empty($design_id) && isset($_SESSION['saved_designs'][$add_pro_id][$design_id])) {
+            // 情况 A: 添加自定义设计
+            $design = $_SESSION['saved_designs'][$add_pro_id][$design_id];
+            $cart_key = 'custom_' . $design_id . '_' . $add_size;
+            $_SESSION['cart'][$cart_key] = [
+                'pro_id' => $add_pro_id,
+                'size' => $add_size,
+                'qty' => intval($_POST['quantity']),
+                'color' => 'Custom Design',
+                'design_details' => $design['design_details'],
+                'custom_preview' => $design['custom_preview']
+            ];
+        } else {
         // 购物车唯一键值：产品ID + 尺码 + 颜色
         $cart_key = $add_pro_id . '_' . $add_size . '_' . preg_replace('/[^a-zA-Z0-9]/', '', $add_color);
-        
+        }
         if (isset($_SESSION['cart'][$cart_key])) {
             $_SESSION['cart'][$cart_key]['qty'] += $add_qty; 
         } else {
@@ -375,7 +378,6 @@ unset($mci);
         .current-price { font-size: 28px; font-weight: bold; margin-bottom: 25px; display: block;}
         .info-label { font-weight: bold; display: block; margin-bottom: 10px; font-size: 15px; }
         
-        /* JD Sports 风格颜色选择器 */
         .color-variants-container { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 25px; }
         .color-variant-box {
             width: 70px; height: 70px; background: #f4f4f4; border: 1px solid #ddd;
@@ -386,6 +388,31 @@ unset($mci);
         .color-variant-box.active { border-color: #333; border-width: 2px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
         .color-variant-box img { width: 100%; height: 100%; object-fit: contain; mix-blend-mode: multiply; }
         
+        /* 3D 定制入口方块样式 */
+        .color-variant-box.custom-plus-box {
+            border: 2px dashed #bbb; /* 虚线边框表示“新增/定制” */
+            background: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-decoration: none;
+            transition: 0.3s;
+        }
+
+        .color-variant-box.custom-plus-box:hover {
+            border: 2px solid #008060; /* 悬停时变为品牌绿 */
+            background: #f0f7f4;
+        }
+
+        .color-variant-box.custom-plus-box i {
+            font-size: 24px;
+            color: #666;
+        }
+
+        .color-variant-box.custom-plus-box:hover i {
+            color: #008060;
+        }
+
         .size-selector { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 15px; }
         .size-box { width: 50px; height: 50px; border: 1px solid #ccc; display: flex; align-items: center; justify-content: center; font-weight: bold; cursor: pointer; border-radius: 4px; transition: 0.2s;}
         .size-box:hover { border-color: #333; }
@@ -535,9 +562,21 @@ unset($mci);
         .ai-chat-body::-webkit-scrollbar-track { background: #f1f1f1; }
         .ai-chat-body::-webkit-scrollbar-thumb { background: #008060; border-radius: 3px; }
         .ai-chat-body::-webkit-scrollbar-thumb:hover { background: #00664c; }
+
+        .design-tabs { display: flex; gap: 20px; border-bottom: 1px solid #eee; margin-bottom: 20px; }
+        .design-tab { padding-bottom: 10px; cursor: pointer; font-weight: bold; color: #999; border-bottom: 2px solid transparent; }
+        .design-tab.active { color: #000; border-bottom-color: #000; }
+        .design-content { display: none; }
+        .design-content.active { display: block; }
+        .custom-design-thumb { border: 2px solid #eee; border-radius: 4px; padding: 2px; cursor: pointer; width: 60px; }
+        .custom-design-thumb.active { border-color: #008060; }
     </style>
 </head>
 <body>
+
+
+
+<input type="hidden" name="custom_design_id" id="customDesignIdInput" value="">
 
 <div class="flex-wrapper">
     <div class="detail-container">
@@ -558,15 +597,49 @@ unset($mci);
                 <span class="current-price">RM <?php echo number_format($product['Pro_Price'], 2); ?></span>
 
                 <div style="margin-bottom:10px;">
-                    <strong>Colour:</strong> <span id="selectedColorText" style="font-weight:normal; color:#666;"><?php echo htmlspecialchars($colors[0]); ?></span>
+                    <strong>Selected:</strong> <span id="selectedColorText" style="font-weight:normal; color:#666;"><?php echo htmlspecialchars($colors[0]); ?></span>
                 </div>
+
+                <div class="design-tabs">
+                    <div class="design-tab active" onclick="switchDesignTab(event, 'inspiration')">Inspiration</div>
+                    <div class="design-tab" onclick="switchDesignTab(event, 'your-designs')">
+                        Your Designs (<?php echo count($_SESSION['saved_designs'][$pro_id] ?? []); ?>)
+                    </div>
+                </div>
+
+                <div id="inspiration-content" class="design-content active">
                 <div class="color-variants-container">
                     <?php foreach($colors as $idx => $c): ?>
-                        <div class="color-variant-box <?php echo $idx==0 ? 'active' : ''; ?>" onclick="selectColor(this, '<?php echo htmlspecialchars($c); ?>')" title="<?php echo htmlspecialchars($c); ?>">
+                        <div class="color-variant-box <?php echo $idx==0 ? 'active' : ''; ?>" 
+                            onclick="selectColor(this, '<?php echo htmlspecialchars($c); ?>')" 
+                            title="<?php echo htmlspecialchars($c); ?>">
                             <img src="<?php echo $color_galleries[$c][0]; ?>" onerror="this.src='../images/placeholder.png'">
                         </div>
                     <?php endforeach; ?>
+                    </div>
+            </div>
+
+            <div id="your-designs-content" class="design-content">
+                <div class="color-variants-container">
+                    <?php if(!empty($_SESSION['saved_designs'][$pro_id])): ?>
+                        <?php foreach($_SESSION['saved_designs'][$pro_id] as $d_id => $design): ?>
+                            <div class="color-variant-box custom-design-thumb" 
+                                onclick="selectCustomDesign('<?php echo $d_id; ?>', '<?php echo $design['custom_preview']; ?>', this)">
+                                <img src="<?php echo $design['custom_preview']; ?>">
+                            </div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+
+                    <?php if($product['Pro_Id'] == 16): ?>
+                        <a href="javascript:void(0)" 
+                        onclick="handleCustomBuilderLink(<?php echo $product['Pro_Id']; ?>)"
+                        class="color-variant-box custom-plus-box" 
+                        title="Create a new design">
+                            <i class="bi bi-plus-lg"></i>
+                        </a>
+                    <?php endif; ?>
                 </div>
+            </div>
                 
                 <div style="margin-bottom:25px; color:#666; font-size:14px;">
                     <strong>Gender:</strong> <?php echo $product['Pro_Gender']; ?>
@@ -592,16 +665,17 @@ unset($mci);
 
                     <div class="info-label">Quantity</div>
                     <div style="display:flex; gap:15px; align-items:center;">
-                        <div class="quantity-selector">
-                            <button type="button" onclick="changeQty(-1)">−</button>
-                            <input type="number" name="quantity" id="qtyInput" value="1" readonly>
-                            <button type="button" onclick="changeQty(1)">+</button>
-                        </div>
-                        <?php if($isAdmin): ?>
-                            <button type="button" class="btn-add-cart" onclick="showAdminWarning()">ADD TO BASKET</button>
-                        <?php else: ?>
-                            <button type="button" class="btn-add-cart" id="addToBasketBtn" onclick="addToCartAndOpen.call(this)">ADD TO BASKET</button>
-                        <?php endif; ?>
+                    <div class="quantity-selector">
+                        <button type="button" onclick="changeQty(-1)">−</button>
+                        <input type="number" name="quantity" id="qtyInput" value="1" readonly>
+                        <button type="button" onclick="changeQty(1)">+</button>
+                    </div>
+
+                    <?php if($isAdmin): ?>
+                        <button type="button" class="btn-add-cart" onclick="showAdminWarning()">ADD TO BASKET</button>
+                    <?php else: ?>
+                        <button type="button" class="btn-add-cart" id="addToBasketBtn" onclick="addToCartAndOpen.call(this)">ADD TO BASKET</button>
+                    <?php endif; ?>
                     </div>
                     <small style="display:block; margin-top:10px; color:#666;">
                     <i class="bi bi-info-circle me-1"></i>
@@ -800,6 +874,16 @@ unset($mci);
         }
     });
 
+    function handleCustomBuilderLink(proId) {
+        // 检查全局变量 isLoggedIn (该变量已在页面顶部由 PHP 传给 JS)
+        if (!isLoggedIn) {
+            // 调用你现有的登录提示函数
+            promptLogin('customize your unique 3D design');
+        } else {
+            // 已验证，允许跳转
+            window.location.href = `custom_builder.php?pro_id=${proId}`;
+        }
+    }
 
     function promptLogin(actionText) {
         Swal.fire({
@@ -1331,6 +1415,43 @@ unset($mci);
         };
         return text.replace(/[&<>"']/g, m => map[m]);
     }
+
+    function switchDesignTab(event, tabName) {
+        // 清除所有 tab 的 active 状态
+        document.querySelectorAll('.design-tab').forEach(t => t.classList.remove('active'));
+        // 隐藏所有内容区域
+        document.querySelectorAll('.design-content').forEach(c => c.classList.remove('active'));
+        
+        // 激活当前点击的 tab 和内容
+        event.currentTarget.classList.add('active');
+        document.getElementById(tabName + '-content').classList.add('active');
+    }
+
+    // 选中用户的自定义设计
+    function selectCustomDesign(designId, previewImg, el) {
+        // 1. UI 反馈：清除所有方块（包括默认色和自定义色）的 active 状态
+        document.querySelectorAll('.color-variant-box').forEach(b => b.classList.remove('active'));
+        el.classList.add('active');
+        
+        // 2. 更新表单数据
+        document.getElementById('customDesignIdInput').value = designId;
+        document.getElementById('selectedColorInput').value = "Custom Design";
+        document.getElementById('selectedColorText').innerText = "My Custom Design";
+        
+        // 3. 更新主图展示：将 2x2 网格替换为用户设计的快照大图
+        const grid = document.getElementById('mainGalleryGrid');
+        grid.innerHTML = `
+            <div class="gallery-img-box" style="grid-column: 1/-1; aspect-ratio: auto;">
+                <div class="badge-sale">↗ YOUR CUSTOM DESIGN</div>
+                <img src="${previewImg}" style="width:100%; height:auto; mix-blend-mode: normal;">
+            </div>
+        `;
+        
+        // 4. 重置尺码选择（可选，如果不同设计库存逻辑一致则不需重置）
+        // selectedSize = ""; 
+        // document.getElementById('selectedSizeInput').value = "";
+    }
+
 </script>
 
 </body>

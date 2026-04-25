@@ -33,7 +33,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_btn'])) {
     $postcode = trim($_POST['postcode']);
     $state = trim($_POST['state']);
 
-    // Clean phone number (remove dashes/spaces)
+    // Clean phone number (remove dashes/spaces) for database storage
     $clean_phone = preg_replace('/[^0-9]/', '', $phone_input);
 
     // Basic Validations
@@ -45,49 +45,48 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_btn'])) {
         $error = "Only Gmail addresses are allowed.";
     }
 
-    // Assign Role
-    $role = ($email === "sportshoes.system@gmail.com") ? "Admin" : "User";
+    if (!$error && $password !== $confirm_password) {
+        $error = "Passwords do not match.";
+    }
 
     if (!$error) {
-        if ($password !== $confirm_password) {
-            $error = "Passwords do not match.";
+        // DATABASE CHECK:
+        // We check if THIS specific Email AND Phone combo already exists.
+        $checkUser = $conn->prepare("SELECT * FROM USER WHERE User_Email = ? AND User_Phone = ?");
+        $checkUser->bind_param("ss", $email, $clean_phone);
+        $checkUser->execute();
+        $result = $checkUser->get_result();
+
+        if ($result->num_rows > 0) {
+            $error = "This Email is already registered with this Phone Number.";
         } else {
-            // DATABASE CHECK:
-            // We check if THIS specific Email AND Phone combo already exists.
-            // This allows the same Gmail to register again with a NEW phone number.
-            $checkUser = $conn->prepare("SELECT * FROM USER WHERE User_Email = ? AND User_Phone = ?");
-            $checkUser->bind_param("ss", $email, $clean_phone);
-            $checkUser->execute();
-            $result = $checkUser->get_result();
+            // Assign Role
+            $role = ($email === "sportshoes.system@gmail.com") ? "Admin" : "User";
 
-            if ($result->num_rows > 0) {
-                $error = "This Email is already registered with this Phone Number.";
-            } else {
-                // SUCCESS: Generate OTP
-                $otp = rand(100000, 999999);
-                $hashed_password = password_hash($password, PASSWORD_DEFAULT);
-                
-                $_SESSION['temp_user'] = [
-                    'full_name' => $full_name, 
-                    'email' => $email, 
-                    'phone' => $clean_phone,
-                    'password' => $hashed_password, 
-                    'dob' => $dob, 
-                    'address' => $address,
-                    'postcode' => $postcode, 
-                    'state' => $state, 
-                    'role' => $role,
-                    'otp' => $otp, 
-                    'expiry' => strtotime("+5 minutes")
-                ];
+            // SUCCESS: Generate OTP and Hash Password
+            $otp = rand(100000, 999999);
+            $hashed_password = password_hash($password, PASSWORD_DEFAULT);
+            
+            $_SESSION['temp_user'] = [
+                'full_name' => $full_name, 
+                'email' => $email, 
+                'phone' => $clean_phone,
+                'password' => $hashed_password, 
+                'dob' => $dob, 
+                'address' => $address,
+                'postcode' => $postcode, 
+                'state' => $state, 
+                'role' => $role,
+                'otp' => $otp, 
+                'expiry' => strtotime("+5 minutes")
+            ];
 
-                // OPTION B: Show OTP in alert and redirect
-                echo "<script>
-                    alert('STEALTH SYSTEM\\n\\nAccount detected for: $email\\nYour OTP is: $otp');
-                    window.location.href='verify_otp.php';
-                </script>";
-                exit();
-            }
+            // Show OTP in alert and redirect
+            echo "<script>
+                alert('STEALTH SYSTEM\\n\\nRegistration code for: $email\\nYour OTP is: $otp');
+                window.location.href='verify_otp.php';
+            </script>";
+            exit();
         }
     }
 }
@@ -240,7 +239,7 @@ include_once '../includes/header.php';
 
                 <div class="row g-4">
                     <div class="col-md-6 mb-3">
-                        <label class="form-label">Phone Number (Max 3 accounts)</label>
+                        <label class="form-label">Phone Number</label>
                         <input type="text" id="phone" name="phone" class="form-control no-group-radius" placeholder="01x-xxxxxxx" required>
                     </div>
                     <div class="col-md-6 mb-3">

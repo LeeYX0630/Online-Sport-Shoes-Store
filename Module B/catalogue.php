@@ -484,9 +484,7 @@ $where_clause = count($where_clauses) > 0 ? "WHERE " . implode(" AND ", $where_c
                                     $colors = ['Default'];
                                 }
                                 
-                                // 为每个颜色生成一张卡片
                                 foreach ($colors as $current_variant_color) {
-                                    // --- 智能抓取颜色对应的封面图 ---
                                     $base_img = $row['Pro_Image'];
                                     $img_src = "../images/brands/placeholder.png"; 
                                     
