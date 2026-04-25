@@ -15,7 +15,7 @@ if (!isset($_SESSION['cart'])) {
 }
 
 // ---------------------------------------------------------
-// 1. 【后端逻辑核心修复】处理表单提交
+// 1. 处理表单提交
 // ---------------------------------------------------------
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     if (isset($_POST['remove_item']) && $_POST['remove_item'] == "1") {
@@ -77,16 +77,12 @@ $free_shipping_threshold = 250.00;
         .cart-layout { display: grid; grid-template-columns: 2fr 1fr; gap: 40px; }
         .cart-items { background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
         .cart-item-row { display: grid; grid-template-columns: 100px 2fr 1fr 1fr auto; gap: 20px; align-items: center; padding: 20px 0; border-bottom: 1px solid #eee; }
-        .item-img img { width: 100px; height: 100px; object-fit: contain; mix-blend-mode: multiply; }
+        .item-img img { width: 100px; height: 100px; object-fit: contain; mix-blend-mode: multiply; border-radius: 4px; background: #f9f9f9; }
         .qty-input { width: 80px; padding: 8px; border: 1px solid #ccc; border-radius: 4px; text-align: center; font-weight: bold; }
         .order-summary { background: #fff; border-radius: 8px; padding: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); height: fit-content; position: sticky; top: 20px; }
         .btn-checkout { display: block; width: 100%; background: #008060; color: #fff; text-align: center; padding: 15px; font-weight: bold; border-radius: 4px; text-decoration: none; margin-top: 20px; transition: 0.3s; }
         .btn-checkout:hover { background: #00664c; }
-        
-        /* 新增：Continue Shopping 按钮样式 */
-        .btn-continue-shopping { 
-            display: block; width: 100%; background: #fff; color: #333; text-align: center; padding: 15px; font-weight: bold; border-radius: 4px; text-decoration: none; margin-top: 12px; border: 1px solid #ccc; transition: 0.3s; 
-        }
+        .btn-continue-shopping { display: block; width: 100%; background: #fff; color: #333; text-align: center; padding: 15px; font-weight: bold; border-radius: 4px; text-decoration: none; margin-top: 12px; border: 1px solid #ccc; transition: 0.3s; }
         .btn-continue-shopping:hover { background: #f8f9fa; border-color: #333; }
     </style>
 </head>
@@ -119,6 +115,7 @@ $free_shipping_threshold = 250.00;
                             $qty    = $item['qty'];
                             $color_in_session = $item['color'] ?? 'Default';
 
+                            // 确定显示颜色名称
                             if ($pro_id == 16 && ($color_in_session == 'Custom Design' || $color_in_session == 'Default')) {
                                 $display_color = 'Custom'; 
                             } else {
@@ -136,17 +133,41 @@ $free_shipping_threshold = 250.00;
                                 $product = $res->fetch_assoc();
                                 $current_stock = intval($product['DB_Stock'] ?? 0);
                                 
-                                $base_img = $product['Pro_Image'];
-                                $path_parts = pathinfo($base_img);
-                                $base_name = preg_replace('/_\d+$/', '', $path_parts['filename']);
-                                $found_files = glob("../uploads/{$base_name}*.*");
-                                $display_img = (!empty($found_files)) ? $found_files[0] : "../images/placeholder.png";
+                                // --- 【核心修复逻辑：优先检查并使用自定义 3D 快照】 ---
+                                if (!empty($item['custom_preview'])) {
+                                    // 用户自定义设计的图片
+                                    $display_img = $item['custom_preview'];
+                                } else {
+                                    // 普通商品的图片匹配逻辑
+                                    $base_img = $product['Pro_Image'];
+                                    $path_parts = pathinfo($base_img);
+                                    $base_name = preg_replace('/_\d+$/', '', $path_parts['filename']);
+                                    $found_files = glob("../uploads/{$base_name}*.*");
+                                    
+                                    if (!empty($found_files)) {
+                                        $display_img = $found_files[0]; // 默认取第一张
+                                        
+                                        // 如果不是默认颜色，尝试匹配文件名中的颜色词
+                                        if ($display_color !== 'Default' && $display_color !== 'Custom') {
+                                            $color_slug = strtolower(str_replace([' ', '/'], '_', $display_color));
+                                            foreach ($found_files as $file) {
+                                                if (strpos(strtolower($file), $color_slug) !== false) {
+                                                    $display_img = $file;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        $display_img = "../images/placeholder.png";
+                                    }
+                                }
+                                // ----------------------------------------------------
                                 
                                 $item_total = $product['Pro_Price'] * $qty;
                                 $subtotal += $item_total;
                                 ?>
                                 <div class="cart-item-row">
-                                    <div class="item-img"><img src="<?php echo $display_img; ?>"></div>
+                                    <div class="item-img"><img src="<?php echo $display_img; ?>" onerror="this.src='../images/placeholder.png'"></div>
                                     <div>
                                         <div style="font-size:12px; font-weight:bold; color:#666;"><?php echo $product['Brand_Name']; ?></div>
                                         <strong style="color:#333;"><?php echo $product['Pro_Name']; ?></strong>
