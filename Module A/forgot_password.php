@@ -1,5 +1,10 @@
 <?php
-require_once '../includes/db_connection.php'; // Required as per project structure [cite: 36]
+/**
+ * STEALTH SPORT SHOES - FORGOT PASSWORD
+ * Module A: User Permissions & Profile
+ */
+
+require_once '../includes/db_connection.php'; 
 session_start();
 ob_start();
 
@@ -7,24 +12,35 @@ $message = "";
 $message_type = "";
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    $email = trim($_POST['email']);
+    $email = strtolower(trim($_POST['email']));
 
-    // Check email in the 'user' table (lowercase as per your DB screenshot)
-    $stmt = $conn->prepare("SELECT user_id FROM user WHERE email = ?");
-    $stmt->bind_param("s", $email);
-    $stmt->execute();
-    $result = $stmt->get_result();
+    // ✅ Correct column names
+    $stmt = $conn->prepare("SELECT User_ID FROM USER WHERE User_Email = ?");
+    
+    if ($stmt) {
+        $stmt->bind_param("s", $email);
+        $stmt->execute();
+        $result = $stmt->get_result();
 
-    if ($result->num_rows === 1) {
-        $user = $result->fetch_assoc();
-        $_SESSION['reset_user_id'] = $user['user_id'];
-        header("Location: reset_password.php"); 
-        exit();
+        if ($result && $result->num_rows === 1) {
+            $user = $result->fetch_assoc();
+            
+            // ✅ Store user ID in session
+            $_SESSION['reset_user_id'] = $user['User_ID'];
+            
+            // ✅ Redirect to correct file name
+            header("Location: reset_password.php");
+            exit();
+        } else {
+            $message = "This email is not registered with us.";
+            $message_type = "danger";
+        }
+
+        $stmt->close();
     } else {
-        $message = "Email address not found.";
+        $message = "Database error. Please try again.";
         $message_type = "danger";
     }
-    $stmt->close();
 }
 ?>
 
@@ -33,18 +49,23 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Forgot Password | Stealth Sport Shoes</title>
+    <title>Recover Account | Stealth Sport Shoes</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    
     <style>
         :root {
-            --dark-navy: #0A192F;
-            --brand-orange: #FF6B00; /* Project Accent Color  */
+            --brand-orange: #FF6B00;
+            --pure-white: #FFFFFF;
+            --text-dark: #1E293B;
+            --soft-gray: #F8FAFC;
         }
 
         body {
-            background-color: #E2E8F0;
-            font-family: 'Segoe UI', sans-serif;
+            background-color: var(--soft-gray);
+            background-image: radial-gradient(var(--brand-orange) 0.5px, transparent 0.5px);
+            background-size: 30px 30px;
+            font-family: 'Inter', sans-serif;
             height: 100vh;
             display: flex;
             align-items: center;
@@ -52,118 +73,79 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             margin: 0;
         }
 
-        .split-card {
-            display: flex;
-            width: 900px;
-            min-height: 500px;
-            background: white;
-            border-radius: 30px;
-            overflow: hidden;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.1);
-        }
-
-        .left-panel {
-            flex: 1;
-            background: #F8FAFC;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 40px;
+        .recovery-card {
+            background: var(--pure-white);
+            width: 100%;
+            max-width: 480px;
+            border-radius: 35px;
+            padding: 60px 45px;
+            box-shadow: 0 40px 100px -20px rgba(0, 0, 0, 0.1);
             text-align: center;
         }
 
-        .left-panel img {
-            max-width: 80%;
-            height: auto;
-            margin-bottom: 20px;
-        }
-
-        .right-panel {
-            flex: 1;
-            background: var(--dark-navy);
+        .icon-wrapper {
+            width: 90px; height: 90px;
+            background: linear-gradient(135deg, var(--brand-orange), #FF8533);
             color: white;
-            padding: 60px;
             display: flex;
-            flex-direction: column;
+            align-items: center;
             justify-content: center;
+            border-radius: 28px;
+            margin: 0 auto 30px;
+            font-size: 2.5rem;
         }
 
-        .brand-line {
-            width: 40px;
-            height: 4px;
-            background: var(--brand-orange);
-            margin-bottom: 20px;
-        }
+        h2 { color: var(--text-dark); font-weight: 800; }
 
         .form-control {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            color: white;
-            padding: 15px;
-            border-radius: 12px;
+            height: 60px;
+            border-radius: 15px;
+            border: 2px solid #F1F5F9;
         }
 
-        .btn-reset {
+        .btn-recover {
             background: var(--brand-orange);
             color: white;
-            padding: 15px;
-            border-radius: 12px;
+            height: 60px;
+            border-radius: 15px;
             font-weight: 700;
             width: 100%;
             border: none;
-            text-transform: uppercase;
-            transition: 0.3s;
         }
 
-        .btn-reset:hover { background: #e65c00; transform: translateY(-2px); }
-
-        .back-link { color: rgba(255, 255, 255, 0.5); text-decoration: none; font-size: 0.9rem; margin-top: 25px; display: block; text-align: center; }
-        .back-link:hover { color: var(--brand-orange); }
-
-        @media (max-width: 850px) { .left-panel { display: none; } .split-card { width: 450px; } }
+        .btn-recover:hover {
+            background: #E66000;
+        }
     </style>
 </head>
+
 <body>
 
-<div class="split-card">
-    <div class="left-panel">
-        <img src="https://cdni.iconscout.com/illustration/premium/thumb/forgot-password-illustration-download-in-svg-png-gif-file-formats--mobile-app-unlock-security-privacy-business-pack-illustrations-4545041.png" alt="Recovery Illustration">
-        <h4 class="fw-bold text-dark">Password Recovery</h4>
-        <p class="text-muted small">Enter your email to verify your account and proceed to reset your password.</p>
+<div class="recovery-card">
+    <div class="icon-wrapper">
+        <i class="bi bi-shield-lock"></i>
     </div>
 
-    <div class="right-panel">
-        <div class="brand-line"></div>
-        <h2 class="fw-bold mb-1">Forgot<br>Password?</h2>
-        <p class="small opacity-50 mb-4">We'll send you a secure verification link.</p>
+    <h2>Access Recovery</h2>
+    <p>Enter your email to reset your password.</p>
 
-        <?php if($message): ?>
-            <div class="alert alert-<?php echo $message_type; ?> border-0 small py-2 mb-4"><?php echo $message; ?></div>
-        <?php endif; ?>
+    <?php if($message): ?>
+        <div class="alert alert-danger"><?php echo $message; ?></div>
+    <?php endif; ?>
 
-        <form method="POST" id="forgotForm">
-            <div class="mb-4">
-                <label class="form-label small fw-bold opacity-50 text-uppercase">Email Address</label>
-                <input type="email" name="email" id="email" class="form-control" placeholder="user@example.com" required>
-            </div>
-            <button type="submit" class="btn btn-reset">Verify Email</button>
-        </form>
+    <form method="POST">
+        <div class="mb-3">
+            <input type="email" name="email" class="form-control" placeholder="username@gmail.com" required>
+        </div>
 
-        <a href="login.php" class="back-link"><i class="bi bi-chevron-left"></i> Back to Login</a>
-    </div>
+        <button type="submit" class="btn btn-recover">
+            Verify Identity
+        </button>
+    </form>
+
+    <br>
+    <a href="login.php">← Back to Login</a>
 </div>
 
-<script>
-[cite_start]// Mandatory JavaScript validation [cite: 63]
-document.getElementById('forgotForm').onsubmit = function(e) {
-    const email = document.getElementById('email').value.trim();
-    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (email === "" || !emailPattern.test(email)) {
-        alert("Please enter a valid email address.");
-        e.preventDefault();
-    }
-};
-</script>
 </body>
 </html>
