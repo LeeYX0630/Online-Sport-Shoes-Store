@@ -33,25 +33,27 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_btn'])) {
     $postcode = trim($_POST['postcode']);
     $state = trim($_POST['state']);
 
-    // Clean phone number (remove dashes/spaces) for database storage
+    // Clean phone number
     $clean_phone = preg_replace('/[^0-9]/', '', $phone_input);
 
-    // Basic Validations
+    // ✅ Full Name validation
     if (preg_match('/[0-9]/', $full_name)) {
         $error = "Full Name cannot contain numbers.";
     }
 
-    if (!$error && !str_ends_with($email, '@gmail.com')) {
-        $error = "Only Gmail addresses are allowed.";
+    // ✅ NEW: Allow ALL email providers (Gmail, Yahoo, Student, etc.)
+    if (!$error && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $error = "Please enter a valid email address.";
     }
 
+    // ✅ Password match
     if (!$error && $password !== $confirm_password) {
         $error = "Passwords do not match.";
     }
 
     if (!$error) {
-        // DATABASE CHECK:
-        // We check if THIS specific Email AND Phone combo already exists.
+
+        // Check Email + Phone combination
         $checkUser = $conn->prepare("SELECT * FROM USER WHERE User_Email = ? AND User_Phone = ?");
         $checkUser->bind_param("ss", $email, $clean_phone);
         $checkUser->execute();
@@ -60,10 +62,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_btn'])) {
         if ($result->num_rows > 0) {
             $error = "This Email is already registered with this Phone Number.";
         } else {
-            // Assign Role
+
+            // ✅ Admin logic (only this email is admin)
             $role = ($email === "sportshoes.system@gmail.com") ? "Admin" : "User";
 
-            // SUCCESS: Generate OTP and Hash Password
+            // Generate OTP (you still using OTP page)
             $otp = rand(100000, 999999);
             $hashed_password = password_hash($password, PASSWORD_DEFAULT);
             
@@ -81,9 +84,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_btn'])) {
                 'expiry' => strtotime("+5 minutes")
             ];
 
-            // Show OTP in alert and redirect
+            // Show OTP
             echo "<script>
-                alert('STEALTH SYSTEM\\n\\nRegistration code for: $email\\nYour OTP is: $otp');
+                alert('STEALTH SYSTEM\\n\\nRegistration for: $email\\nYour OTP is: $otp');
                 window.location.href='verify_otp.php';
             </script>";
             exit();
