@@ -8,6 +8,7 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
+// Requirement: Standard DB connection using relative path [cite: 32, 34]
 require_once '../includes/db_connection.php';
 
 // Redirect if already logged in
@@ -33,28 +34,28 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_btn'])) {
     $postcode = trim($_POST['postcode']);
     $state = trim($_POST['state']);
 
-    // Clean phone number
+    // Clean phone number to digits only
     $clean_phone = preg_replace('/[^0-9]/', '', $phone_input);
 
-    // ✅ Full Name validation
+    // Full Name validation: No numbers allowed
     if (preg_match('/[0-9]/', $full_name)) {
         $error = "Full Name cannot contain numbers.";
     }
 
-    // ✅ NEW: Allow ALL email providers (Gmail, Yahoo, Student, etc.)
+    // Email validation
     if (!$error && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $error = "Please enter a valid email address.";
     }
 
-    // ✅ Password match
+    // Password match validation
     if (!$error && $password !== $confirm_password) {
         $error = "Passwords do not match.";
     }
 
     if (!$error) {
 
-        // Check Email + Phone combination
-        $checkUser = $conn->prepare("SELECT * FROM USER WHERE User_Email = ? AND User_Phone = ?");
+        // Check Email + Phone combination using official column names [cite: 45, 47]
+        $checkUser = $conn->prepare("SELECT * FROM USER WHERE email = ? AND phone = ?");
         $checkUser->bind_param("ss", $email, $clean_phone);
         $checkUser->execute();
         $result = $checkUser->get_result();
@@ -63,28 +64,30 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_btn'])) {
             $error = "This Email is already registered with this Phone Number.";
         } else {
 
-            // ✅ Admin logic (only this email is admin)
-            $role = ($email === "sportshoes.system@gmail.com") ? "Admin" : "User";
+            // Admin logic: specific email gets Admin role, others get Customer [cite: 48]
+            $role = ($email === "sportshoes.system@gmail.com") ? "Admin" : "Customer";
 
-            // Generate OTP (you still using OTP page)
+            // Generate OTP and Hash Password
             $otp = rand(100000, 999999);
             $hashed_password = password_hash($password, PASSWORD_DEFAULT);
             
+            // ✅ ALIGNMENT FIX: Use lowercase keys to match the DB Schema 
+            // This prevents "Undefined array key" errors in verify_otp.php
             $_SESSION['temp_user'] = [
                 'full_name' => $full_name, 
-                'email' => $email, 
-                'phone' => $clean_phone,
-                'password' => $hashed_password, 
-                'dob' => $dob, 
-                'address' => $address,
-                'postcode' => $postcode, 
-                'state' => $state, 
-                'role' => $role,
-                'otp' => $otp, 
-                'expiry' => strtotime("+5 minutes")
+                'email'     => $email, 
+                'phone'     => $clean_phone,
+                'password'  => $hashed_password, 
+                'dob'       => $dob, 
+                'address'   => $address,
+                'postcode'  => $postcode, 
+                'state'     => $state, 
+                'role'      => $role,
+                'otp'       => $otp, 
+                'expiry'    => strtotime("+5 minutes")
             ];
 
-            // Show OTP
+            // Show OTP Alert and redirect
             echo "<script>
                 alert('STEALTH SYSTEM\\n\\nRegistration for: $email\\nYour OTP is: $otp');
                 window.location.href='verify_otp.php';
@@ -102,7 +105,7 @@ include_once '../includes/header.php';
 
 <style>
     :root { 
-        --brand-orange: #FF6B00; 
+        --brand-orange: #FF6B00; /* Project Brand Color [cite: 29] */
         --pure-white: #FFFFFF; 
     }
 
@@ -246,7 +249,7 @@ include_once '../includes/header.php';
                         <input type="text" id="phone" name="phone" class="form-control no-group-radius" placeholder="01x-xxxxxxx" required>
                     </div>
                     <div class="col-md-6 mb-3">
-                        <label class="form-label">Date of Birthday</label>
+                        <label class="form-label">Date of Birth</label>
                         <input type="date" name="dob" class="form-control no-group-radius" max="<?php echo date('Y-m-d'); ?>" required>
                     </div>
                 </div>
@@ -280,7 +283,7 @@ include_once '../includes/header.php';
 
                 <span class="section-tag">Security</span>
                 <div class="mb-4">
-                    <label class="form-label">Email (@gmail.com only)</label>
+                    <label class="form-label">Email</label>
                     <div class="input-group">
                         <span class="input-group-text"><i class="bi bi-envelope"></i></span>
                         <input type="email" name="email" class="form-control" required placeholder="example@gmail.com">
@@ -293,7 +296,7 @@ include_once '../includes/header.php';
                         <input type="password" name="password" id="pwd" class="form-control no-group-radius" required>
                         <small id="strength" style="display:block; margin-top:5px;"></small>
                         <div class="pw-tip">
-                            <strong>How to make it stronger?</strong>
+                            [cite_start]<strong>Password Strength Requirements[cite: 16]:</strong>
                             <ul class="mb-0 ps-3 mt-1">
                                 <li>Use at least 8 characters</li>
                                 <li>Mix uppercase (A) and lowercase (a)</li>
