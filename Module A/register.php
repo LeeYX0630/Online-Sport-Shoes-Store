@@ -1,23 +1,12 @@
 <?php
 /**
- * STEALTH SPORT SHOES - MULTI-ACCOUNT REGISTRATION
- * Logic: Same Email allowed if Phone Number is different.
+ * STEALTH SPORT SHOES - REGISTRATION
  */
-
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
 require_once '../includes/db_connection.php';
-
-// Redirect if already logged in
-if (isset($_SESSION['user_id'])) {
-    $dashboard_link = (isset($_SESSION['role']) && ($_SESSION['role'] === 'Admin')) 
-        ? '../Module C/admin_dashboard.php' 
-        : 'user_dashboard.php';
-    header("Location: $dashboard_link");
-    exit();
-}
 
 $error = "";
 
@@ -28,71 +17,47 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_btn'])) {
     $phone_input = trim($_POST['phone']);
     $password = $_POST['password'];
     $confirm_password = $_POST['confirm_password'];
-    $dob = trim($_POST['dob']);
-    $address = trim($_POST['address']);
-    $postcode = trim($_POST['postcode']);
-    $state = trim($_POST['state']);
 
-    // Clean phone number
     $clean_phone = preg_replace('/[^0-9]/', '', $phone_input);
 
-    // ✅ Full Name validation
-    if (preg_match('/[0-9]/', $full_name)) {
-        $error = "Full Name cannot contain numbers.";
-    }
-
-    // ✅ NEW: Allow ALL email providers (Gmail, Yahoo, Student, etc.)
-    if (!$error && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        $error = "Please enter a valid email address.";
-    }
-
-    // ✅ Password match
-    if (!$error && $password !== $confirm_password) {
-        $error = "Passwords do not match.";
-    }
-
     if (!$error) {
-
-        // Check Email + Phone combination
+        // Change 'User_Email' and 'User_Phone' below if your phpMyAdmin says otherwise
         $checkUser = $conn->prepare("SELECT * FROM USER WHERE User_Email = ? AND User_Phone = ?");
+        
+        if (!$checkUser) {
+            die("Database Error: " . $conn->error . ". Check your column names in phpMyAdmin Structure tab.");
+        }
+
         $checkUser->bind_param("ss", $email, $clean_phone);
         $checkUser->execute();
         $result = $checkUser->get_result();
 
         if ($result->num_rows > 0) {
-            $error = "This Email is already registered with this Phone Number.";
+            $error = "This Email and Phone combination is already registered.";
         } else {
-
-            // ✅ Admin logic (only this email is admin)
-            $role = ($email === "sportshoes.system@gmail.com") ? "Admin" : "User";
-
-            // Generate OTP (you still using OTP page)
+            $role = ($email === "sportshoes.system@gmail.com") ? "Admin" : "Customer";
             $otp = rand(100000, 999999);
             $hashed_password = password_hash($password, PASSWORD_DEFAULT);
             
             $_SESSION['temp_user'] = [
                 'full_name' => $full_name, 
-                'email' => $email, 
-                'phone' => $clean_phone,
-                'password' => $hashed_password, 
-                'dob' => $dob, 
-                'address' => $address,
-                'postcode' => $postcode, 
-                'state' => $state, 
-                'role' => $role,
-                'otp' => $otp, 
-                'expiry' => strtotime("+5 minutes")
+                'email'     => $email, 
+                'phone'     => $clean_phone,
+                'password'  => $hashed_password, 
+                'role'      => $role,
+                'otp'       => $otp, 
+                'expiry'    => strtotime("+5 minutes")
             ];
 
-            // Show OTP
             echo "<script>
-                alert('STEALTH SYSTEM\\n\\nRegistration for: $email\\nYour OTP is: $otp');
+                alert('OTP for $email: $otp');
                 window.location.href='verify_otp.php';
             </script>";
             exit();
         }
     }
 }
+// ... Rest of your HTML/UI code ...
 
 include_once '../includes/header.php'; 
 ?>
@@ -102,7 +67,7 @@ include_once '../includes/header.php';
 
 <style>
     :root { 
-        --brand-orange: #FF6B00; 
+        --brand-orange: #FF6B00; /* Project Brand Color  */
         --pure-white: #FFFFFF; 
     }
 
@@ -246,7 +211,7 @@ include_once '../includes/header.php';
                         <input type="text" id="phone" name="phone" class="form-control no-group-radius" placeholder="01x-xxxxxxx" required>
                     </div>
                     <div class="col-md-6 mb-3">
-                        <label class="form-label">Date of Birthday</label>
+                        <label class="form-label">Date of Birth</label>
                         <input type="date" name="dob" class="form-control no-group-radius" max="<?php echo date('Y-m-d'); ?>" required>
                     </div>
                 </div>
@@ -280,7 +245,7 @@ include_once '../includes/header.php';
 
                 <span class="section-tag">Security</span>
                 <div class="mb-4">
-                    <label class="form-label">Email (@gmail.com only)</label>
+                    <label class="form-label">Email</label>
                     <div class="input-group">
                         <span class="input-group-text"><i class="bi bi-envelope"></i></span>
                         <input type="email" name="email" class="form-control" required placeholder="example@gmail.com">
@@ -293,7 +258,7 @@ include_once '../includes/header.php';
                         <input type="password" name="password" id="pwd" class="form-control no-group-radius" required>
                         <small id="strength" style="display:block; margin-top:5px;"></small>
                         <div class="pw-tip">
-                            <strong>How to make it stronger?</strong>
+                            <strong>Password Strength Requirements</strong>
                             <ul class="mb-0 ps-3 mt-1">
                                 <li>Use at least 8 characters</li>
                                 <li>Mix uppercase (A) and lowercase (a)</li>

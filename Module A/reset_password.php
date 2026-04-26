@@ -6,14 +6,12 @@
 session_start();
 ob_start();
 
-if (file_exists('../includes/db_connection.php')) {
-    require_once '../includes/db_connection.php';
-} else {
-    require_once '../includes/db_connections.php';
-}
+// Use the database connection established in previous modules
+require_once '../includes/db_connection.php';
 
 $error = "";
-$token_valid = isset($_SESSION['reset_user_id']);
+// Ensure the session key matches what you set in your forgot_password logic
+$token_valid = isset($_SESSION['reset_user_id']) || isset($_SESSION['reset_data']['email']);
 
 if ($_SERVER["REQUEST_METHOD"] == "POST" && $token_valid) {
     $pass1 = $_POST['password'];
@@ -21,12 +19,24 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && $token_valid) {
 
     if ($pass1 !== $pass2) {
         $error = "Passwords do not match.";
+    } elseif (strlen($pass1) < 8) {
+        $error = "Password must be at least 8 characters.";
     } else {
         $hashed_password = password_hash($pass1, PASSWORD_DEFAULT);
-        $user_id = $_SESSION['reset_user_id'];
-
-        $update = $conn->prepare("UPDATE USER SET User_Password = ? WHERE User_ID = ?");
-        $update->bind_param("si", $hashed_password, $user_id);
+        
+        /* ✅ SQL FIX: 
+           Matching lowercase table 'user' and prefixed columns 'User_Password'/'User_Id'
+           as seen in your phpMyAdmin screenshot.
+        */
+        if (isset($_SESSION['reset_user_id'])) {
+            $user_id = $_SESSION['reset_user_id'];
+            $update = $conn->prepare("UPDATE user SET User_Password = ? WHERE User_Id = ?");
+            $update->bind_param("si", $hashed_password, $user_id);
+        } else {
+            $email = $_SESSION['reset_data']['email'];
+            $update = $conn->prepare("UPDATE user SET User_Password = ? WHERE User_Email = ?");
+            $update->bind_param("ss", $hashed_password, $email);
+        }
 
         if ($update->execute()) {
             session_unset();
@@ -34,7 +44,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && $token_valid) {
             echo "<script>alert('Password updated successfully!'); window.location.href='login.php';</script>";
             exit();
         } else {
-            $error = "Database update failed.";
+            $error = "Database update failed: " . $conn->error;
         }
     }
 }
@@ -92,13 +102,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && $token_valid) {
             border-radius: 15px; font-weight: 800; width: 100%; transition: 0.4s; margin-top: 10px;
         }
 
-        /* Strength UI */
         .strength-meter { font-size: 0.8rem; font-weight: 800; display: block; margin-top: 12px; }
         .guidance-box {
             background: #F8FAFC; border-radius: 15px; padding: 15px; margin-top: 10px; border: 1px solid #EDF2F7;
         }
         .tip-item { font-size: 0.75rem; color: #64748B; display: block; margin-bottom: 5px; transition: 0.3s; }
-        /* Style for when a requirement is met */
         .tip-item.met { color: var(--success); font-weight: 600; }
         .tip-item.met i { margin-right: 5px; }
     </style>
@@ -170,20 +178,16 @@ function updateTip(element, isMet) {
 
 pwdInput.addEventListener('input', function() {
     const val = this.value;
-    
-    // Check requirements
     const hasLen = val.length >= 8;
     const hasUpper = /[A-Z]/.test(val);
     const hasNum = /[0-9]/.test(val);
     const hasSym = /[^A-Za-z0-9]/.test(val);
 
-    // Update checklist visuals
     updateTip(tips.len, hasLen);
     updateTip(tips.upper, hasUpper);
     updateTip(tips.num, hasNum);
     updateTip(tips.sym, hasSym);
 
-    // Calculate score for Label
     const score = [hasLen, hasUpper, hasNum, hasSym].filter(Boolean).length;
 
     if (val === "") {
