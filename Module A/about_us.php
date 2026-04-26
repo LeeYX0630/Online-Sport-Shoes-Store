@@ -171,11 +171,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['submit_contact'])) {
             </div>
 
             <div class="team-card">
-                <img src="../images/picture/Chong Prof Pic.png" alt="Ms. Cindy">
-                <h5>Ms. Cindy Tiong Yi Sin</h5>
-                <p>Head of Business Development</p>
-                <p class="team-id">ID: 242DT242BZ</p>
-            </div>
+            <img src="../images/picture/Cindy Prof Pic.jpeg" alt="Ms. Cindy" >
+            <h5>Ms. Cindy Tiong Yi Sin</h5>
+            <p>Head of Business Development</p>
+            <p class="team-id">ID: 242DT242BZ</p>
+        </div>
 
             <div class="team-card">
                 <img src="../images/picture/Tung Prof Pic.png" alt="Mr. Tung">
