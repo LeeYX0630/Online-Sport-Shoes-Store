@@ -67,7 +67,7 @@ include_once '../includes/header.php';
 
 <style>
     :root { 
-        --brand-orange: #FF6B00; /* Project Brand Color [cite: 29] */
+        --brand-orange: #FF6B00; /* Project Brand Color  */
         --pure-white: #FFFFFF; 
     }
 
@@ -258,7 +258,7 @@ include_once '../includes/header.php';
                         <input type="password" name="password" id="pwd" class="form-control no-group-radius" required>
                         <small id="strength" style="display:block; margin-top:5px;"></small>
                         <div class="pw-tip">
-                            [cite_start]<strong>Password Strength Requirements[cite: 16]:</strong>
+                            <strong>Password Strength Requirements</strong>
                             <ul class="mb-0 ps-3 mt-1">
                                 <li>Use at least 8 characters</li>
                                 <li>Mix uppercase (A) and lowercase (a)</li>
