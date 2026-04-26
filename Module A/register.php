@@ -1,24 +1,12 @@
 <?php
 /**
- * STEALTH SPORT SHOES - MULTI-ACCOUNT REGISTRATION
- * Logic: Same Email allowed if Phone Number is different.
+ * STEALTH SPORT SHOES - REGISTRATION
  */
-
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// Requirement: Standard DB connection using relative path [cite: 32, 34]
 require_once '../includes/db_connection.php';
-
-// Redirect if already logged in
-if (isset($_SESSION['user_id'])) {
-    $dashboard_link = (isset($_SESSION['role']) && ($_SESSION['role'] === 'Admin')) 
-        ? '../Module C/admin_dashboard.php' 
-        : 'user_dashboard.php';
-    header("Location: $dashboard_link");
-    exit();
-}
 
 $error = "";
 
@@ -29,73 +17,47 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_btn'])) {
     $phone_input = trim($_POST['phone']);
     $password = $_POST['password'];
     $confirm_password = $_POST['confirm_password'];
-    $dob = trim($_POST['dob']);
-    $address = trim($_POST['address']);
-    $postcode = trim($_POST['postcode']);
-    $state = trim($_POST['state']);
 
-    // Clean phone number to digits only
     $clean_phone = preg_replace('/[^0-9]/', '', $phone_input);
 
-    // Full Name validation: No numbers allowed
-    if (preg_match('/[0-9]/', $full_name)) {
-        $error = "Full Name cannot contain numbers.";
-    }
-
-    // Email validation
-    if (!$error && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        $error = "Please enter a valid email address.";
-    }
-
-    // Password match validation
-    if (!$error && $password !== $confirm_password) {
-        $error = "Passwords do not match.";
-    }
-
     if (!$error) {
+        // Change 'User_Email' and 'User_Phone' below if your phpMyAdmin says otherwise
+        $checkUser = $conn->prepare("SELECT * FROM USER WHERE User_Email = ? AND User_Phone = ?");
+        
+        if (!$checkUser) {
+            die("Database Error: " . $conn->error . ". Check your column names in phpMyAdmin Structure tab.");
+        }
 
-        // Check Email + Phone combination using official column names [cite: 45, 47]
-        $checkUser = $conn->prepare("SELECT * FROM USER WHERE email = ? AND phone = ?");
         $checkUser->bind_param("ss", $email, $clean_phone);
         $checkUser->execute();
         $result = $checkUser->get_result();
 
         if ($result->num_rows > 0) {
-            $error = "This Email is already registered with this Phone Number.";
+            $error = "This Email and Phone combination is already registered.";
         } else {
-
-            // Admin logic: specific email gets Admin role, others get Customer [cite: 48]
             $role = ($email === "sportshoes.system@gmail.com") ? "Admin" : "Customer";
-
-            // Generate OTP and Hash Password
             $otp = rand(100000, 999999);
             $hashed_password = password_hash($password, PASSWORD_DEFAULT);
             
-            // ✅ ALIGNMENT FIX: Use lowercase keys to match the DB Schema 
-            // This prevents "Undefined array key" errors in verify_otp.php
             $_SESSION['temp_user'] = [
                 'full_name' => $full_name, 
                 'email'     => $email, 
                 'phone'     => $clean_phone,
                 'password'  => $hashed_password, 
-                'dob'       => $dob, 
-                'address'   => $address,
-                'postcode'  => $postcode, 
-                'state'     => $state, 
                 'role'      => $role,
                 'otp'       => $otp, 
                 'expiry'    => strtotime("+5 minutes")
             ];
 
-            // Show OTP Alert and redirect
             echo "<script>
-                alert('STEALTH SYSTEM\\n\\nRegistration for: $email\\nYour OTP is: $otp');
+                alert('OTP for $email: $otp');
                 window.location.href='verify_otp.php';
             </script>";
             exit();
         }
     }
 }
+// ... Rest of your HTML/UI code ...
 
 include_once '../includes/header.php'; 
 ?>
