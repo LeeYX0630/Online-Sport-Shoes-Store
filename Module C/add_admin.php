@@ -1,187 +1,262 @@
-<?php
+<<?php
 // admin/add_admin.php
 session_start();
 require_once '../includes/db_connection.php';
 
-// 1. 权限检查：必须是 Level 1 (Super Admin) 才能进入
+// 1. 权限检查
 if (!isset($_SESSION['role']) || $_SESSION['role'] != 1) {
-    echo "<script>alert('Access Denied. Super Admin only.'); window.location.href='admin_dashboard.php';</script>";
+    echo "<script>alert('Permission Denied.'); window.location.href='admin_dashboard.php';</script>";
     exit();
 }
 
 $msg = "";
-$sweetAlertCode = ""; 
+$real_name = "";
+$brand_name = "";
+$email_prefix = "";
+$admin_level = "2";
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    // 严格对应 SQL 字段名
-    $admin_name = trim($_POST['admin_name']);
-    $admin_email = trim($_POST['admin_email']); 
+    $real_name = trim($_POST['real_name']);     
+    $brand_name = trim($_POST['brand_name']);   
+    $email_prefix = trim($_POST['email_prefix']);
+    $admin_email = $email_prefix . "@sport.com";
     $password = $_POST['password'];
     $confirm_password = $_POST['confirm_password'];
-    
-    // 默认新创建的为普通管理员 Level 2
-    $admin_level = 2; 
+    $admin_level = $_POST['admin_level'];
 
-    // 基础验证
-    if (empty($admin_name) || empty($admin_email) || empty($password)) {
-        $msg = "<div class='alert error'>All fields are required.</div>";
-    } elseif (!filter_var($admin_email, FILTER_VALIDATE_EMAIL)) {
-        $msg = "<div class='alert error'>Invalid email format.</div>";
+    // --- 核心逻辑修改开始 ---
+
+    // A. 基础必填：名字、邮箱前缀、密码必须填
+    if (empty($real_name) || empty($email_prefix) || empty($password)) {
+        $msg = "Error: All fields are required.";
     } 
-    // 限制后台管理员邮箱后缀
-    elseif (substr($admin_email, -14) !== '@shoestore.com') {
-        $msg = "<div class='alert error'>Restricted Domain: Admin email must end with <b>@shoestore.com</b></div>";
+    // B. 规则：只有 Normal Admin (2) 必须填 Brand，Super Admin (1) 可以空着
+    elseif ($admin_level == "2" && empty($brand_name)) {
+        $msg = "Error: Brand Name is required for Normal Admin.";
     }
-    elseif (strlen($password) < 6) {
-        $msg = "<div class='alert error'>Password must be at least 6 characters long.</div>";
-    } elseif ($password !== $confirm_password) {
-        $msg = "<div class='alert error'>Passwords do not match.</div>";
-    } else {
-        // 2. 检查 Admin_Email 是否已存在 (表名 admin)
-        $check_sql = "SELECT Admin_Id FROM admin WHERE Admin_Email = ?";
-        $stmt = $conn->prepare($check_sql);
-        $stmt->bind_param("s", $admin_email);
-        $stmt->execute();
-        $stmt->store_result();
-
-        if ($stmt->num_rows > 0) {
-            $msg = "<div class='alert error'>Email already registered.</div>";
+    // C. 检查两次密码一致
+    elseif ($password !== $confirm_password) {
+        $msg = "Error: Passwords do not match.";
+    } 
+    else {
+        // D. 移除了对密码复杂度的 preg_match，允许 abc
+        // 仅保留对名字的基本格式检查
+        if (preg_match('/[0-9]/', $real_name) || preg_match('/[^A-Za-z\s]/', $real_name)) {
+            $msg = "Error: Admin Name cannot contain numbers or symbols.";
         } else {
-            $hashed_password = password_hash($password, PASSWORD_DEFAULT);
-            $stmt->close(); 
+            $can_proceed = true;
+            // 如果填了品牌名，才检查是否重复
+            if (!empty($brand_name)) {
+                $check_brand = $conn->prepare("SELECT Brand_Id FROM brand WHERE Brand_Name = ?");
+                $check_brand->bind_param("s", $brand_name);
+                $check_brand->execute();
+                if ($check_brand->get_result()->num_rows > 0) {
+                    $msg = "Error: The brand '$brand_name' already exists.";
+                    $can_proceed = false;
+                }
+            }
 
-            // 3. 插入数据 (对应 SQL 中的字段)
-            $insert_sql = "INSERT INTO admin (Admin_Name, Admin_Email, Admin_Password, Admin_Level) VALUES (?, ?, ?, ?)";
-            $stmt = $conn->prepare($insert_sql);
-            $stmt->bind_param("sssi", $admin_name, $admin_email, $hashed_password, $admin_level);
+            if ($can_proceed) {
+                // 使用 password_hash 加密
+                $hashed_password = password_hash($password, PASSWORD_DEFAULT);
 
-            if ($stmt->execute()) {
-                $sweetAlertCode = "
-                Swal.fire({
-                    title: 'Admin Added!',
-                    text: 'New Admin ($admin_name) created successfully.',
-                    icon: 'success',
-                    confirmButtonColor: '#28a745',
-                    confirmButtonText: 'Go to Dashboard'
-                }).then((result) => {
-                    if (result.isConfirmed) {
-                        window.location.href = 'admin_dashboard.php';
+                $conn->begin_transaction();
+                try {
+                    // 插入 Admin 表 (使用 $hashed_password)
+                    $stmt_admin = $conn->prepare("INSERT INTO admin (Admin_Name, Admin_Email, Admin_Password, Admin_Level, Admin_Status) VALUES (?, ?, ?, ?, 'Active')");
+                    $stmt_admin->bind_param("ssss", $real_name, $admin_email, $hashed_password, $admin_level);
+                    $stmt_admin->execute();
+                    
+                    $new_admin_id = $conn->insert_id;
+
+                    // 如果品牌名不为空才插入（Super Admin 没填时会自动跳过）
+                    if (!empty($brand_name)) {
+                        $stmt_brand = $conn->prepare("INSERT INTO brand (Brand_Name, Admin_Id) VALUES (?, ?)");
+                        $stmt_brand->bind_param("si", $brand_name, $new_admin_id);
+                        $stmt_brand->execute();
                     }
-                });";
-            } else {
-                $msg = "<div class='alert error'>Error: " . $conn->error . "</div>";
+
+                    $conn->commit();
+                    echo "<script>alert('Admin created successfully!'); window.location.href='../Module C/admin_manage_admins.php';</script>";
+                    exit();
+                } catch (Exception $e) {
+                    $conn->rollback();
+                    $msg = "Database Error: " . $e->getMessage();
+                }
             }
         }
-        $stmt->close();
     }
 }
-
-// 引入公共 Header
-$page_title = "Add New Admin | Shoe Store";
-include_once '../includes/header.php'; 
 ?>
 
-<style>
-    body { background-color: #f8f9fa; font-family: 'Segoe UI', sans-serif; }
-    .form-container { max-width: 450px; margin: 60px auto; padding: 40px; background: white; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); }
-    .form-group { margin-bottom: 1.5rem; }
-    .form-group label { display: block; margin-bottom: 8px; font-weight: 600; color: #444; }
-    .form-group input { width: 100%; padding: 12px; border: 1px solid #dee2e6; border-radius: 8px; font-size: 14px; transition: all 0.2s; }
-    .form-group input:focus { border-color: #28a745; outline: none; box-shadow: 0 0 0 3px rgba(40, 167, 69, 0.1); }
-    
-    /* 提交按钮：绿色高亮 */
-    .btn-submit { width: 100%; padding: 14px; background-color: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 600; margin-top: 10px; transition: 0.3s; }
-    .btn-submit:hover { background-color: #218838; transform: translateY(-1px); }
-    
-    /* 返回按钮：明显的边框样式 */
-    .btn-back { display: flex; align-items: center; justify-content: center; width: 100%; padding: 12px; margin-top: 15px; background-color: transparent; color: #6c757d; border: 2px solid #6c757d; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500; transition: 0.3s; }
-    .btn-back:hover { background-color: #6c757d; color: white; text-decoration: none; }
-    .btn-back i { margin-right: 8px; }
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Add New Admin | Sport Store</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        :root { --sidebar-width: 260px; --primary-orange: #FF6B00; }
+        body { background-color: #f8fafc; font-family: 'Inter', sans-serif; margin: 0; }
+        .main-wrapper { margin-left: var(--sidebar-width); min-height: 100vh; width: calc(100% - var(--sidebar-width)); }
+        
+        .top-bar {
+            padding: 18px 40px;
+            background-color: #FFFFFF; border-bottom: 1px solid #edf2f7;
+            position: sticky; top: 0; z-index: 100;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .top-bar-left h2 { margin: 0; font-size: 22px; color: #212529; font-weight: 600; }
+        .top-bar-subtitle { font-size: 13px; color: #94a3b8; margin-top: 2px; }
 
-    .alert { padding: 12px; margin-bottom: 20px; border-radius: 8px; text-align: center; font-size: 14px; }
-    .error { background-color: #fff5f5; color: #e03131; border: 1px solid #ffc9c9; }
+        .btn-back-header {
+            text-decoration: none; color: #64748b; font-weight: 600; font-size: 14px;
+            display: flex; align-items: center; gap: 8px; padding: 8px 16px;
+            border-radius: 8px; transition: all 0.2s; border: 1px solid #e2e8f0;
+        }
+        .btn-back-header:hover { background-color: #f1f5f9; color: var(--primary-orange); border-color: var(--primary-orange); }
 
-    .strength-container { margin-top: 8px; height: 4px; background-color: #e9ecef; border-radius: 2px; overflow: hidden; }
-    .strength-bar { height: 100%; width: 0%; transition: width 0.3s ease; }
-    .strength-weak { background-color: #fa5252; }
-    .strength-medium { background-color: #fab005; }
-    .strength-strong { background-color: #40c057; }
-</style>
+        .form-container { max-width: 800px; margin: 40px auto; background: white; padding: 40px; border-radius: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        .form-label { font-weight: 600; color: #475569; margin-bottom: 8px; }
+        .input-group-text { background-color: #f1f5f9; color: #64748b; font-weight: 600; border-radius: 0 10px 10px 0; border: 1px solid #e2e8f0; }
+        .form-control, .form-select { border-radius: 10px; padding: 12px; border: 1px solid #e2e8f0; }
+        .form-control:focus { border-color: var(--primary-orange); box-shadow: none; }
+        
+        .strength-meter { height: 4px; width: 100%; background-color: #e2e8f0; margin-top: 10px; border-radius: 2px; overflow: hidden; }
+        .strength-bar { height: 100%; width: 0; transition: 0.3s; }
+        .strength-weak { background-color: #ef4444; }
+        .strength-medium { background-color: #f59e0b; }
+        .strength-strong { background-color: #10b981; }
+        
+        .password-hints { font-size: 12px; color: #94a3b8; margin-top: 5px; }
+        .hint-item.met { display: none; }
 
-<div class="form-container">
-    <div class="text-center mb-4">
-        <h2 class="fw-bold text-dark">Add New Admin</h2>
-        <p class="text-muted small">Create an additional administrator account</p>
-    </div>
+        .btn-submit { background-color: var(--primary-orange); color: white; border: none; padding: 14px; border-radius: 12px; font-weight: 700; width: 100%; margin-top: 20px; transition: 0.2s; }
+        .btn-submit:hover { background-color: #e66000; }
 
-    <?php echo $msg; ?>
+        @media (max-width: 991px) { .main-wrapper { margin-left: 0; width: 100%; } }
+    </style>
+</head>
+<body>
 
-    <form method="POST">
-        <div class="form-group">
-            <label>Admin Name</label>
-            <input type="text" name="admin_name" required placeholder="Full Name" value="<?php echo isset($_POST['admin_name']) ? htmlspecialchars($_POST['admin_name']) : ''; ?>">
-        </div>
+    <?php include_once '../includes/admin_sidebar.php'; ?>
 
-        <div class="form-group">
-            <label>Email Address</label>
-            <input type="email" name="admin_email" id="emailInput" required placeholder="name@shoestore.com" value="<?php echo isset($_POST['admin_email']) ? htmlspecialchars($_POST['admin_email']) : ''; ?>">
-            <small class="text-muted" style="font-size: 0.75rem;">* Hint: Type '@' to auto-complete domain</small>
-        </div>
+    <div class="main-wrapper">
+        <header class="top-bar">
+            <div class="top-bar-left">
+                <h2>Add New Admin</h2>
+                <div class="top-bar-subtitle">Create and configure credentials for new administrative personnel.</div>
+            </div>
+            <a href="../Module C/admin_manage_admins.php" class="btn-back-header">
+                <i class="bi bi-arrow-left"></i> Back to Admins
+            </a>
+        </header>
 
-        <div class="form-group">
-            <label>Password</label>
-            <input type="password" name="password" id="passwordInput" required placeholder="Min. 6 characters">
-            <div class="strength-container">
-                <div class="strength-bar" id="strengthBar"></div>
+        <div class="container-fluid">
+            <div class="form-container">
+                <?php if($msg): ?>
+                    <div class="alert alert-danger"><?php echo $msg; ?></div>
+                <?php endif; ?>
+
+                <form method="POST" action="">
+                    <div class="row g-4">
+                        <div class="col-12">
+                            <label class="form-label">Admin Name</label>
+                            <input type="text" name="real_name" class="form-control" 
+                                   placeholder="Enter full name (No numbers/symbols)" 
+                                   value="<?php echo htmlspecialchars($real_name); ?>"
+                                   oninput="this.value = this.value.replace(/[^A-Za-z\s]/g, '')" required>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">Brand Name</label>
+                            <input type="text" name="brand_name" class="form-control" 
+                                   placeholder="e.g. Nike" 
+                                   value="<?php echo htmlspecialchars($brand_name); ?>" >
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">Admin Level</label>
+                            <select name="admin_level" class="form-select" required>
+                                <option value="2" <?php echo ($admin_level == "2") ? "selected" : ""; ?>>Normal Admin</option>
+                                <option value="1" <?php echo ($admin_level == "1") ? "selected" : ""; ?>>Super Admin</option>
+                            </select>
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label">Email Address</label>
+                            <div class="input-group">
+                                <input type="text" name="email_prefix" class="form-control" 
+                                       placeholder="username" 
+                                       value="<?php echo htmlspecialchars($email_prefix); ?>"
+                                       oninput="this.value = this.value.replace(/[^A-Za-z0-9]/g, '')" required>
+                                <span class="input-group-text">@sport.com</span>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">Password</label>
+                            <input type="password" name="password" id="passwordInput" class="form-control" required>
+                            <div class="strength-meter">
+                                <div id="strengthBar" class="strength-bar"></div>
+                            </div>
+                            <div class="password-hints" id="passwordHints">
+                                <span id="hint-num">*number</span>
+                                <span id="hint-low">, *lowercase letters</span>
+                                <span id="hint-up">, *uppercase letter</span>
+                                <span id="hint-sym">, *Symbols</span>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">Confirm Password</label>
+                            <input type="password" name="confirm_password" class="form-control" required>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn-submit shadow-sm">Create Admin Account</button>
+                </form>
             </div>
         </div>
+    </div>
 
-        <div class="form-group">
-            <label>Confirm Password</label>
-            <input type="password" name="confirm_password" required placeholder="Re-type password">
-        </div>
+    <script>
+        const passwordInput = document.getElementById('passwordInput');
+        const strengthBar = document.getElementById('strengthBar');
+        const hints = {
+            num: document.getElementById('hint-num'),
+            low: document.getElementById('hint-low'),
+            up: document.getElementById('hint-up'),
+            sym: document.getElementById('hint-sym')
+        };
 
-        <button type="submit" class="btn-submit">Create Admin Account</button>
-        
-        <a href="admin_dashboard.php" class="btn-back">
-            <i class="bi bi-arrow-left-circle"></i> Back to Dashboard
-        </a>
-    </form>
-</div>
+        passwordInput.addEventListener('input', function() {
+            const val = passwordInput.value;
+            let strength = 0;
 
-<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+            const hasNum = /\d/.test(val);
+            const hasLow = /[a-z]/.test(val);
+            const hasUp = /[A-Z]/.test(val);
+            const hasSym = /[^A-Za-z0-9]/.test(val);
 
-<script>
-    // 自动补全域名
-    const emailInput = document.getElementById('emailInput');
-    emailInput.addEventListener('input', function(e) {
-        if (e.target.value.endsWith('@')) {
-            e.target.value += 'shoestore.com';
-        }
-    });
+            hasNum ? hints.num.classList.add('met') : hints.num.classList.remove('met');
+            hasLow ? hints.low.classList.add('met') : hints.low.classList.remove('met');
+            hasUp ? hints.up.classList.add('met') : hints.up.classList.remove('met');
+            hasSym ? hints.sym.classList.add('met') : hints.sym.classList.remove('met');
 
-    // 简易密码强度视觉反馈
-    const passwordInput = document.getElementById('passwordInput');
-    const strengthBar = document.getElementById('strengthBar');
+            if(hasNum) strength += 25;
+            if(hasLow) strength += 25;
+            if(hasUp) strength += 25;
+            if(hasSym) strength += 25;
 
-    passwordInput.addEventListener('input', function() {
-        const val = passwordInput.value;
-        strengthBar.className = 'strength-bar';
-        if (val.length === 0) strengthBar.style.width = '0%';
-        else if (val.length < 6) {
-            strengthBar.style.width = '30%';
-            strengthBar.classList.add('strength-weak');
-        } else if (val.length < 10) {
-            strengthBar.style.width = '60%';
-            strengthBar.classList.add('strength-medium');
-        } else {
-            strengthBar.style.width = '100%';
-            strengthBar.classList.add('strength-strong');
-        }
-    });
-
-    <?php if (!empty($sweetAlertCode)) { echo $sweetAlertCode; } ?>
-</script>
-
-<?php include_once '../includes/footer.php'; ?>
+            strengthBar.style.width = strength + '%';
+            strengthBar.className = 'strength-bar';
+            if (strength <= 25) strengthBar.classList.add('strength-weak');
+            else if (strength <= 75) strengthBar.classList.add('strength-medium');
+            else strengthBar.classList.add('strength-strong');
+        });
+    </script>
+</body>
+</html>

@@ -3,9 +3,9 @@
 session_start();
 require_once '../includes/db_connection.php';
 
-// 1. 拦截器：如果已经登录，直接跳转到 Dashboard
+// 1. 拦截器：如果已经登录，直接跳转回主页
 if (isset($_SESSION['admin_id'])) {
-    header("Location: ../Module C/admin_dashboard.php");
+    header("Location: ../index.php");
     exit();
 }
 
@@ -17,9 +17,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $email = trim($_POST['email']); 
     $password = trim($_POST['password']);
 
-    // SQL 查询：根据截图，字段名严格匹配（首字母大写）
-    // 移除了 Admin_Status 字段
-    $stmt = $conn->prepare("SELECT Admin_Id, Admin_Name, Admin_Password, Admin_Level FROM admin WHERE Admin_Email = ?");
+    // SQL 查询：重新加入了 Admin_Status 字段进行检查
+    $stmt = $conn->prepare("SELECT Admin_Id, Admin_Name, Admin_Password, Admin_Level, Admin_Status FROM admin WHERE Admin_Email = ?");
     
     if ($stmt) {
         $stmt->bind_param("s", $email);
@@ -29,15 +28,25 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         if ($result->num_rows === 1) {
             $row = $result->fetch_assoc();
 
-            // 2. 验证密码：对比用户输入的明文和数据库中的哈希密文
+            // 2. 验证密码
             if (password_verify($password, $row['Admin_Password'])) {
+                
+                // --- 新增：登录拦截逻辑 ---
+                // 检查 Admin_Status 是否为 Banned
+                if (isset($row['Admin_Status']) && $row['Admin_Status'] === 'Banned') {
+                    echo "<script>
+                        alert('Your account has been banned. Please contact the Super Admin.');
+                        window.location.href = 'admin_login.php';
+                    </script>";
+                    exit();
+                }
                 
                 // 3. 设置 Session
                 $_SESSION['admin_id'] = $row['Admin_Id'];
                 $_SESSION['username'] = $row['Admin_Name']; 
                 $_SESSION['role']     = $row['Admin_Level']; 
                 
-                header("Location: ../Module C/admin_dashboard.php");
+                header("Location: ../index.php");
                 exit();
             } else {
                 $error = "Invalid Password."; // 密码不匹配

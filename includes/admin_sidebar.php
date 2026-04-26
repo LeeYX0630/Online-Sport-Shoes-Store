@@ -9,7 +9,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
     
     <div class="sidebar-header">
         <div class="logo-icon">
-            <img src="../uploads/logo1.png" alt="Logo">
+            <img src="../images/picture/logo1.png" alt="Logo">
         </div>
         <div class="logo-text">
             <h5>Online Sport Shoes</h5>
@@ -28,33 +28,13 @@ $current_page = basename($_SERVER['PHP_SELF']);
             </li>
 
             <li class="nav-item">
-                <div class="nav-dropdown">
-                    <span class="nav-link">
-                        <i class="bi bi-box-seam"></i> Products 
-                        <i class="bi bi-chevron-down arrow-icon"></i>
-                    </span>
-                    <ul class="sub-menu">
-                        <li><a href="admin_manage_products.php">All Products</a></li>
-                        <li><a href="add_product.php">Add Product</a></li>
-                    </ul>
-                </div>
+                <a href="admin_manage_products.php" class="nav-link <?php echo ($current_page == 'admin_manage_products.php') ? 'active' : ''; ?>">
+                    <i class="bi bi-box-seam"></i> Products
+                </a>
             </li>
 
             <li class="nav-item">
-                <div class="nav-dropdown">
-                    <span class="nav-link">
-                        <i class="bi bi-tag"></i> Categories 
-                        <i class="bi bi-chevron-down arrow-icon"></i>
-                    </span>
-                    <ul class="sub-menu">
-                        <li><a href="manage_categories.php">All Categories</a></li>
-                        <li><a href="add_category.php">Add Category</a></li>
-                    </ul>
-                </div>
-            </li>
-
-            <li class="nav-item">
-                <a href="admin_manage_orders.php" class="nav-link">
+                <a href="admin_manage_orders.php" class="nav-link <?php echo ($current_page == 'admin_manage_orders.php') ? 'active' : ''; ?>">
                     <i class="bi bi-cart"></i> Orders
                 </a>
             </li>
@@ -66,28 +46,21 @@ $current_page = basename($_SERVER['PHP_SELF']);
             </li>
 
             <li class="nav-item">
-                <a href="manage_users.php" class="nav-link">
+                <a href="admin_manage_users.php" class="nav-link <?php echo ($current_page == 'admin_manage_users.php') ? 'active' : ''; ?>">
                     <i class="bi bi-people"></i> Users
                 </a>
             </li>
 
             <?php if (isset($_SESSION['role']) && $_SESSION['role'] == 1): ?>
             <li class="nav-item">
-                <div class="nav-dropdown">
-                    <span class="nav-link">
-                        <i class="bi bi-shield-check"></i> Admins 
-                        <i class="bi bi-chevron-down arrow-icon"></i>
-                    </span>
-                    <ul class="sub-menu">
-                        <li><a href="admin_manage_admins.php">All Admins</a></li>
-                        <li><a href="add_admin.php">Add Admin</a></li>
-                    </ul>
-                </div>
+                <a href="admin_manage_admins.php" class="nav-link <?php echo ($current_page == 'admin_manage_admins.php') ? 'active' : ''; ?>">
+                    <i class="bi bi-shield-check"></i> Admins
+                </a>
             </li>
             <?php endif; ?>
 
             <li class="nav-item">
-                <a href="settings.php" class="nav-link">
+                <a href="settings.php" class="nav-link <?php echo ($current_page == 'settings.php') ? 'active' : ''; ?>">
                     <i class="bi bi-gear"></i> Settings
                 </a>
             </li>
@@ -109,12 +82,12 @@ $current_page = basename($_SERVER['PHP_SELF']);
 </nav>
 
 <style>
-/* --- 基础布局 (符合 Guideline) --- */
+/* --- 基础布局 --- */
 .sidebar-container {
     width: 260px;
     height: 100vh;
-    background-color: #FFFFFF; /* 全局背景: #FFFFFF */
-    color: #212529; /* 主要文字: #212529 */
+    background-color: #FFFFFF; 
+    color: #212529; 
     display: flex;
     flex-direction: column;
     position: fixed;
@@ -139,18 +112,8 @@ $current_page = basename($_SERVER['PHP_SELF']);
 }
 .nav-link i:first-child { margin-right: 12px; font-size: 18px; }
 
-/* Hover 与 Active 状态 */
 .nav-link:hover { background-color: #FFF0E5; }
-.nav-link.active { background-color: #FF6B00; color: #ffffff; } /* 强调色: #FF6B00 */
-
-/* --- 下拉菜单与箭头 --- */
-.sub-menu { list-style: none; padding-left: 45px; margin-bottom: 10px; display: none; }
-.nav-dropdown.open .sub-menu { display: block; }
-.sub-menu a { display: block; padding: 8px 0; color: #666; text-decoration: none; font-size: 14px; }
-.sub-menu a:hover { color: #FF6B00; }
-
-.arrow-icon { margin-left: auto; font-size: 12px !important; transition: transform 0.3s ease; }
-.nav-dropdown.open .arrow-icon { transform: rotate(180deg); }
+.nav-link.active { background-color: #FF6B00; color: #ffffff; }
 
 /* --- 底部 --- */
 .sidebar-footer { padding: 20px; border-top: 1px solid #f0f0f0; display: flex; align-items: center; gap: 12px; background: #fff; }
@@ -184,16 +147,6 @@ $current_page = basename($_SERVER['PHP_SELF']);
 </style>
 
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    // 下拉菜单控制
-    const dropdowns = document.querySelectorAll('.nav-dropdown');
-    dropdowns.forEach(dropdown => {
-        dropdown.querySelector('.nav-link').addEventListener('click', () => {
-            dropdown.classList.toggle('open');
-        });
-    });
-});
-
 // SweetAlert2 退出确认
 function confirmLogout() {
     Swal.fire({
