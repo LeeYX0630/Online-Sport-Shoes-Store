@@ -19,8 +19,26 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_to_cart'])) {
     $design_id = isset($_POST['custom_design_id']) ? $_POST['custom_design_id'] : '';
 
     if (!empty($add_pro_id) && !empty($add_size)) {
-        if (!isset($_SESSION['cart'])) $_SESSION['cart'] = [];
+        if ($add_pro_id == 16 || $add_pro_id == 17) {
+            $db_color_key = 'Default';
+        } else {
+            $db_color_key = $add_color;
+        }
+        $stmt_check_stock = $conn->prepare("SELECT Quantity FROM product_stock WHERE Pro_Id = ? AND Pro_Size = ? AND Pro_Colour = ?");
+        $stmt_check_stock->bind_param("iss", $add_pro_id, $add_size, $db_color_key);
+        $stmt_check_stock->execute();
+        $res_stock = $stmt_check_stock->get_result();
+        $stock_row = $res_stock->fetch_assoc();
+        $real_stock = ($stock_row) ? intval($stock_row['Quantity']) : 0;
+
+        if ($real_stock <= 0) {
+            echo "<script>alert('Error: This size is currently out of stock for the selected colour.'); window.location.href='product_details.php?pro_id=$add_pro_id';</script>";
+            exit;
+        }
         
+        if ($add_qty > $real_stock) {
+            $add_qty = $real_stock; // 自动修正为最大库存
+        }
         $design_data = null;
 
         // 1. 尝试从 Session 找设计
@@ -132,18 +150,19 @@ while($row = $res_stock->fetch_assoc()) {
     $db_size = $row['Pro_Size'];
     $db_qty = intval($row['Quantity']);
 
-    if (($pro_id == 16 || $pro_id == 17) && $db_colour == 'Custom') {
-        // 如果是定制款，且数据库里写的是 'Custom'，则把这个库存应用到所有颜色和自定义设计上
+    // 【核心逻辑修改】：定制款 Pro_Id 16/17 统一共享 'Default' 库存
+    if ($pro_id == 16 || $pro_id == 17) {
+        // 无论数据库存的是 'Default' 还是 'Custom'，都映射给所有可能的选择键
         foreach($colors as $c) {
             $variant_map[$c][$db_size] = $db_qty;
         }
         $variant_map['Custom Design'][$db_size] = $db_qty;
+        $variant_map['Default'][$db_size] = $db_qty; 
     } else {
-        // 普通款，按数据库实际颜色存储
+        // 普通商品按颜色存储
         $variant_map[$db_colour][$db_size] = $db_qty;
     }
-    // --------------------
-
+    
     if (!in_array($db_size, $all_unique_sizes)) {
         $all_unique_sizes[] = $db_size;
     }
@@ -151,13 +170,48 @@ while($row = $res_stock->fetch_assoc()) {
 sort($all_unique_sizes); 
 $stmt_stock->close();
 
-// 处理 Recently Viewed 逻辑
 if (!isset($_SESSION['recently_viewed'])) $_SESSION['recently_viewed'] = [];
 if (($key = array_search($pro_id, $_SESSION['recently_viewed'])) !== false) unset($_SESSION['recently_viewed'][$key]);
 array_unshift($_SESSION['recently_viewed'], $pro_id);
 if (count($_SESSION['recently_viewed']) > 8) array_pop($_SESSION['recently_viewed']);
 
-// 获取用户的自定义设计 (使用预处理语句)
+$rv_products = [];
+// 1. 获取过滤掉当前页面的历史 ID
+$history_ids = array_filter($_SESSION['recently_viewed'], function($id) use ($pro_id) {
+    return $id != $pro_id;
+});
+
+// 2. 首先加载浏览历史 (最多 8 个)
+if (!empty($history_ids)) {
+    $ids_limit = array_slice($history_ids, 0, 8);
+    $ids_str = implode(',', $ids_limit);
+    $rv_sql = "SELECT Pro_Id, Pro_Name, Pro_Price, Pro_Image FROM product WHERE Pro_Id IN ($ids_str) ORDER BY FIELD(Pro_Id, $ids_str)";
+    $rv_res = $conn->query($rv_sql);
+    if ($rv_res) {
+        while($r = $rv_res->fetch_assoc()) { $rv_products[] = $r; }
+    }
+}
+
+// 3. 差额补全逻辑：如果历史不足 8 个，用最新上架的商品填满
+$count_needed = 8 - count($rv_products);
+if ($count_needed > 0) {
+    // 排除已经在历史里的 ID 和当前 ID
+    $exclude_ids = $_SESSION['recently_viewed'];
+    $exclude_str = !empty($exclude_ids) ? implode(',', $exclude_ids) : '0';
+    
+    $fill_sql = "SELECT Pro_Id, Pro_Name, Pro_Price, Pro_Image 
+                 FROM product 
+                 WHERE Pro_Id NOT IN ($exclude_str) 
+                 AND Pro_Status = 'Available' 
+                 ORDER BY Pro_Added_Date DESC 
+                 LIMIT $count_needed";
+    $fill_res = $conn->query($fill_sql);
+    if ($fill_res) {
+        while($r = $fill_res->fetch_assoc()) { $rv_products[] = $r; }
+    }
+}
+
+
 $all_designs = [];
 if (isset($_SESSION['saved_designs'][$pro_id])) {
     $all_designs = $_SESSION['saved_designs'][$pro_id];
@@ -211,7 +265,6 @@ foreach ($color_galleries as $c => &$images) {
     while (count($images) < 4) { $images[] = "../images/placeholder.png"; }
 }
 
-// 悬浮窗数据准备 (使用预处理语句)
 $mini_cart_total = 0;
 $mini_cart_count = 0;
 $mini_cart_items = [];
@@ -316,6 +369,193 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
         .custom-design-thumb { border: 2px solid #eee; border-radius: 4px; padding: 2px; cursor: pointer; width: 60px; position:relative; overflow:visible; }
         .custom-design-thumb.active { border-color: #008060; }
         .btn-wishlist-main { background: none; border: none; font-size: 24px; cursor: pointer; float: right; color: #999; }
+    
+        /* AI Chatbot Styles */
+.ai-assistant-container {
+    max-width: 1300px;
+    margin: 40px auto;
+    padding: 0 30px;
+}
+.assistant-header {
+    background: #008060;
+    color: white;
+    padding: 15px 25px;
+    border-radius: 12px 12px 0 0;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.ai-chat-box {
+    background: #fff;
+    border: 1px solid #eee;
+    border-radius: 0 0 12px 12px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+    overflow: hidden;
+}
+.chat-messages {
+    height: 250px;
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    background: #f9f9f9;
+}
+.msg {
+    max-width: 80%;
+    padding: 12px 18px;
+    border-radius: 15px;
+    font-size: 14px;
+    line-height: 1.5;
+}
+.msg.ai {
+    align-self: flex-start;
+    background: #fff;
+    color: #333;
+    border: 1px solid #eee;
+    border-bottom-left-radius: 2px;
+}
+.msg.user {
+    align-self: flex-end;
+    background: #333;
+    color: #fff;
+    border-bottom-right-radius: 2px;
+}
+.chat-input-area {
+    padding: 20px;
+    display: flex;
+    gap: 10px;
+    border-top: 1px solid #eee;
+}
+.chat-input-area input {
+    flex: 1;
+    padding: 12px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    outline: none;
+}
+.chat-input-area button {
+    background: #008060;
+    color: white;
+    border: none;
+    padding: 0 25px;
+    border-radius: 6px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: 0.3s;
+}
+.chat-input-area button:hover { background: #00664c; }
+
+.apply-size-btn {
+    background: #ffeb3b;
+    border: 1px solid #000;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: bold;
+    cursor: pointer;
+    margin-top: 10px;
+    display: block;
+}
+
+/* Recently Viewed Styles */
+.rv-card {
+    text-decoration: none;
+    color: inherit;
+    display: block;
+    transition: 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+.rv-card:hover {
+    transform: translateY(-8px);
+}
+.rv-img-box {
+    background: #f8f9fa;
+    border-radius: 12px;
+    padding: 15px;
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+.rv-img-box img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    mix-blend-mode: multiply;
+}
+.rv-info {
+    margin-top: 12px;
+    padding: 0 5px;
+}
+.rv-name {
+    font-weight: bold;
+    font-size: 14px;
+    color: #333;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.rv-price {
+    color: #008060;
+    font-weight: 800;
+    margin-top: 4px;
+}
+/* --- 新的横向滑动器样式 --- */
+.rv-slider-track {
+    display: flex;
+    gap: 20px;
+    overflow-x: auto; /* 允许横向滚动 */
+    scroll-behavior: smooth; /* 平滑滚动 */
+    padding: 10px 5px 30px;
+    scrollbar-width: none; /* Firefox 隐藏滚动条 */
+    -ms-overflow-style: none; /* IE 隐藏滚动条 */
+    scroll-snap-type: x mandatory; /* 自动对齐 */
+}
+
+.rv-slider-track::-webkit-scrollbar {
+    display: none; /* Chrome/Safari 隐藏滚动条 */
+}
+
+.rv-slide-item {
+    flex: 0 0 calc(25% - 15px); /* 默认一排显示4个 */
+    min-width: 250px;
+    scroll-snap-align: start; /* 对齐到起始位置 */
+}
+
+.rv-controls {
+    display: flex;
+    gap: 10px;
+}
+
+.rv-arrow-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1px solid #ddd;
+    background: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: 0.3s;
+    font-size: 18px;
+}
+
+.rv-arrow-btn:hover {
+    background: #000;
+    color: #fff;
+    border-color: #000;
+}
+
+/* 响应式调整 */
+@media (max-width: 992px) {
+    .rv-slide-item { flex: 0 0 calc(50% - 10px); } /* 平板一排2个 */
+}
+@media (max-width: 600px) {
+    .rv-slide-item { flex: 0 0 85%; } /* 手机一排1.15个，露出下一个提示滑动 */
+}
     </style>
 </head>
 <body>
@@ -404,7 +644,57 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
                 </form>
             </div>
         </div>
+        
     </div>
+    <div class="ai-assistant-container">
+    <div class="assistant-header">
+        <i class="bi bi-robot"></i>
+        <span>SS AI Size Assistant</span>
+    </div>
+    <div class="ai-chat-box">
+        <div class="chat-messages" id="chatMessages">
+            <div class="msg ai">
+                Hello! I'm your SS Assistant. Not sure about your size? Just tell me your <strong>foot length in centimeters (cm)</strong>, and I'll find your perfect fit!
+            </div>
+        </div>
+        <div class="chat-input-area">
+            <input type="text" id="aiInput" placeholder="Enter height (cm) or ask a question..." onkeypress="if(event.key==='Enter') askAI()">
+            <button id="aiSendBtn" onclick="askAI()">Ask Assistant</button>
+        </div>
+    </div>
+</div>
+<div class="detail-container" style="margin-top: 40px; border-top: 1px solid #eee; padding-top: 40px; position: relative;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px;">
+        <h3 style="font-weight: 800; margin: 0; letter-spacing: -0.5px;">Inspired by your browsing</h3>
+        <div class="rv-controls">
+            <button onclick="scrollRV(-1)" class="rv-arrow-btn"><i class="bi bi-chevron-left"></i></button>
+            <button onclick="scrollRV(1)" class="rv-arrow-btn"><i class="bi bi-chevron-right"></i></button>
+        </div>
+    </div>
+    
+    <div class="rv-slider-track" id="rvSlider">
+        <?php foreach($rv_products as $rv_p): ?>
+            <?php 
+                $base_img = $rv_p['Pro_Image'];
+                $path_info = pathinfo($base_img);
+                $clean_name = preg_replace('/_\d+$/', '', $path_info['filename']);
+                $files = glob("../uploads/{$clean_name}*.*");
+                $final_src = (!empty($files)) ? $files[0] : "../images/placeholder.png";
+            ?>
+            <div class="rv-slide-item">
+                <a href="product_details.php?pro_id=<?php echo $rv_p['Pro_Id']; ?>" class="rv-card">
+                    <div class="rv-img-box">
+                        <img src="<?php echo $final_src; ?>" onerror="this.src='../images/placeholder.png'">
+                    </div>
+                    <div class="rv-info">
+                        <div class="rv-name"><?php echo htmlspecialchars($rv_p['Pro_Name']); ?></div>
+                        <div class="rv-price">RM <?php echo number_format($rv_p['Pro_Price'], 2); ?></div>
+                    </div>
+                </a>
+            </div>
+        <?php endforeach; ?>
+    </div>
+</div>
 </div>
 
 <?php if ($mini_cart_count > 0): ?>
@@ -481,24 +771,69 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
     }
 
     function refreshSizeButtons() {
-        const currentColorStock = variantMap[selectedColor] || {};
-        document.querySelectorAll('.size-box').forEach(box => {
-            const size = box.getAttribute('data-size');
-            const stock = parseInt(currentColorStock[size]) || 0;
-            box.style.opacity = stock > 0 ? "1" : "0.3";
-            box.style.pointerEvents = stock > 0 ? "auto" : "none";
-        });
-    }
+    const currentColorStock = variantMap[selectedColor] || {};
+    let isCurrentlySelectedSizeValid = false;
 
-    function handleSizeClick(el, sz) {
-        document.querySelectorAll('.size-box').forEach(b => b.classList.remove('selected'));
-        el.classList.add('selected');
-        selectedSize = sz;
-        document.getElementById('selectedSizeInput').value = sz;
-        document.getElementById('sizeError').style.display = 'none';
-        const stock = (variantMap[selectedColor] || {})[sz] || 0;
-        document.getElementById('stockDisplay').innerHTML = `Only <strong>${stock}</strong> left in stock.`;
+    document.querySelectorAll('.size-box').forEach(box => {
+        const size = box.getAttribute('data-size');
+        const stock = parseInt(currentColorStock[size]) || 0;
+        
+        if (stock > 0) {
+            box.style.opacity = "1";
+            box.style.pointerEvents = "auto";
+            // 检查当前已选中的尺码在新颜色下是否依然有货
+            if (selectedSize === size) {
+                isCurrentlySelectedSizeValid = true;
+                document.getElementById('stockDisplay').innerHTML = `Only <strong>${stock}</strong> left in stock.`;
+            }
+        } else {
+            box.style.opacity = "0.3";
+            box.style.pointerEvents = "none";
+            // 如果这个尺码没货了，且正好是选中的，移除选中效果
+            if (selectedSize === size) {
+                box.classList.remove('selected');
+            }
+        }
+    });
+
+    if (!isCurrentlySelectedSizeValid && selectedSize !== "") {
+        selectedSize = "";
+        document.getElementById('selectedSizeInput').value = "";
+        document.getElementById('stockDisplay').innerHTML = `<span style="color: #dc3545; font-weight: bold;">Size ${selectedSize} is out of stock for this colour. Please re-select.</span>`;
     }
+}
+
+function handleSizeClick(el, sz) {
+    document.querySelectorAll('.size-box').forEach(b => b.classList.remove('selected'));
+    el.classList.add('selected');
+    selectedSize = sz;
+    document.getElementById('selectedSizeInput').value = sz;
+    document.getElementById('sizeError').style.display = 'none';
+
+    // --- 核心修复：动态同步库存限制 ---
+    const stock = (variantMap[selectedColor] || {})[sz] || 0;
+    const qtyInput = document.getElementById('qtyInput');
+    
+    // 更新提示文字
+    document.getElementById('stockDisplay').innerHTML = `Only <strong>${stock}</strong> left in stock.`;
+    
+    // 设置输入框的最大允许值
+    qtyInput.max = stock; 
+
+    // 如果用户之前输入的数字比现在的库存还大，强制降下来
+    if (parseInt(qtyInput.value) > stock) {
+        qtyInput.value = stock > 0 ? stock : 1; 
+        if (stock > 0) {
+            Swal.fire({
+                icon: 'info',
+                title: 'Quantity Adjusted',
+                text: `We adjusted the quantity to ${stock} as it is the maximum available for this size.`,
+                timer: 2000,
+                showConfirmButton: false
+            });
+        }
+    }
+}
 
     function changeQty(amt) {
     let input = document.getElementById('qtyInput');
@@ -536,15 +871,48 @@ document.getElementById('qtyInput').addEventListener('input', function() {
     }
 });
 
-    function addToCartAndOpen() {
-        if (!isLoggedIn) { promptLogin('add items to your cart'); return; }
-        if (!selectedSize) { document.getElementById('sizeError').style.display = 'inline'; return; }
+function addToCartAndOpen() {
+    // 1. 登录检查
+    if (!isLoggedIn) { promptLogin('add items to your cart'); return; }
 
-        let formData = new FormData(document.getElementById('addToCartForm'));
-        formData.append('add_to_cart', '1');
+    // 2. 尺码选中检查
+    if (!selectedSize) { 
+        document.getElementById('sizeError').style.display = 'inline'; 
+        // 增加红色震动提示效果
+        const selector = document.querySelector('.size-selector');
+        selector.style.border = "1px solid red";
+        selector.style.padding = "5px";
+        selector.style.borderRadius = "8px";
+        setTimeout(() => selector.style.border = "none", 2000);
+        return; 
+    }
 
-        fetch(window.location.href, { method: 'POST', body: formData })
-        .then(() => {
+    // 3. 库存实时校验（前端第一道防线）
+    const stock = (variantMap[selectedColor] || {})[selectedSize] || 0;
+    if (stock <= 0) {
+        Swal.fire({
+            icon: 'error',
+            title: 'Out of Stock',
+            text: 'Sorry, this size is no longer available in the selected colour.',
+            confirmButtonColor: '#008060'
+        });
+        return;
+    }
+
+    // --- 【核心修复点】：定义并配置 FormData ---
+    const formEl = document.getElementById('addToCartForm');
+    let formData = new FormData(formEl);
+    
+    // 确保发送了触发 PHP 处理逻辑的标识符
+    formData.append('add_to_cart', '1');
+
+    // 4. 发送异步请求
+    fetch(window.location.href, { 
+        method: 'POST', 
+        body: formData 
+    })
+    .then(response => {
+        if (response.ok) {
             Swal.fire({
                 title: 'Added to Cart!',
                 text: 'Your item is waiting in the shopping cart.',
@@ -554,11 +922,22 @@ document.getElementById('qtyInput').addEventListener('input', function() {
                 confirmButtonText: 'View Cart',
                 cancelButtonText: 'Continue Shopping'
             }).then((result) => {
-                if (result.isConfirmed) window.location.href = 'cart.php';
-                else location.reload();
+                if (result.isConfirmed) {
+                    window.location.href = 'cart.php';
+                } else {
+                    // 刷新页面以更新下方悬浮窗的金额和数量
+                    location.reload(); 
+                }
             });
-        });
-    }
+        } else {
+            throw new Error('Network response was not ok.');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        Swal.fire('Error', 'Something went wrong while adding to cart.', 'error');
+    });
+}
 
     function switchDesignTab(event, tabName) {
         document.querySelectorAll('.design-tab').forEach(t => t.classList.remove('active'));
@@ -583,6 +962,112 @@ document.getElementById('qtyInput').addEventListener('input', function() {
         renderGallery(selectedColor);
         refreshSizeButtons();
     });
+
+    async function askAI() {
+    const input = document.getElementById('aiInput');
+    const btn = document.getElementById('aiSendBtn');
+    const container = document.getElementById('chatMessages');
+    const message = input.value.trim();
+
+    if (!message) return;
+
+    // 1. 显示用户消息
+    appendMessage('user', message);
+    input.value = '';
+    input.disabled = true;
+    btn.disabled = true;
+
+    // 2. 显示加载状态
+    const loadingId = 'loading-' + Date.now();
+    appendMessage('ai', '<span id="' + loadingId + '">AI is calculating...</span>');
+
+    try {
+        const response = await fetch('gemini_handler.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                message: message,
+                current_product: "<?php echo $product['Pro_Name']; ?>" 
+            })
+        });
+        
+        const data = await response.json();
+        let reply = data.reply;
+
+        // 3. 安全解析：将 [RECOMMENDED_SIZE:X] 转换为可点击按钮
+        const sizeTagRegex = /\[RECOMMENDED_SIZE:(\d+)\]/g;
+        reply = reply.replace(sizeTagRegex, (match, size) => {
+            return `<br><button class="apply-size-btn" onclick="autoSelectSize('${size}')">Apply UK ${size} to my order</button>`;
+        });
+
+        // 移除加载文字并显示正式回复
+        document.getElementById(loadingId).parentElement.innerHTML = reply;
+
+    } catch (error) {
+        document.getElementById(loadingId).innerText = "System error. Please try again.";
+    } finally {
+        input.disabled = false;
+        btn.disabled = false;
+        input.focus();
+    }
+}
+
+function appendMessage(type, text) {
+    const container = document.getElementById('chatMessages');
+    const div = document.createElement('div');
+    div.className = `msg ${type}`;
+    div.innerHTML = text;
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+}
+
+// 尺码计算算法（基于标准运动鞋对照表）
+function calculateUKSize(cm) {
+    if (cm <= 24) return "5";
+    if (cm <= 25) return "6";
+    if (cm <= 26) return "7";
+    if (cm <= 27) return "8";
+    if (cm <= 28) return "9";
+    if (cm <= 29) return "10";
+    return "11";
+}
+
+// 联动功能：AI 推荐后点击按钮，自动选中上方的尺码
+function autoSelectSize(size) {
+    const sizeBox = document.querySelector(`.size-box[data-size="${size}"]`);
+    if (sizeBox) {
+        if (sizeBox.style.opacity === "0.3") {
+            Swal.fire('Out of Stock', `Sorry, UK ${size} is currently unavailable.`, 'warning');
+        } else {
+            sizeBox.click(); // 模拟点击尺码格子
+            Swal.fire({
+                icon: 'success',
+                title: `UK ${size} Selected`,
+                showConfirmButton: false,
+                timer: 1000
+            });
+        }
+    } else {
+        Swal.fire('Notice', `Size UK ${size} is not available for this model.`, 'info');
+    }
+}
+// 1. 左右按钮点击滚动
+function scrollRV(direction) {
+    const slider = document.getElementById('rvSlider');
+    const scrollAmount = slider.clientWidth * 0.8; // 每次滚动容器宽度的 80%
+    slider.scrollBy({
+        left: direction * scrollAmount,
+        behavior: 'smooth'
+    });
+}
+
+// 2. 鼠标滚轮横向移动 (垂直滚轮转横向滚动)
+document.getElementById('rvSlider').addEventListener('wheel', (evt) => {
+    // 只有当鼠标在 Recently Viewed 区域内时生效
+    evt.preventDefault(); // 阻止默认的上下滚动
+    const slider = document.getElementById('rvSlider');
+    slider.scrollLeft += evt.deltaY; // 将垂直滚动的偏移量应用到横向滚动上
+});
 </script>
 
 </body>

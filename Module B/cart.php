@@ -15,7 +15,7 @@ if (!isset($_SESSION['cart'])) {
 }
 
 // ---------------------------------------------------------
-// 1. 处理表单提交
+// 1. 处理表单提交 (更新数量或删除)
 // ---------------------------------------------------------
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     if (isset($_POST['remove_item']) && $_POST['remove_item'] == "1") {
@@ -35,8 +35,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 $sz  = $item['size'];
                 $color_in_session = $item['color'] ?? 'Default';
 
-                if ($pid == 16 && ($color_in_session == 'Custom Design' || $color_in_session == 'Default')) {
-                    $col_for_db = 'Custom'; 
+                // --- 【关键修复 1】：后端更新数量时，16/17 统一检查 'Default' 库存 ---
+                if ($pid == 16 || $pid == 17) {
+                    $col_for_db = 'Default'; 
                 } else {
                     $col_for_db = $color_in_session;
                 }
@@ -46,7 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 $db_stock = ($st_res && $st_res->num_rows > 0) ? intval($st_res->fetch_assoc()['Quantity']) : 0;
 
                 if ($quantity > $db_stock) $quantity = $db_stock;
-                if ($quantity < 1) $quantity = 1;
+                if ($quantity < 1)  $quantity = 1 ;
 
                 $_SESSION['cart'][$session_key]['qty'] = $quantity;
             }
@@ -115,17 +116,20 @@ $free_shipping_threshold = 250.00;
                             $qty    = $item['qty'];
                             $color_in_session = $item['color'] ?? 'Default';
 
-                            // 确定显示颜色名称
-                            if ($pro_id == 16 && ($color_in_session == 'Custom Design' || $color_in_session == 'Default')) {
-                                $display_color = 'Custom'; 
+                            // --- 【关键修复 2】：读取列表时，16/17 统一映射到 'Default' 进行库存关联 ---
+                            if ($pro_id == 16 || $pro_id == 17) {
+                                $stock_search_color = 'Default';
+                                // 界面显示的文字依然保留 Custom Design 或原配色名
+                                $display_color_name = ($color_in_session == 'Custom Design') ? 'Custom Design' : $color_in_session;
                             } else {
-                                $display_color = $color_in_session;
+                                $stock_search_color = $color_in_session;
+                                $display_color_name = $color_in_session;
                             }
 
                             $sql = "SELECT p.*, b.Brand_Name, s.Quantity AS DB_Stock 
                                     FROM product p 
                                     JOIN brand b ON p.Brand_Id = b.Brand_Id 
-                                    LEFT JOIN PRODUCT_STOCK s ON p.Pro_Id = s.Pro_Id AND s.Pro_Size = '$size' AND s.Pro_Colour = '$display_color'
+                                    LEFT JOIN PRODUCT_STOCK s ON p.Pro_Id = s.Pro_Id AND s.Pro_Size = '$size' AND s.Pro_Colour = '$stock_search_color'
                                     WHERE p.Pro_Id = '$pro_id'";
                             $res = $conn->query($sql);
 
@@ -133,23 +137,19 @@ $free_shipping_threshold = 250.00;
                                 $product = $res->fetch_assoc();
                                 $current_stock = intval($product['DB_Stock'] ?? 0);
                                 
-                                // --- 【核心修复逻辑：优先检查并使用自定义 3D 快照】 ---
+                                // --- 图片显示逻辑 (保持原有 3D 快照优先) ---
                                 if (!empty($item['custom_preview'])) {
-                                    // 用户自定义设计的图片
                                     $display_img = $item['custom_preview'];
                                 } else {
-                                    // 普通商品的图片匹配逻辑
                                     $base_img = $product['Pro_Image'];
                                     $path_parts = pathinfo($base_img);
                                     $base_name = preg_replace('/_\d+$/', '', $path_parts['filename']);
                                     $found_files = glob("../uploads/{$base_name}*.*");
                                     
                                     if (!empty($found_files)) {
-                                        $display_img = $found_files[0]; // 默认取第一张
-                                        
-                                        // 如果不是默认颜色，尝试匹配文件名中的颜色词
-                                        if ($display_color !== 'Default' && $display_color !== 'Custom') {
-                                            $color_slug = strtolower(str_replace([' ', '/'], '_', $display_color));
+                                        $display_img = $found_files[0]; 
+                                        if ($stock_search_color !== 'Default') {
+                                            $color_slug = strtolower(str_replace([' ', '/'], '_', $stock_search_color));
                                             foreach ($found_files as $file) {
                                                 if (strpos(strtolower($file), $color_slug) !== false) {
                                                     $display_img = $file;
@@ -161,7 +161,6 @@ $free_shipping_threshold = 250.00;
                                         $display_img = "../images/placeholder.png";
                                     }
                                 }
-                                // ----------------------------------------------------
                                 
                                 $item_total = $product['Pro_Price'] * $qty;
                                 $subtotal += $item_total;
@@ -171,7 +170,7 @@ $free_shipping_threshold = 250.00;
                                     <div>
                                         <div style="font-size:12px; font-weight:bold; color:#666;"><?php echo $product['Brand_Name']; ?></div>
                                         <strong style="color:#333;"><?php echo $product['Pro_Name']; ?></strong>
-                                        <div style="font-size:13px; color:#666; margin-top:5px;">Size: <?php echo $size; ?> | Col: <?php echo $display_color; ?></div>
+                                        <div style="font-size:13px; color:#666; margin-top:5px;">Size: <?php echo $size; ?> | Col: <?php echo $display_color_name; ?></div>
                                         <div style="font-size:11px; color:#dc3545; font-weight:bold;">Stock: <?php echo $current_stock; ?> left</div>
                                     </div>
                                     <div style="font-weight:bold;">RM <?php echo number_format($product['Pro_Price'], 2); ?></div>
@@ -217,8 +216,10 @@ $free_shipping_threshold = 250.00;
 function checkStockQty(input, cartKey, maxStock) {
     let val = parseInt(input.value);
     if (val < 1 || isNaN(val)) {
-        input.value = 1;
-        document.getElementById('cartForm').submit();
+        Swal.fire({ icon: 'warning', title: 'Invalid Quantity', text: 'Quantity must be at least 1. Resetting to 1.' }).then(() => {
+            input.value = 1;
+            document.getElementById('cartForm').submit();
+        });
     } else if (val > maxStock) {
         Swal.fire({ icon: 'warning', title: 'Stock Limit', text: 'Resetting to max available: ' + maxStock }).then(() => {
             input.value = maxStock;
