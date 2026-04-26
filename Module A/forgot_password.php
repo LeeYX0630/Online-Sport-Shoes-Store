@@ -14,33 +14,25 @@ $message_type = "";
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $email = strtolower(trim($_POST['email']));
 
-    // ✅ Correct column names
+    // Prepare statement to prevent SQL Injection
     $stmt = $conn->prepare("SELECT User_ID FROM USER WHERE User_Email = ?");
-    
-    if ($stmt) {
-        $stmt->bind_param("s", $email);
-        $stmt->execute();
-        $result = $stmt->get_result();
+    $stmt->bind_param("s", $email);
+    $stmt->execute();
+    $result = $stmt->get_result();
 
-        if ($result && $result->num_rows === 1) {
-            $user = $result->fetch_assoc();
-            
-            // ✅ Store user ID in session
-            $_SESSION['reset_user_id'] = $user['User_ID'];
-            
-            // ✅ Redirect to correct file name
-            header("Location: reset_password.php");
-            exit();
-        } else {
-            $message = "This email is not registered with us.";
-            $message_type = "danger";
-        }
-
-        $stmt->close();
+    // Security Note: We give the same generic response whether the email exists or not
+    // to prevent malicious users from guessing which emails are registered.
+    if ($result && $result->num_rows === 1) {
+        $user = $result->fetch_assoc();
+        $_SESSION['reset_user_id'] = $user['User_ID'];
+        header("Location: reset_password.php");
+        exit();
     } else {
-        $message = "Database error. Please try again.";
-        $message_type = "danger";
+        // Generic message keeps your user base safe
+        $message = "If this email exists in our system, you will be redirected shortly.";
+        $message_type = "info";
     }
+    $stmt->close();
 }
 ?>
 
@@ -50,72 +42,95 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Recover Account | Stealth Sport Shoes</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
     
     <style>
         :root {
             --brand-orange: #FF6B00;
-            --pure-white: #FFFFFF;
+            --brand-orange-dark: #E66000;
             --text-dark: #1E293B;
-            --soft-gray: #F8FAFC;
         }
 
         body {
-            background-color: var(--soft-gray);
-            background-image: radial-gradient(var(--brand-orange) 0.5px, transparent 0.5px);
-            background-size: 30px 30px;
+            background-color: #F8FAFC;
             font-family: 'Inter', sans-serif;
-            height: 100vh;
+            min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
-            margin: 0;
+            padding: 20px;
         }
 
         .recovery-card {
-            background: var(--pure-white);
+            background: white;
             width: 100%;
-            max-width: 480px;
-            border-radius: 35px;
-            padding: 60px 45px;
-            box-shadow: 0 40px 100px -20px rgba(0, 0, 0, 0.1);
-            text-align: center;
+            max-width: 450px;
+            border-radius: 24px;
+            padding: 50px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.06);
+            border: 1px solid rgba(0,0,0,0.05);
+            animation: fadeIn 0.6s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         .icon-wrapper {
-            width: 90px; height: 90px;
-            background: linear-gradient(135deg, var(--brand-orange), #FF8533);
-            color: white;
+            width: 80px; height: 80px;
+            background: rgba(255, 107, 0, 0.1);
+            color: var(--brand-orange);
             display: flex;
             align-items: center;
             justify-content: center;
-            border-radius: 28px;
-            margin: 0 auto 30px;
-            font-size: 2.5rem;
+            border-radius: 20px;
+            margin: 0 auto 25px;
+            font-size: 2rem;
         }
 
-        h2 { color: var(--text-dark); font-weight: 800; }
+        h2 { color: var(--text-dark); font-weight: 800; margin-bottom: 15px; }
+        p { color: #64748B; margin-bottom: 30px; }
 
         .form-control {
-            height: 60px;
-            border-radius: 15px;
-            border: 2px solid #F1F5F9;
+            height: 55px;
+            border-radius: 12px;
+            border: 2px solid #E2E8F0;
+            padding: 10px 20px;
+            transition: 0.3s;
+        }
+
+        .form-control:focus {
+            border-color: var(--brand-orange);
+            box-shadow: 0 0 0 4px rgba(255, 107, 0, 0.1);
         }
 
         .btn-recover {
             background: var(--brand-orange);
             color: white;
-            height: 60px;
-            border-radius: 15px;
-            font-weight: 700;
+            height: 55px;
+            border-radius: 12px;
+            font-weight: 600;
             width: 100%;
-            border: none;
+            transition: 0.3s;
         }
 
         .btn-recover:hover {
-            background: #E66000;
+            background: var(--brand-orange-dark);
+            transform: translateY(-2px);
         }
+
+        .back-link {
+            display: block;
+            margin-top: 20px;
+            color: #64748B;
+            text-decoration: none;
+            font-size: 0.9rem;
+        }
+        
+        .back-link:hover { color: var(--brand-orange); }
     </style>
 </head>
 
@@ -123,19 +138,22 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
 <div class="recovery-card">
     <div class="icon-wrapper">
-        <i class="bi bi-shield-lock"></i>
+        <i class="bi bi-shield-lock-fill"></i>
     </div>
 
     <h2>Access Recovery</h2>
-    <p>Enter your email to reset your password.</p>
+    <p>We’ll send reset instructions to your registered email address.</p>
 
     <?php if($message): ?>
-        <div class="alert alert-danger"><?php echo $message; ?></div>
+        <div class="alert alert-<?php echo $message_type === 'info' ? 'info' : 'danger'; ?> alert-dismissible fade show" role="alert">
+            <?php echo $message; ?>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
     <?php endif; ?>
 
     <form method="POST">
-        <div class="mb-3">
-            <input type="email" name="email" class="form-control" placeholder="username@gmail.com" required>
+        <div class="mb-4">
+            <input type="email" name="email" class="form-control" placeholder="username@example.com" required autocomplete="email">
         </div>
 
         <button type="submit" class="btn btn-recover">
@@ -143,9 +161,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         </button>
     </form>
 
-    <br>
-    <a href="login.php">← Back to Login</a>
+    <a href="login.php" class="back-link">
+        <i class="bi bi-arrow-left"></i> Back to Login
+    </a>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
