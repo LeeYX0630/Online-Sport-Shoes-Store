@@ -202,7 +202,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             <div>
                 <div class="d-flex justify-content-between">
                     <label class="form-label">Security Key</label>
-                    <a href="forgot_password.php" class="text-decoration-none small fw-bold" style="color: var(--brand-orange);">LOST?</a>
+                    <a href="forgot_password.php" class="text-decoration-none small fw-bold" style="color: var(--brand-orange);">FORGOT PASSWORD?</a>
                 </div>
                 <input type="password" name="password" class="form-control" placeholder="••••••••" required>
             </div>
