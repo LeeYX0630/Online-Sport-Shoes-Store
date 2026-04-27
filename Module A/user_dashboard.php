@@ -19,42 +19,39 @@ $msg_type = "";
 // HANDLE PROFILE UPDATE
 // ===============================
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
-
-    // Remove numbers from name for validation logic
+    // Sanitize and validate Name (No numbers)
     $new_name = preg_replace('/[0-9]/', '', trim($_POST['full_name']));
     $new_name = substr($new_name, 0, 100);
-
-    // Remove alphabets from phone (only numbers allowed)
+    
+    // Sanitize Phone (Numbers only)
     $clean_phone = preg_replace('/[^0-9]/', '', $_POST['phone']);
     $new_email = strtolower(trim($_POST['email']));
 
-    // Validate: name must NOT contain number
+    // Validation Check
     if (preg_match('/[0-9]/', $_POST['full_name'])) {
         $msg = "Name cannot contain numbers!";
         $msg_type = "danger";
     } 
     else {
-        // Check duplicate email (Prevents database crash)
-        $check_email = $conn->query("SELECT User_Id FROM user WHERE User_Email='$new_email' AND User_Id != '$user_id'");
+        // Check duplicate email to prevent "Duplicate Entry" crash
+        $check_email = $conn->query("SELECT User_Id FROM `user` WHERE User_Email='$new_email' AND User_Id != '$user_id'");
         
-        if ($check_email->num_rows > 0) {
+        if ($check_email && $check_email->num_rows > 0) {
             $msg = "Email already used by another account!";
             $msg_type = "danger";
         } else {
             // Update user details
-            $conn->query("UPDATE user SET User_Name='$new_name', User_Phone='$clean_phone', User_Email='$new_email' WHERE User_Id='$user_id'");
+            $conn->query("UPDATE `user` SET User_Name='$new_name', User_Phone='$clean_phone', User_Email='$new_email' WHERE User_Id='$user_id'");
             $_SESSION['user_name'] = $new_name;
 
             // Handle Profile Image Upload
             if (!empty($_FILES['profile_image']['name'])) {
                 $filename = time() . "_" . basename($_FILES['profile_image']['name']);
                 $target = "uploads/" . $filename;
-
                 if (move_uploaded_file($_FILES['profile_image']['tmp_name'], $target)) {
-                    $conn->query("UPDATE user SET User_Image='$filename' WHERE User_Id='$user_id'");
+                    $conn->query("UPDATE `user` SET User_Image='$filename' WHERE User_Id='$user_id'");
                 }
             }
-
             $msg = "Profile updated successfully!";
             $msg_type = "success";
         }
@@ -64,8 +61,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 // ===============================
 // FETCH DATA
 // ===============================
-$user_res = $conn->query("SELECT * FROM user WHERE User_Id='$user_id'");
+$user_res = $conn->query("SELECT * FROM `user` WHERE User_Id='$user_id'");
 $user = $user_res->fetch_assoc();
+
+// Use backticks for `order` table as it is a reserved SQL keyword
+// Ordered by DESC to put the latest purchases at the top
+$purchases = $conn->query("SELECT * FROM `order` WHERE User_Id = '$user_id' ORDER BY Order_Id DESC");
 
 $profile_pic = !empty($user['User_Image']) ? "uploads/".$user['User_Image'] : "uploads/default.png";
 
@@ -92,13 +93,18 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
 }
 .btn-orange:hover { background-color: #E66000; color: white; transform: translateY(-2px); }
 
-/* Voucher Styling from Screenshots */
+/* Tabs Styling */
+.nav-tabs { border-bottom: 1px solid #eee; }
+.nav-tabs .nav-link { border: none; color: #6c757d; font-weight: 700; padding: 10px 20px; }
+.nav-tabs .nav-link.active { color: var(--brand-orange); border-bottom: 3px solid var(--brand-orange); background: none; }
+
+/* Voucher Styling */
 .voucher-box { padding: 15px; border-radius: 15px; height: 100%; transition: 0.3s; }
 .voucher-active { border: 2px dashed var(--brand-orange); background: #fff; }
 .voucher-claimed { border: 2px dashed #ced4da; background: #f8f9fa; }
 .voucher-title { font-weight: 800; color: #333; margin-bottom: 2px; }
 
-/* Utility Classes */
+/* Utility */
 .fw-800 { font-weight: 800; }
 .text-orange { color: var(--brand-orange); }
 </style>
@@ -131,48 +137,81 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
             </div>
         </div>
 
-       <div class="col-md-8">
-    <div class="card p-4 mb-4">
-        <?php if($msg): ?>
-            <div class="alert alert-<?php echo $msg_type; ?> rounded-4"><?php echo $msg; ?></div>
-        <?php endif; ?>
+        <div class="col-md-8">
+            <div class="card p-4 mb-4">
+                <?php if($msg): ?>
+                    <div class="alert alert-<?php echo $msg_type; ?> rounded-4"><?php echo $msg; ?></div>
+                <?php endif; ?>
 
-        <h5 class="fw-800 mb-4">Identity Settings</h5>
-        
-        <form method="POST" enctype="multipart/form-data">
-            <div class="row">
-                <div class="col-md-6 mb-3">
-                    <label class="small fw-bold text-muted">Full Name</label>
-                    <input type="text" name="full_name" class="form-control bg-light border-0 py-2" 
-                           value="<?php echo htmlspecialchars($user['User_Name']); ?>" 
-                           oninput="this.value = this.value.replace(/[0-9]/g, '')"
-                           placeholder="Enter name (no numbers)" required>
+                <ul class="nav nav-tabs mb-4" id="dashboardTabs">
+                    <li class="nav-item">
+                        <button class="nav-link active" id="identity-tab" data-bs-toggle="tab" data-bs-target="#identity">Identity Settings</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" id="purchased-tab" data-bs-toggle="tab" data-bs-target="#purchased">Purchased Products</button>
+                    </li>
+                </ul>
+
+                <div class="tab-content">
+                    <div class="tab-pane fade show active" id="identity">
+                        <form method="POST" enctype="multipart/form-data">
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="small fw-bold text-muted">Full Name</label>
+                                    <input type="text" name="full_name" class="form-control bg-light border-0 py-2" 
+                                           value="<?php echo htmlspecialchars($user['User_Name']); ?>" 
+                                           oninput="this.value = this.value.replace(/[0-9]/g, '')" required>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="small fw-bold text-muted">Phone Number</label>
+                                    <input type="text" name="phone" class="form-control bg-light border-0 py-2" 
+                                           value="<?php echo $user['User_Phone']; ?>" 
+                                           oninput="this.value = this.value.replace(/[^0-9]/g, '')" required>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="small fw-bold text-muted">Email Address</label>
+                                <input type="email" name="email" class="form-control bg-light border-0 py-2" 
+                                       value="<?php echo $user['User_Email']; ?>" required>
+                            </div>
+                            <div class="mb-4">
+                                <label class="small fw-bold text-muted">Change Avatar</label>
+                                <input type="file" name="profile_image" class="form-control bg-light border-0">
+                            </div>
+                            <button type="submit" class="btn btn-orange px-5 py-2">Save Profile Changes</button>
+                        </form>
+                    </div>
+
+                    <div class="tab-pane fade" id="purchased">
+                        <div class="table-responsive">
+                            <table class="table align-middle">
+                                <thead>
+                                    <tr class="text-muted">
+                                        <th class="border-0">ID</th>
+                                        <th class="border-0">Date</th>
+                                        <th class="border-0">Total</th>
+                                        <th class="border-0">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php if($purchases && $purchases->num_rows > 0): ?>
+                                        <?php while($row = $purchases->fetch_assoc()): ?>
+                                            <tr>
+                                                <td class="fw-bold">#<?php echo $row['Order_Id']; ?></td>
+                                                <td><?php echo date("d M Y", strtotime($row['Order_Date'])); ?></td>
+                                                <td class="fw-bold text-orange">RM <?php echo number_format($row['Total_Amount'] ?? 0, 2); ?></td>
+                                                <td><span class="badge rounded-pill bg-light text-success border">Completed</span></td>
+                                            </tr>
+                                        <?php endwhile; ?>
+                                    <?php else: ?>
+                                        <tr><td colspan="4" class="text-center py-4 text-muted">No purchases found.</td></tr>
+                                    <?php endif; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
-
-                <div class="col-md-6 mb-3">
-                    <label class="small fw-bold text-muted">Phone Number</label>
-                    <input type="text" name="phone" class="form-control bg-light border-0 py-2" 
-                           value="<?php echo $user['User_Phone']; ?>" 
-                           oninput="this.value = this.value.replace(/[^0-9]/g, '')"
-                           placeholder="Enter numbers only" required>
-                </div>
             </div>
-
-            <div class="mb-3">
-                <label class="small fw-bold text-muted">Email Address</label>
-                <input type="email" name="email" class="form-control bg-light border-0 py-2" 
-                       value="<?php echo $user['User_Email']; ?>" required>
-            </div>
-
-            <div class="mb-4">
-                <label class="small fw-bold text-muted">Change Avatar</label>
-                <input type="file" name="profile_image" class="form-control bg-light border-0">
-            </div>
-
-            <button type="submit" class="btn btn-orange px-5 py-2">Save Profile Changes</button>
-        </form>
-    </div>
-</div>
 
             <div class="card p-4">
                 <h5 class="fw-800 mb-4"><i class="bi bi-tag-fill text-warning me-2"></i>Store Vouchers</h5>
@@ -196,19 +235,15 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
 </div>
 
 <script>
-    // Real-time Clock function
     function updateClock() {
         const now = new Date();
         const timeOptions = { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true };
         const dateOptions = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' };
-        
         document.getElementById('live-clock').textContent = now.toLocaleTimeString('en-US', timeOptions);
         document.getElementById('live-date').textContent = now.toLocaleDateString('en-US', dateOptions);
     }
-    
-    // Run every second
     setInterval(updateClock, 1000);
-    updateClock(); // Initial call
+    updateClock();
 </script>
 
 <?php include '../includes/footer.php'; ?>
