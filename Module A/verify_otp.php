@@ -1,14 +1,17 @@
 <?php
 /**
  * STEALTH SPORT SHOES - OTP VERIFICATION
+ * Full Integrated Code with Duplicate Entry Prevention
  */
+
+// 1. Session and Database Initialization
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
 require_once '../includes/db_connection.php';
 
-// Check if temporary user data exists
+// 2. Safety Check: If no registration data exists, redirect back
 if (!isset($_SESSION['temp_user'])) {
     header("Location: register.php");
     exit();
@@ -17,18 +20,20 @@ if (!isset($_SESSION['temp_user'])) {
 $error = "";
 $user_data = $_SESSION['temp_user'];
 
+// 3. Handle Form Submission
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['verify_btn'])) {
 
     $input_otp = trim($_POST['otp_input']);
     $current_time = time();
 
+    // Validate OTP correctness and check for expiration
     if ($input_otp != $user_data['otp']) {
         $error = "The verification code you entered is incorrect.";
     } elseif (isset($user_data['expiry']) && $current_time > $user_data['expiry']) {
         $error = "This code has expired. Please register again.";
     } else {
 
-        // ✅ DATA MAPPING: Match session keys to Database Columns
+        // DATA MAPPING: Extracting data from the temporary session
         $name     = $user_data['full_name'];
         $email    = $user_data['email'];
         $password = $user_data['password'];
@@ -38,32 +43,47 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['verify_btn'])) {
         $state    = $user_data['state'] ?? '';
         $dob      = $user_data['dob'] ?? null;
 
-        // ✅ SQL FIX: Exact column names from your screenshot
-        $stmt = $conn->prepare("
-            INSERT INTO user 
-            (User_Name, User_Email, User_Password, User_Phone, User_Address, User_Postcode, User_State, User_DateOfBirth) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ");
+        // --- THE "EARLIER METHOD": PRE-CHECK FOR DUPLICATES ---
+        // This prevents the "Duplicate entry" error for the Unique Email key
+        $check_stmt = $conn->prepare("SELECT User_Id FROM user WHERE User_Email = ?");
+        $check_stmt->bind_param("s", $email);
+        $check_stmt->execute();
+        $check_result = $check_stmt->get_result();
 
-        if (!$stmt) {
-            die("SQL Prepare Error: " . $conn->error);
-        }
-
-        // "ssssssis" = string, string, string, string, string, integer, string, string
-        $stmt->bind_param("sssssiss", $name, $email, $password, $phone, $address, $postcode, $state, $dob);
-
-        if ($stmt->execute()) {
-            unset($_SESSION['temp_user']);
-            echo "<script>
-                alert('Account Verified Successfully! Welcome to the Squad.');
-                window.location.href='login.php';
-            </script>";
-            exit();
+        if ($check_result->num_rows > 0) {
+            // Show a friendly error instead of a database crash screen
+            $error = "Database Error: This email is already registered. Please log in instead.";
         } else {
-            $error = "Database Error: " . $stmt->error;
+            // 4. INSERT NEW USER: Match columns to your database structure
+            $stmt = $conn->prepare("
+                INSERT INTO user 
+                (User_Name, User_Email, User_Password, User_Phone, User_Address, User_Postcode, User_State, User_DateOfBirth) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ");
+
+            if (!$stmt) {
+                die("SQL Prepare Error: " . $conn->error);
+            }
+
+            // Bind parameters: s = string, i = integer
+            $stmt->bind_param("sssssiss", $name, $email, $password, $phone, $address, $postcode, $state, $dob);
+
+            if ($stmt->execute()) {
+                // Success: Clear temporary session and redirect to login
+                unset($_SESSION['temp_user']);
+                echo "<script>
+                    alert('Account Verified Successfully! Welcome to the Squad.');
+                    window.location.href='login.php';
+                </script>";
+                exit();
+            } else {
+                $error = "Database Error: " . $stmt->error;
+            }
         }
     }
 }
+
+// 5. Header and UI Components
 include_once '../includes/header.php';
 ?>
 
@@ -199,6 +219,7 @@ include_once '../includes/header.php';
 </div>
 
 <script>
+    // Automatically focus the input field when page loads
     window.onload = function() {
         document.getElementsByName('otp_input')[0].focus();
     };
