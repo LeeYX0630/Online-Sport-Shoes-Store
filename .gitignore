@@ -2,3 +2,5 @@ includes/mail_config.php
 includes/db_connection.php
 includes/PHPMailer
 includes/api_config.php
+Module A/send_otp.php
+../Module A/send_otp.php
