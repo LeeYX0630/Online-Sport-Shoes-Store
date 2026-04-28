@@ -1,17 +1,17 @@
 <?php
 /**
  * STEALTH SPORT SHOES - OTP VERIFICATION
- * Full Integrated Code with Duplicate Entry Prevention
+ * 完整集成版：包含数据库插入、重复检查及过期校验
  */
 
-// 1. Session and Database Initialization
+// 1. 初始化 Session 和 数据库连接
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
 require_once '../includes/db_connection.php';
 
-// 2. Safety Check: If no registration data exists, redirect back
+// 2. 安全检查：如果 Session 里没有临时用户数据，说明是非法进入，退回注册页
 if (!isset($_SESSION['temp_user'])) {
     header("Location: register.php");
     exit();
@@ -20,70 +20,70 @@ if (!isset($_SESSION['temp_user'])) {
 $error = "";
 $user_data = $_SESSION['temp_user'];
 
-// 3. Handle Form Submission
+// 3. 处理验证逻辑
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['verify_btn'])) {
 
     $input_otp = trim($_POST['otp_input']);
     $current_time = time();
 
-    // Validate OTP correctness and check for expiration
+    // 校验 OTP 是否正确
     if ($input_otp != $user_data['otp']) {
         $error = "The verification code you entered is incorrect.";
-    } elseif (isset($user_data['expiry']) && $current_time > $user_data['expiry']) {
+    } 
+    // 校验是否过期（默认 5 分钟）
+    elseif (isset($user_data['expiry']) && $current_time > $user_data['expiry']) {
         $error = "This code has expired. Please register again.";
-    } else {
-
-        // DATA MAPPING: Extracting data from the temporary session
+    } 
+    else {
+        // 数据映射：从 Session 中提取注册信息
         $name     = $user_data['full_name'];
         $email    = $user_data['email'];
-        $password = $user_data['password'];
+        $password = $user_data['password']; // 建议在 register.php 就已经 password_hash 加密
         $phone    = $user_data['phone'];
         $address  = $user_data['address'] ?? '';
         $postcode = $user_data['postcode'] ?? 0;
         $state    = $user_data['state'] ?? '';
         $dob      = $user_data['dob'] ?? null;
 
-        // --- THE "EARLIER METHOD": PRE-CHECK FOR DUPLICATES ---
-        // This prevents the "Duplicate entry" error for the Unique Email key
+        // --- 核心防死机：检查 Email 是否在刚才几分钟内被别人先注册了 ---
         $check_stmt = $conn->prepare("SELECT User_Id FROM user WHERE User_Email = ?");
         $check_stmt->bind_param("s", $email);
         $check_stmt->execute();
         $check_result = $check_stmt->get_result();
 
         if ($check_result->num_rows > 0) {
-            // Show a friendly error instead of a database crash screen
-            $error = "Database Error: This email is already registered. Please log in instead.";
+            $error = "This email is already registered. Please log in instead.";
         } else {
-            // 4. INSERT NEW USER: Match columns to your database structure
+            // 4. 正式插入数据库：请根据你的 user 表字段名调整
             $stmt = $conn->prepare("
                 INSERT INTO user 
-                (User_Name, User_Email, User_Password, User_Phone, User_Address, User_Postcode, User_State, User_DateOfBirth) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (User_Name, User_Email, User_Password, User_Phone, User_Address, User_Postcode, User_State, User_DateOfBirth, User_Balance) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0.00)
             ");
 
             if (!$stmt) {
                 die("SQL Prepare Error: " . $conn->error);
             }
 
-            // Bind parameters: s = string, i = integer
+            // 绑定参数: s=string, i=integer
             $stmt->bind_param("sssssiss", $name, $email, $password, $phone, $address, $postcode, $state, $dob);
 
             if ($stmt->execute()) {
-                // Success: Clear temporary session and redirect to login
+                // 成功：清除临时 Session 并跳转
                 unset($_SESSION['temp_user']);
                 echo "<script>
-                    alert('Account Verified Successfully! Welcome to the Squad.');
+                    alert('Account Verified Successfully! Welcome to Stealth Sport.');
                     window.location.href='login.php';
                 </script>";
                 exit();
             } else {
-                $error = "Database Error: " . $stmt->error;
+                $error = "Database Error during saving: " . $stmt->error;
             }
         }
     }
 }
 
-// 5. Header and UI Components
+// 5. 引入头部 UI
 include_once '../includes/header.php';
 ?>
 
@@ -219,7 +219,7 @@ include_once '../includes/header.php';
 </div>
 
 <script>
-    // Automatically focus the input field when page loads
+    // 页面加载自动聚焦输入框
     window.onload = function() {
         document.getElementsByName('otp_input')[0].focus();
     };
