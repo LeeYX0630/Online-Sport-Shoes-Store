@@ -334,7 +334,7 @@ include '../includes/header.php';
                     </div>
 
                     <?php if($current_balance < $grand_total): ?>
-                        <span class="badge bg-danger">Insufficient Funds</span>
+                        <span class="badge bg-danger">Insufficient Wallet</span>
                     <?php endif; ?>
                     </div>
                     <div class="payment-option active" onclick="selectPay(this)">

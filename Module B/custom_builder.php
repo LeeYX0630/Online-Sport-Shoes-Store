@@ -358,6 +358,39 @@ $color_names = [
             .then(() => window.location.href = `product_details.php?pro_id=<?php echo $pro_id; ?>&active_design=${result.design_id}`);
         }
     }
+
+    async function switchModel(type, el) {
+        // 1. 更新 UI 按钮状态
+        updateFixedUI(el);
+        
+        // 2. 显示加载动画
+        viewer.classList.add('is-loading');
+
+        // 3. 根据类型确定模型路径 (请确保路径与你服务器上的文件名一致)
+        let modelPath = "../includes/models/";
+        if (type === 'single') {
+            modelPath += "single_shoe1.glb";
+        } else if (type === 'stacked') {
+            modelPath += "pair_stacked_shoe1.glb";
+        } else {
+            modelPath += "pair_spread_shoe1.glb"; // 默认的 SPREAD 视图
+        }
+
+        // 4. 更改模型源
+        viewer.src = modelPath;
+
+        // 5. 【核心】：监听新模型加载完成事件，重新应用当前的颜色和材质
+        viewer.addEventListener('load', async () => {
+            await applySavedColors(); // 将用户当前的配置重新涂装到新模型上
+            
+            // 6. 移除加载遮罩
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    viewer.classList.remove('is-loading');
+                });
+            });
+        }, { once: true });
+    }
 </script>
 
 <?php include '../includes/footer.php'; ?>

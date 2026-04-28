@@ -160,7 +160,7 @@ include '../includes/header.php';
                 <div class="mt-2 p-3 rounded-4" style="background-color: #FFF5EE; border: 1px solid #FFE4D3;">
                     <small class="text-muted text-uppercase fw-bold d-block" style="font-size: 0.65rem;">Account Balance</small>
                     <h3 class="fw-800" style="color: var(--brand-orange);">RM <?php echo number_format($user['User_Balance'], 2); ?></h3>
-                    <a href="../Module B/wallet.php" class="btn btn-sm btn-orange w-100 mt-2">Manage Funds</a>
+                    <a href="../Module B/wallet.php" class="btn btn-sm btn-orange w-100 mt-2">Manage Wallet</a>
                 </div>
                 
                 <div class="mt-4 pt-3 border-top text-start">

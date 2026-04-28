@@ -3,6 +3,9 @@
 session_start();
 require_once '../includes/db_connection.php';
 
+// 设置时区为马来西亚
+date_default_timezone_set('Asia/Kuala_Lumpur');
+
 if (!isset($_GET['order_id']) || !isset($_SESSION['user_id'])) {
     header("Location: ../index.php");
     exit();
@@ -23,8 +26,8 @@ if ($res_order->num_rows == 0) {
 }
 $order = $res_order->fetch_assoc();
 
-// 2. 获取订单详情（包含产品信息和可能的定制预览图）
-$sql_details = "SELECT od.*, p.Pro_Name, p.Pro_Price, p.Pro_Image 
+// 2. 获取订单详情
+$sql_details = "SELECT od.*, p.Pro_Name, p.Pro_Price, p.Pro_Image, od.Custom_Preview 
                 FROM ORDER_DETAIL od 
                 JOIN product p ON od.Pro_Id = p.Pro_Id 
                 WHERE od.Order_Id = '$order_id'";
@@ -54,9 +57,8 @@ $res_details = $conn->query($sql_details);
         }
         .brand-logo { color: #FF6B00; font-weight: 800; font-size: 26px; text-transform: uppercase; }
         .receipt-header { border-bottom: 2px solid #333; padding-bottom: 20px; margin-bottom: 30px; }
-        .table thead { background-color: #f8f9fa; }
-        .total-section { border-top: 2px solid #eee; padding-top: 20px; }
         .item-img { width: 60px; height: 60px; object-fit: contain; background: #f9f9f9; mix-blend-mode: multiply; }
+        .badge-paid { background-color: #198754; color: white; padding: 5px 10px; border-radius: 4px; font-size: 12px; }
         
         @media print { .no-print { display: none; } }
     </style>
@@ -74,7 +76,7 @@ $res_details = $conn->query($sql_details);
             <button onclick="downloadPDF()" class="btn btn-dark px-4 py-2 me-2">
                 <i class="bi bi-file-earmark-pdf me-2"></i>Download Receipt (PDF)
             </button>
-            <a href="../Module B/catalogue.php" class="btn btn-outline-secondary px-4 py-2">Back to Shopping</a>
+            <a href="catalogue.php" class="btn btn-outline-secondary px-4 py-2">Back to Shopping</a>
         </div>
     </div>
 
@@ -82,14 +84,14 @@ $res_details = $conn->query($sql_details);
         
         <div class="receipt-header d-flex justify-content-between align-items-center">
             <div class="brand">
-                <div class="brand-logo">SPORT SHOES STORE</div>
+                <div class="brand-logo">SS SPORT SHOES STORE</div>
                 <p class="text-muted mb-0 small">Multimedia University, Melaka, Malaysia</p>
                 <p class="text-muted mb-0 small">Email: sportshoes.system@gmail.com</p>
             </div>
             <div class="text-end">
                 <h2 class="fw-bold mb-0">OFFICIAL RECEIPT</h2>
                 <p class="mb-0 text-muted">Order ID: <strong>#<?php echo $order_id; ?></strong></p>
-                <p class="mb-0 text-muted">Date: <?php echo date('d M Y, h:i A', strtotime($order['Order_Date'])); ?></p>
+                <p class="mb-0 text-muted">Date: <strong><?php echo date('d M Y, h:i A', strtotime($order['Order_Date'])); ?></strong></p>
             </div>
         </div>
 
@@ -121,12 +123,9 @@ $res_details = $conn->query($sql_details);
                     <td>
                         <div class="d-flex align-items-center py-2">
                             <?php 
-                                // 图片路径处理逻辑
                                 if (!empty($item['Custom_Preview'])) {
-                                    // A. 如果是定制商品，使用存放在 ORDER_DETAIL 里的 Base64 预览图
                                     $display_img = $item['Custom_Preview'];
                                 } else {
-                                    // B. 如果是普通商品，尝试寻找对应图片
                                     $base_img = $item['Pro_Image'];
                                     $path_parts = pathinfo($base_img);
                                     $base_name = preg_replace('/_\d+$/', '', $path_parts['filename']);
@@ -149,11 +148,11 @@ $res_details = $conn->query($sql_details);
             </tbody>
         </table>
 
-        <div class="row total-section justify-content-end">
+        <div class="row justify-content-end">
             <div class="col-md-5">
                 <div class="d-flex justify-content-between mb-2">
                     <span class="text-muted">Payment Status:</span>
-                    <span class="badge bg-success">PAID (<?php echo strtoupper($order['Payment_Status']); ?>)</span>
+                    <span class="badge-paid">PAID (<?php echo strtoupper($order['Payment_Status']); ?>)</span>
                 </div>
                 <div class="d-flex justify-content-between mb-2">
                     <span class="text-muted">Order Status:</span>
