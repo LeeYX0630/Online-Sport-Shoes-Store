@@ -1,9 +1,9 @@
 <?php
 // admin/admin_dashboard.php
 session_start();
-require_once '../includes/db_connection.php'; // 确保路径正确 [cite: 32, 36]
+require_once '../includes/db_connection.php'; 
 
-// 1. 安全检查 [cite: 18]
+// 1. 安全检查 
 if (!isset($_SESSION['role'])) {
     header("Location: admin_login.php");
     exit();
@@ -53,23 +53,9 @@ if ($res_chart) {
         if (isset($days_data[$short_day])) $days_data[$short_day] = (int)$row['cnt'];
     }
 }
-$chartConfig = [
-    'type' => 'line',
-    'data' => [
-        'labels' => array_keys($days_data),
-        'datasets' => [[
-            'label' => 'Weekly Orders',
-            'data' => array_values($days_data),
-            'fill' => true,
-            'backgroundColor' => 'rgba(250, 138, 52, 0.1)',
-            'borderColor' => '#FA8A34',
-            'borderWidth' => 3,
-            'pointRadius' => 4
-        ]]
-    ],
-    'options' => [ 'scales' => [ 'yAxes' => [[ 'ticks' => [ 'beginAtZero' => true, 'precision' => 0 ] ]] ] ]
-];
-$chartUrl = "https://quickchart.io/chart?c=" . rawurlencode(json_encode($chartConfig));
+// 准备给 Chart.js 使用的 JSON 数据
+$chartLabels = json_encode(array_keys($days_data));
+$chartValues = json_encode(array_values($days_data));
 ?>
 
 <!DOCTYPE html>
@@ -81,11 +67,13 @@ $chartUrl = "https://quickchart.io/chart?c=" . rawurlencode(json_encode($chartCo
     
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <!-- 引入 Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     
     <style>
         :root {
             --sidebar-width: 260px;
-            --primary-orange: #FF6B00; /* 符合 Guideline [cite: 29] */
+            --primary-orange: #FF6B00; 
         }
 
         body { 
@@ -95,7 +83,6 @@ $chartUrl = "https://quickchart.io/chart?c=" . rawurlencode(json_encode($chartCo
             overflow-x: hidden;
         }
 
-        /* 主包装容器：处理侧边栏占位 */
         .main-wrapper {
             margin-left: var(--sidebar-width);
             min-height: 100vh;
@@ -104,13 +91,12 @@ $chartUrl = "https://quickchart.io/chart?c=" . rawurlencode(json_encode($chartCo
             flex-direction: column;
         }
 
-        /* Top Bar：白色背景，横跨顶部 */
         .top-bar {
             display: flex;
             justify-content: space-between;
             align-items: center;
             padding: 15px 40px;
-            background-color: #FFFFFF; /* 符合 Guideline [cite: 29] */
+            background-color: #FFFFFF; 
             border-bottom: 1px solid #edf2f7;
             position: sticky;
             top: 0;
@@ -120,7 +106,7 @@ $chartUrl = "https://quickchart.io/chart?c=" . rawurlencode(json_encode($chartCo
         .top-bar-left h2 {
             margin: 0;
             font-size: 22px;
-            color: #212529; /* 符合 Guideline [cite: 29] */
+            color: #212529; 
             font-weight: 700;
         }
 
@@ -167,7 +153,7 @@ $chartUrl = "https://quickchart.io/chart?c=" . rawurlencode(json_encode($chartCo
         .user-profile-circle {
             width: 40px;
             height: 40px;
-            background-color: #6366f1; /* 图片中的紫色头像 */
+            background-color: #6366f1; 
             color: white;
             display: flex;
             align-items: center;
@@ -177,12 +163,10 @@ $chartUrl = "https://quickchart.io/chart?c=" . rawurlencode(json_encode($chartCo
             font-size: 13px;
         }
 
-        /* 实际内容区域的间距 */
         .dashboard-content-area {
             padding: 30px 40px;
         }
 
-        /* 统计卡片样式 */
         .stat-card {
             background: white;
             border-radius: 16px;
@@ -300,7 +284,8 @@ $chartUrl = "https://quickchart.io/chart?c=" . rawurlencode(json_encode($chartCo
                 <div class="col-lg-8">
                     <div class="content-container">
                         <h6 class="fw-bold mb-4 text-uppercase" style="letter-spacing: 1px;">Weekly Order Trends</h6>
-                        <img src="<?php echo $chartUrl; ?>" class="img-fluid w-100" style="max-height: 380px; object-fit: contain;">
+                        <!-- 替换了 <img> 为 <canvas> -->
+                        <canvas id="weeklyChart" style="max-height: 380px;"></canvas>
                     </div>
                 </div>
 
@@ -340,6 +325,54 @@ $chartUrl = "https://quickchart.io/chart?c=" . rawurlencode(json_encode($chartCo
                 </div>
             </div>
 
-        </div> </div> <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+        </div> </div> 
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- 初始化图表的 JavaScript 代码 -->
+    <script>
+        const ctx = document.getElementById('weeklyChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: <?php echo $chartLabels; ?>,
+                datasets: [{
+                    label: 'Weekly Orders',
+                    data: <?php echo $chartValues; ?>,
+                    fill: true,
+                    backgroundColor: 'rgba(250, 138, 52, 0.1)',
+                    borderColor: '#FA8A34',
+                    borderWidth: 3,
+                    pointRadius: 6, // 稍微加大圆点，更方便 Hover
+                    pointHoverRadius: 8,
+                    tension: 0.3 // 让线条稍微圆滑一点
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    tooltip: {
+                        enabled: true, // 开启 Hover 显示小框
+                        backgroundColor: '#212529',
+                        padding: 10,
+                        bodyFont: { size: 14 },
+                        callbacks: {
+                            label: function(context) {
+                                return ' Orders: ' + context.parsed.y;
+                            }
+                        }
+                    },
+                    legend: { display: false }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: { stepSize: 1, precision: 0 }
+                    }
+                }
+            }
+        });
+    </script>
 </body>
 </html>
