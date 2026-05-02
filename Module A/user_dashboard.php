@@ -132,7 +132,16 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
                 <div class="mt-2 p-3 rounded-4" style="background-color: #FFF5EE; border: 1px solid #FFE4D3;">
                     <small class="text-muted text-uppercase fw-bold d-block" style="font-size: 0.65rem;">Account Balance</small>
                     <h3 class="fw-800" style="color: var(--brand-orange);">RM <?php echo number_format($user['User_Balance'], 2); ?></h3>
-                    <a href="../Module B/wallet.php" class="btn btn-sm btn-orange w-100 mt-2">Manage Wallet</a>
+                    
+                    <?php if (empty($user['User_PIN'])): ?>
+                        <!-- 未设置 PIN 码，提示激活 -->
+                        <button onclick="setupWalletPIN()" class="btn btn-sm btn-danger w-100 mt-2">
+                            <i class="bi bi-shield-lock-fill"></i> Setup PIN to Activate Wallet
+                        </button>
+                    <?php else: ?>
+                        <!-- 已设置 PIN 码，允许管理 -->
+                        <a href="../Module B/wallet.php" class="btn btn-sm btn-orange w-100 mt-2">Manage Wallet</a>
+                    <?php endif; ?>
                 </div>
                 
                 <div class="mt-4 pt-3 border-top text-start">
@@ -249,6 +258,34 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
     }
     setInterval(updateClock, 1000);
     updateClock();
+
+    function setupWalletPIN() {
+    Swal.fire({
+        title: 'Activate Your E-Wallet',
+        text: 'Please set a 6-digit secure PIN to protect your balance.',
+        input: 'password',
+        inputAttributes: { maxlength: 6, autocapitalize: 'off', autocorrect: 'off', pattern: '[0-9]*', inputmode: 'numeric' },
+        showCancelButton: true,
+        confirmButtonText: 'Set PIN',
+        confirmButtonColor: '#FF6B00',
+        inputValidator: (value) => {
+            if (!/^\d{6}$/.test(value)) { return 'PIN must be exactly 6 digits!'; }
+        }
+    }).then((result) => {
+        if (result.isConfirmed) {
+            // 发送 AJAX 到后端保存 PIN 码
+            fetch('../Module B/update_pin_handler.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: `new_pin=${result.value}`
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) { Swal.fire('Activated!', 'Your wallet is now ready.', 'success').then(() => location.reload()); }
+            });
+        }
+    });
+}
 </script>
 
 <?php include '../includes/footer.php'; ?>

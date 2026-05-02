@@ -4,7 +4,6 @@ ob_start();
 session_start();
 require_once '../includes/db_connection.php';
 
-
 // 1. 登录与购物车安全检查
 if (!isset($_SESSION['user_id'])) {
     header("Location: ../Module A/login.php");
@@ -15,10 +14,16 @@ if (!isset($_SESSION['cart']) || empty($_SESSION['cart'])) {
     exit();
 }
 
-
 $uid = $_SESSION['user_id'];
 $error = "";
 $success_msg = "";
+
+// 获取用户详细资料 (包含 User_PIN)
+$user_sql = "SELECT * FROM `USER` WHERE User_Id = '$uid'";
+$user_res = $conn->query($user_sql);
+$user_info = $user_res->fetch_assoc();
+$current_balance = floatval($user_info['User_Balance']);
+$has_pin = !empty($user_info['User_PIN']);
 
 $user_sql = "SELECT * FROM `USER` WHERE User_Id = '$uid'";
 $user_res = $conn->query($user_sql);
@@ -122,10 +127,12 @@ mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
     
     $f_name = trim($_POST['first_name']);
-    if ($_POST['postcode'] === 'other') {
-        $postcode = trim($_POST['custom_postcode']);
+    $raw_postcode = $_POST['postcode'] ?? ''; 
+    
+    if ($raw_postcode === 'other') {
+        $postcode = trim($_POST['custom_postcode'] ?? '');
     } else {
-        $postcode = trim($_POST['postcode']);
+        $postcode = trim($raw_postcode);
     }
     $phone = trim($_POST['phone']);
 
@@ -138,8 +145,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
         $error = "Postcode must be 5 digits.";
     } elseif ($_POST['pay_type'] === 'fpx' && (empty($_POST['fpx_bank']) || $_POST['fpx_bank'] === '')) {
         $error = "Please select a bank for FPX payment.";
-    } elseif ($_POST['pay_type'] === 'wallet' && $current_balance < $grand_total) {
-        $error = "Insufficient wallet balance. Please select another payment method.";
+    } elseif ($_POST['pay_type'] === 'wallet') {
+        $input_pin = $_POST['wallet_pin'] ?? '';
+        if (!$has_pin) {
+            $error = "Wallet not activated. Please set a PIN in dashboard.";
+        } elseif (!password_verify($input_pin, $user_info['User_PIN'])) {
+            $error = "Incorrect Wallet PIN. Transaction denied."; //[cite: 39, 41]
+        } elseif ($current_balance < $grand_total) {
+            $error = "Insufficient wallet balance.";
+        }
     } elseif ($_POST['pay_type'] === 'card') {
         $card_no = trim($_POST['card_no'] ?? '');
         $card_name = trim($_POST['cardholder_name'] ?? '');
@@ -271,6 +285,8 @@ include '../includes/header.php';
     <div class="checkout-grid">
         <div class="main-form">
             <form id="orderForm" method="POST" action="">
+                <input type="hidden" name="wallet_pin" id="hidden_wallet_pin">
+                <input type="hidden" name="place_order" value="1">
                 <div class="mb-5">
                     <h5 class="section-title">Contact</h5>
                     <input type="email" name="contact_email" class="input-field" placeholder="Email" value="<?php echo htmlspecialchars($user_info['User_Email']); ?>" required>
@@ -284,7 +300,7 @@ include '../includes/header.php';
                     </div>
                     
                     <input type="text" name="address" class="input-field" placeholder="Address" 
-       value="<?php echo htmlspecialchars($user_address); ?>" required>
+                        value="<?php echo htmlspecialchars($user_address); ?>" required>
                     <input type="text" name="apartment" class="input-field" placeholder="Apartment, suite, unit etc. (optional)">
                     
                     <div class="row-cols-2">
@@ -321,22 +337,33 @@ include '../includes/header.php';
 
                 <div class="mb-5">
                     <h5 class="section-title">Payment</h5>
-                    <div class="payment-option <?php echo ($current_balance < $grand_total) ? 'disabled' : 'active'; ?>" 
-                        onclick="<?php echo ($current_balance < $grand_total) ? 'return false;' : 'selectPay(this)'; ?>"
-                        style="<?php echo ($current_balance < $grand_total) ? 'opacity: 0.6; cursor: not-allowed;' : ''; ?>">
-    
-                    <input type="radio" name="pay_type" value="wallet" 
-                        <?php echo ($current_balance >= $grand_total) ? 'checked' : 'disabled'; ?>>
-                    
-                    <div class="flex-grow-1">
-                        <div class="fw-bold"><i class="bi bi-wallet2 me-2"></i>Store Wallet</div>
-                        <div class="small text-muted">Balance: <strong>RM <?php echo number_format($current_balance, 2); ?></strong></div>
+                    <div class="payment-option <?php echo ($current_balance < $grand_total || !$has_pin) ? 'disabled' : ''; ?>" 
+                         onclick="selectPay(this)">
+                        
+                        <input type="radio" name="pay_type" value="wallet" 
+                            <?php echo ($current_balance >= $grand_total && $has_pin) ? '' : 'disabled'; ?>>
+                        
+                        <div class="flex-grow-1">
+                            <div class="fw-bold"><i class="bi bi-wallet2 me-2"></i>Store Wallet</div>
+                            <div class="small text-muted">
+                                <?php if (!$has_pin): ?>
+                                    <span class="text-danger">PIN not set. Activate in Dashboard.</span>
+                                <?php else: ?>
+                                    Balance: <strong>RM <?php echo number_format($current_balance, 2); ?></strong>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+
+                        <?php if($has_pin && $current_balance < $grand_total): ?>
+                            <span class="badge-insufficient">Insufficient Wallet</span>
+                        <?php endif; ?>
                     </div>
 
-                    <?php if($current_balance < $grand_total): ?>
-                        <span class="badge bg-danger">Insufficient Wallet</span>
-                    <?php endif; ?>
+                    <div id="walletPinField" style="display:none; margin-top: 10px; padding: 15px; background: #FFF5EE; border-radius: 8px; border: 1px solid #FFE4D3;">
+                        <label class="small fw-bold">Enter 6-Digit Wallet PIN</label>
+                        <input type="password" name="wallet_pin" id="wallet_pin_input" class="form-control" maxlength="6" placeholder="******">
                     </div>
+
                     <div class="payment-option active" onclick="selectPay(this)">
                         <input type="radio" name="pay_type" value="card" checked>
                         <div><div class="fw-bold">Credit / Debit Card</div><div class="small text-muted">Visa, Mastercard</div></div>
@@ -391,24 +418,22 @@ include '../includes/header.php';
                             <option value="IMM">Islamic Bank Mal (IM)</option>
                             <option value="BANK_MUAMALAT">Bank Muamalat (MB)</option>
                         </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="small fw-bold">Online Banking ID</label>
+                            <input type="text" name="fpx_user" id="fpxUser" class="input-field fpx-auth-input" placeholder="Username / Login ID">
+                        </div>
+
+                        <div>
+                            <label class="small fw-bold">Password</label>
+                            <input type="password" name="fpx_pass" id="fpxPass" class="input-field fpx-auth-input" placeholder="••••••••">
+                        </div>
                     </div>
-
-                    <div class="mb-3">
-        <label class="small fw-bold">Online Banking ID</label>
-        <input type="text" name="fpx_user" id="fpxUser" class="input-field fpx-auth-input" placeholder="Username / Login ID">
-    </div>
-
-    <div>
-        <label class="small fw-bold">Password</label>
-        <input type="password" name="fpx_pass" id="fpxPass" class="input-field fpx-auth-input" placeholder="••••••••">
-    </div>
-</div>
-
-                    
                 </div>
 
                 <input type="hidden" name="place_order" value="1">
-                <button type="submit" class="btn-pay-now" onclick="return validateCheckoutForm()">Pay now</button>
+                <button type="button" class="btn-pay-now" onclick="startPaymentProcess()">Pay now</button>
             </form>
         </div>
 
@@ -435,8 +460,12 @@ include '../includes/header.php';
                         <input type="text" name="coupon_code" class="form-control" placeholder="Discount code" value="<?php echo $applied_code; ?>">
                         <button type="submit" name="apply_coupon" class="btn btn-dark btn-apply">Apply</button>
                     </div>
-                    <?php if($error): ?><div class="text-danger small mt-2"><?php echo $error; ?></div><?php endif; ?>
-                    <?php if($success_msg): ?><div class="text-success small mt-2"><?php echo $success_msg; ?></div><?php endif; ?>
+                    <?php if ($error): ?>
+                        Swal.fire({ icon: 'error', title: 'Payment Failed', text: '<?php echo $error; ?>', confirmButtonColor: '#17735b' });
+                    <?php endif; ?>
+                    <?php if ($success_msg): ?>
+                        Swal.fire({ icon: 'success', title: 'Success', text: '<?php echo $success_msg; ?>', timer: 2000 });
+                    <?php endif; ?>
                 </form>
 
                 <div class="total-line d-flex justify-content-between h4 fw-bold">
@@ -449,9 +478,7 @@ include '../includes/header.php';
 </div>
 
 <script>
-// ===============================================================
-// 马来西亚 州属、城市、邮编 完整数据库 (按行政区划整理)
-// ===============================================================
+
 const locationData = {
     "Johor": {
         "Johor Bahru": ["80000", "81100", "81200", "81300"],
@@ -669,43 +696,70 @@ function selectPay(el) {
     }
 }
 
-function validateCheckoutForm() {
-    const selectedRadio = document.querySelector('input[name="pay_type"]:checked');
-    if (!selectedRadio) {
-        alert('Please select a payment method.');
-        return false;
-    }
+async function startPaymentProcess() {
+    const payType = document.querySelector('input[name="pay_type"]:checked').value;
     
-    const payType = selectedRadio.value;
-
-    // 验证基本配送信息
+    // 1. 基础验证：姓名、地址、电话[cite: 39]
     const firstName = document.querySelector('input[name="first_name"]').value.trim();
     const address = document.querySelector('input[name="address"]').value.trim();
-    if (!firstName || !address) {
-        alert('Please fill in your delivery details.');
-        return false;
+    const phone = document.querySelector('input[name="phone"]').value.trim();
+    
+    if (!firstName || !address || !phone) {
+        Swal.fire('Information Required', 'Please complete your delivery details first.', 'warning');
+        return;
     }
 
-    if (payType === 'fpx') {
-        const bank = document.getElementById('fpxBank').value;
-        const user = document.getElementById('fpxUser').value.trim();
-        const pass = document.getElementById('fpxPass').value.trim();
+    // 2. 钱包支付逻辑：弹出中间 PIN 码框
+    if (payType === 'wallet') {
+        const { value: pin } = await Swal.fire({
+            title: 'Security Verification',
+            text: 'Please enter your 6-digit Wallet PIN',
+            input: 'password',
+            inputPlaceholder: 'Enter PIN',
+            inputAttributes: {
+                maxlength: 6,
+                autocapitalize: 'off',
+                autocorrect: 'off',
+                inputmode: 'numeric'
+            },
+            showCancelButton: true,
+            confirmButtonText: 'Verify & Pay',
+            confirmButtonColor: '#17735b',
+            inputValidator: (value) => {
+                if (!/^\d{6}$/.test(value)) {
+                    return 'Please enter exactly 6 digits!';
+                }
+            }
+        });
 
-        if (!bank || !user || !pass) {
-            alert('Please fill in all FPX banking details.');
-            return false;
+        if (pin) {
+            // 将输入的密码填入隐藏域并提交[cite: 39]
+            document.getElementById('hidden_wallet_pin').value = pin;
+            submitCheckoutForm();
         }
-    }
-
-    if (payType === 'card') {
+    } 
+    // 3. 其他支付方式验证[cite: 39]
+    else if (payType === 'card') {
         const cardNo = document.querySelector('input[name="card_no"]').value;
-        if (!cardNo || cardNo.length < 16) {
-            alert('Please enter a valid 16-digit card number.');
-            return false;
+        if (cardNo.length < 16) {
+            Swal.fire('Invalid Card', 'Please enter a valid 16-digit card number.', 'error');
+            return;
         }
+        submitCheckoutForm();
+    } else {
+        submitCheckoutForm();
     }
+}
 
-    return true; // 验证通过，允许提交表单
+// 统一提交函数
+function submitCheckoutForm() {
+    Swal.fire({
+        title: 'Processing Payment...',
+        html: 'Please do not refresh the page.',
+        allowOutsideClick: false,
+        didOpen: () => { Swal.showLoading(); }
+    });
+    document.getElementById('orderForm').submit();
 }
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -776,38 +830,38 @@ function toggleCustomPostcode() {
     }
 }
 
-// 表单验证函数
+
 function validateCheckoutForm() {
     const payType = document.querySelector('input[name="pay_type"]:checked').value;
     
     // 基本信息验证
     if (!document.querySelector('input[name="first_name"]').value) {
-        alert('Please enter your first name');
+        Swal.fire('Incomplete', 'Please enter your first name.', 'warning');
         return false;
     }
     if (!document.querySelector('input[name="address"]').value) {
-        alert('Please enter your address');
+        Swal.fire('Incomplete', 'Please enter your address.', 'warning');
         return false;
     }
     if (!document.querySelector('select[name="state"]').value) {
-        alert('Please select a state');
+        Swal.fire('Incomplete', 'Please select a state.', 'warning');
         return false;
     }
     if (!document.querySelector('select[name="city"]').value) {
-        alert('Please select a city');
+        Swal.fire('Incomplete', 'Please select a city.', 'warning');
         return false;
     }
     if (!document.querySelector('select[name="postcode"]').value) {
-        alert('Please select a postcode');
+        Swal.fire('Incomplete', 'Please select a postcode.', 'warning');
         return false;
     }
     if (document.querySelector('select[name="postcode"]').value === 'other' && !document.getElementById('customPostcode').value) {
-        alert('Please enter the postcode');
+        Swal.fire('Incomplete', 'Please enter the postcode.', 'warning');
         return false;
     }
     const phone = document.querySelector('input[name="phone"]').value;
     if (!phone || phone.length < 9 || phone.length > 12) {
-        alert('Please enter a valid phone number (9-12 digits)');
+        Swal.fire('Invalid Input', 'Please enter a valid phone number (9-12 digits).', 'warning');
         return false;
     }
     
@@ -819,25 +873,25 @@ function validateCheckoutForm() {
         const cvv = document.querySelector('input[name="cvv"]').value;
         
         if (!cardNo || cardNo.length !== 16) {
-            alert('Please enter a valid 16-digit card number');
+            Swal.fire('Invalid Input', 'Please enter a valid 16-digit card number.', 'warning');
             return false;
         }
         if (!cardName) {
-            alert('Please enter the cardholder name');
+            Swal.fire('Incomplete', 'Please enter the cardholder name.', 'warning');
             return false;
         }
         if (!expiry || !/^\d{2}\/\d{2}$/.test(expiry)) {
-            alert('Please enter a valid expiry date (MM/YY format)');
+            Swal.fire('Invalid Input', 'Please enter a valid expiry date (MM/YY format).', 'warning');
             return false;
         }
         if (!cvv || cvv.length !== 3) {
-            alert('Please enter a valid 3-digit CVV');
+            Swal.fire('Invalid Input', 'Please enter a valid 3-digit CVV.', 'warning');
             return false;
         }
     } else if (payType === 'fpx') {
         const fpxBank = document.querySelector('select[name="fpx_bank"]').value;
         if (!fpxBank) {
-            alert('Please select a bank');
+            Swal.fire('Incomplete', 'Please select a bank.', 'warning');
             return false;
         }
     }
@@ -868,6 +922,31 @@ document.addEventListener('DOMContentLoaded', function() {
         const fpxBank = document.getElementById('fpxBank');
         if (fpxBank) fpxBank.required = true;
     }
+});
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // 统一显示来自后端的错误信息
+    <?php if ($error): ?>
+        Swal.fire({
+            icon: 'error',
+            title: 'Payment Failed',
+            text: '<?php echo $error; ?>',
+            confirmButtonColor: '#17735b'
+        });
+    <?php endif; ?>
+
+    // 统一显示来自后端的成功信息
+    <?php if ($success_msg): ?>
+        Swal.fire({
+            icon: 'success',
+            title: 'Success',
+            text: '<?php echo $success_msg; ?>',
+            timer: 2500,
+            showConfirmButton: false
+        });
+    <?php endif; ?>
 });
 </script>
 

@@ -770,7 +770,7 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
         refreshSizeButtons();
     }
 
-    function refreshSizeButtons() {
+function refreshSizeButtons() {
     const currentColorStock = variantMap[selectedColor] || {};
     let isCurrentlySelectedSizeValid = false;
 
@@ -781,25 +781,27 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
         if (stock > 0) {
             box.style.opacity = "1";
             box.style.pointerEvents = "auto";
-            // 检查当前已选中的尺码在新颜色下是否依然有货
-            if (selectedSize === size) {
-                isCurrentlySelectedSizeValid = true;
-                document.getElementById('stockDisplay').innerHTML = `Only <strong>${stock}</strong> left in stock.`;
-            }
+            if (selectedSize === size) isCurrentlySelectedSizeValid = true;
         } else {
             box.style.opacity = "0.3";
             box.style.pointerEvents = "none";
-            // 如果这个尺码没货了，且正好是选中的，移除选中效果
-            if (selectedSize === size) {
-                box.classList.remove('selected');
-            }
+            if (selectedSize === size) box.classList.remove('selected');
         }
     });
 
-    if (!isCurrentlySelectedSizeValid && selectedSize !== "") {
+    // --- 【核心修复】：切换颜色时同步更新显示文本 ---
+    const stockDisplay = document.getElementById('stockDisplay');
+    if (isCurrentlySelectedSizeValid && selectedSize !== "") {
+        const stock = currentColorStock[selectedSize] || 0;
+        if (selectedColor === "Custom Design") {
+            stockDisplay.innerHTML = `<span style="color:#008060; font-weight:bold;"><i class="bi bi-hammer"></i> Custom Built to Order</span>`;
+        } else {
+            stockDisplay.innerHTML = `Only <strong>${stock}</strong> left in stock.`;
+        }
+    } else if (selectedSize !== "") {
         selectedSize = "";
         document.getElementById('selectedSizeInput').value = "";
-        document.getElementById('stockDisplay').innerHTML = `<span style="color: #dc3545; font-weight: bold;">Size ${selectedSize} is out of stock for this colour. Please re-select.</span>`;
+        stockDisplay.innerHTML = `<span style="color: #dc3545; font-weight: bold;">Size not available for this choice.</span>`;
     }
 }
 
@@ -810,28 +812,24 @@ function handleSizeClick(el, sz) {
     document.getElementById('selectedSizeInput').value = sz;
     document.getElementById('sizeError').style.display = 'none';
 
-    // --- 核心修复：动态同步库存限制 ---
     const stock = (variantMap[selectedColor] || {})[sz] || 0;
     const qtyInput = document.getElementById('qtyInput');
-    
-    // 更新提示文字
-    document.getElementById('stockDisplay').innerHTML = `Only <strong>${stock}</strong> left in stock.`;
-    
-    // 设置输入框的最大允许值
     qtyInput.max = stock; 
 
-    // 如果用户之前输入的数字比现在的库存还大，强制降下来
-    if (parseInt(qtyInput.value) > stock) {
-        qtyInput.value = stock > 0 ? stock : 1; 
+    // --- 【核心修复】：定制款不显示具体数字，仅显示状态 ---
+    const stockDisplay = document.getElementById('stockDisplay');
+    if (selectedColor === "Custom Design") {
         if (stock > 0) {
-            Swal.fire({
-                icon: 'info',
-                title: 'Quantity Adjusted',
-                text: `We adjusted the quantity to ${stock} as it is the maximum available for this size.`,
-                timer: 2000,
-                showConfirmButton: false
-            });
+            stockDisplay.innerHTML = `<span style="color:#008060; font-weight:bold;"><i class="bi bi-hammer"></i> Custom Built to Order (Available)</span>`;
+        } else {
+            stockDisplay.innerHTML = `<span style="color:#dc3545; font-weight:bold;">Out of materials for this size.</span>`;
         }
+    } else {
+        stockDisplay.innerHTML = `Only <strong>${stock}</strong> left in stock.`;
+    }
+
+    if (parseInt(qtyInput.value) > stock) {
+        qtyInput.value = stock > 0 ? stock : 1;
     }
 }
 

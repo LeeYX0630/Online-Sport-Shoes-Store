@@ -26,16 +26,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     } 
     elseif (isset($_POST['update_cart']) || isset($_POST['qty'])) {
         foreach ($_SESSION['cart'] as $session_key => $item) {
-            $php_converted_key = str_replace([' ', '.'], '_', $session_key);
-            
-            if (isset($_POST['qty'][$php_converted_key])) {
-                $quantity = intval($_POST['qty'][$php_converted_key]);
+            // --- 【核心修复 1】：直接使用 $session_key，不再转换下划线 ---
+            // PHP 数组键名中的点和空格不会被自动转换，之前的 str_replace 导致了查找失败
+            if (isset($_POST['qty'][$session_key])) {
+                $quantity = intval($_POST['qty'][$session_key]);
                 
                 $pid = $item['pro_id'];
                 $sz  = $item['size'];
                 $color_in_session = $item['color'] ?? 'Default';
 
-                // --- 【关键修复 1】：后端更新数量时，16/17 统一检查 'Default' 库存 ---
+                // 统一 16/17 定制款检查 'Default' 库存池
                 if ($pid == 16 || $pid == 17) {
                     $col_for_db = 'Default'; 
                 } else {
@@ -46,9 +46,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 $st_res = $conn->query($st_sql);
                 $db_stock = ($st_res && $st_res->num_rows > 0) ? intval($st_res->fetch_assoc()['Quantity']) : 0;
 
+                // 数量校验逻辑
                 if ($quantity > $db_stock) $quantity = $db_stock;
-                if ($quantity < 1)  $quantity = 1 ;
+                if ($quantity < 1) $quantity = 1;
 
+                // 更新 Session
                 $_SESSION['cart'][$session_key]['qty'] = $quantity;
             }
         }
@@ -103,7 +105,7 @@ $free_shipping_threshold = 250.00;
             </div>
         <?php else: ?>
             <div class="cart-layout">
-                <form method="POST" action="cart.php" id="cartForm" onsubmit="return false;">
+                <form method="POST" action="cart.php" id="cartForm">
                     <input type="hidden" name="update_cart" value="1">
                     <input type="hidden" name="remove_item" id="remove_item_trigger" value="0">
                     <input type="hidden" name="remove_key" id="remove_key" value="">
@@ -116,10 +118,8 @@ $free_shipping_threshold = 250.00;
                             $qty    = $item['qty'];
                             $color_in_session = $item['color'] ?? 'Default';
 
-                            // --- 【关键修复 2】：读取列表时，16/17 统一映射到 'Default' 进行库存关联 ---
                             if ($pro_id == 16 || $pro_id == 17) {
                                 $stock_search_color = 'Default';
-                                // 界面显示的文字依然保留 Custom Design 或原配色名
                                 $display_color_name = ($color_in_session == 'Custom Design') ? 'Custom Design' : $color_in_session;
                             } else {
                                 $stock_search_color = $color_in_session;
@@ -137,7 +137,6 @@ $free_shipping_threshold = 250.00;
                                 $product = $res->fetch_assoc();
                                 $current_stock = intval($product['DB_Stock'] ?? 0);
                                 
-                                // --- 图片显示逻辑 (保持原有 3D 快照优先) ---
                                 if (!empty($item['custom_preview'])) {
                                     $display_img = $item['custom_preview'];
                                 } else {
@@ -145,21 +144,7 @@ $free_shipping_threshold = 250.00;
                                     $path_parts = pathinfo($base_img);
                                     $base_name = preg_replace('/_\d+$/', '', $path_parts['filename']);
                                     $found_files = glob("../uploads/{$base_name}*.*");
-                                    
-                                    if (!empty($found_files)) {
-                                        $display_img = $found_files[0]; 
-                                        if ($stock_search_color !== 'Default') {
-                                            $color_slug = strtolower(str_replace([' ', '/'], '_', $stock_search_color));
-                                            foreach ($found_files as $file) {
-                                                if (strpos(strtolower($file), $color_slug) !== false) {
-                                                    $display_img = $file;
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                    } else {
-                                        $display_img = "../images/placeholder.png";
-                                    }
+                                    $display_img = (!empty($found_files)) ? $found_files[0] : "../images/placeholder.png";
                                 }
                                 
                                 $item_total = $product['Pro_Price'] * $qty;
@@ -171,14 +156,22 @@ $free_shipping_threshold = 250.00;
                                         <div style="font-size:12px; font-weight:bold; color:#666;"><?php echo $product['Brand_Name']; ?></div>
                                         <strong style="color:#333;"><?php echo $product['Pro_Name']; ?></strong>
                                         <div style="font-size:13px; color:#666; margin-top:5px;">Size: <?php echo $size; ?> | Col: <?php echo $display_color_name; ?></div>
-                                        <div style="font-size:11px; color:#dc3545; font-weight:bold;">Stock: <?php echo $current_stock; ?> left</div>
+                                        
+                                        <!-- 【核心修复 2】：同步定制款显示逻辑 -->
+                                        <?php if (($pro_id == 16 || $pro_id == 17) && $display_color_name == 'Custom Design'): ?>
+                                            <div style="font-size:11px; color:#008060; font-weight:bold;">
+                                                <i class="bi bi-hammer"></i> Custom Built to Order (Available)
+                                            </div>
+                                        <?php else: ?>
+                                            <div style="font-size:11px; color:#dc3545; font-weight:bold;">Stock: <?php echo $current_stock; ?> left</div>
+                                        <?php endif; ?>
                                     </div>
                                     <div style="font-weight:bold;">RM <?php echo number_format($product['Pro_Price'], 2); ?></div>
                                     <div>
+                                        <!-- 注意这里的 name="qty[<?php echo $cart_key; ?>]" -->
                                         <input type="number" name="qty[<?php echo $cart_key; ?>]" 
                                                value="<?php echo $qty; ?>" 
                                                class="qty-input" 
-                                               onkeydown="if(event.key==='Enter'){ event.preventDefault(); checkStockQty(this, '<?php echo $cart_key; ?>', <?php echo $current_stock; ?>); }"
                                                onchange="checkStockQty(this, '<?php echo $cart_key; ?>', <?php echo $current_stock; ?>)">
                                     </div>
                                     <div style="text-align: right;">
@@ -216,18 +209,20 @@ $free_shipping_threshold = 250.00;
 function checkStockQty(input, cartKey, maxStock) {
     let val = parseInt(input.value);
     if (val < 1 || isNaN(val)) {
-        Swal.fire({ icon: 'warning', title: 'Invalid Quantity', text: 'Quantity must be at least 1. Resetting to 1.' }).then(() => {
-            input.value = 1;
-            document.getElementById('cartForm').submit();
-        });
+        input.value = 1;
     } else if (val > maxStock) {
-        Swal.fire({ icon: 'warning', title: 'Stock Limit', text: 'Resetting to max available: ' + maxStock }).then(() => {
+        Swal.fire({ 
+            icon: 'warning', 
+            title: 'Stock Limit', 
+            text: 'Maximum available: ' + maxStock,
+            confirmButtonColor: '#008060'
+        }).then(() => {
             input.value = maxStock;
             document.getElementById('cartForm').submit();
         });
-    } else {
-        document.getElementById('cartForm').submit();
+        return;
     }
+    document.getElementById('cartForm').submit();
 }
 
 function removeItem(cartKey) {

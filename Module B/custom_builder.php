@@ -208,8 +208,8 @@ $color_names = [
                 <span class="fw-bold">Total Price</span>
                 <span class="h4 fw-bold mb-0">RM 829.00</span>
             </div>
-            <button class="btn-checkout" onclick="saveDesign()">SAVE DESIGN</button>
-        </div>
+    <button type="button" class="btn-checkout" onclick="saveDesign(event)">SAVE DESIGN</button>
+            </div>
     </div>
 </div>
 
@@ -337,27 +337,74 @@ $color_names = [
     }
 
     async function saveDesign() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const editId = urlParams.get('edit_design'); // 检查是否正在编辑旧设计
+    
+    // 如果是全新创建，直接执行保存；如果是编辑旧设计，弹出选择
+    if (editId) {
+        Swal.fire({
+            title: 'Save Design Options',
+            text: 'Would you like to overwrite your current design or save it as a new copy?',
+            icon: 'question',
+            showDenyButton: true,
+            showCancelButton: true,
+            confirmButtonText: 'Overwrite Current',
+            denyButtonText: 'Save as New',
+            confirmButtonColor: '#000',
+            denyButtonColor: '#555',
+        }).then((result) => {
+            if (result.isConfirmed) {
+                // 覆盖当前：发送旧 ID
+                executeSave(editId);
+            } else if (result.isDenied) {
+                // 另存为新：不发送 ID
+                executeSave(null);
+            }
+        });
+    } else {
+        executeSave(null);
+    }
+}
+
+async function executeSave(targetId) {
+    Swal.fire({
+        title: 'Processing...',
+        text: 'Checking for duplicates and generating 3D snapshot...',
+        allowOutsideClick: false,
+        showConfirmButton: false,
+        didOpen: () => { Swal.showLoading(); }
+    });
+
+    try {
         const screenshot = viewer.toDataURL('image/webp', 0.8); 
         const formData = new FormData();
         formData.append('pro_id', <?php echo $pro_id; ?>);
         formData.append('custom_design', JSON.stringify(currentSelections));
         formData.append('custom_image', screenshot);
         formData.append('add_custom_cart', '1');
-        
-        // --- 【核心修改 3】：保存时告诉后端我们是在更新旧设计 ---
-        const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.has('edit_design')) {
-            formData.append('update_design_id', urlParams.get('edit_design'));
-        }
-        // ----------------------------------------------------
+
+        if (targetId) formData.append('update_design_id', targetId);
 
         const res = await fetch('save_custom_design.php', { method: 'POST', body: formData });
         const result = await res.json();
+        
         if (result.success) {
-            Swal.fire({ icon: 'success', title: 'Design Saved!', timer: 1500, showConfirmButton: false })
-            .then(() => window.location.href = `product_details.php?pro_id=<?php echo $pro_id; ?>&active_design=${result.design_id}`);
+            // --- 【交互修复：智能提示】 ---
+            const isDuplicate = result.is_duplicate;
+            Swal.fire({ 
+                icon: isDuplicate ? 'info' : 'success', 
+                title: isDuplicate ? 'Already Exists' : 'Design Saved!', 
+                text: isDuplicate ? 'This exact design is already in your collection.' : 'Redirecting to product page...',
+                timer: 1500, 
+                showConfirmButton: false 
+            }).then(() => {
+                window.location.href = `product_details.php?pro_id=<?php echo $pro_id; ?>&active_design=${result.design_id}`;
+            });
         }
+    } catch (e) {
+        Swal.fire('Error', 'Failed to save your design.', 'error');
     }
+}
 
     async function switchModel(type, el) {
         // 1. 更新 UI 按钮状态
