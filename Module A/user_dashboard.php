@@ -134,13 +134,11 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
                     <h3 class="fw-800" style="color: var(--brand-orange);">RM <?php echo number_format($user['User_Balance'], 2); ?></h3>
                     
                     <?php if (empty($user['User_PIN'])): ?>
-                        <!-- 未设置 PIN 码，提示激活 -->
-                        <button onclick="setupWalletPIN()" class="btn btn-sm btn-danger w-100 mt-2">
-                            <i class="bi bi-shield-lock-fill"></i> Setup PIN to Activate Wallet
-                        </button>
+                        <button onclick="setupWalletPIN()" class="btn btn-sm btn-danger w-100 mt-2">Setup PIN</button>
                     <?php else: ?>
-                        <!-- 已设置 PIN 码，允许管理 -->
                         <a href="../Module B/wallet.php" class="btn btn-sm btn-orange w-100 mt-2">Manage Wallet</a>
+                        <!-- 添加此重置入口 -->
+                        <a href="javascript:void(0)" onclick="forgotWalletPIN()" class="d-block text-center mt-2 small text-muted">Forgot Wallet PIN?</a>
                     <?php endif; ?>
                 </div>
                 
@@ -283,6 +281,65 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
             .then(data => {
                 if (data.success) { Swal.fire('Activated!', 'Your wallet is now ready.', 'success').then(() => location.reload()); }
             });
+        }
+    });
+}
+    async function forgotWalletPIN() {
+    // 步骤 1: 发送 OTP
+    Swal.fire({
+        title: 'Reset Wallet PIN',
+        text: "We will send an OTP to your registered email.",
+        icon: 'info',
+        showCancelButton: true,
+        confirmButtonText: 'Send OTP',
+        confirmButtonColor: '#FF6B00',
+        showLoaderOnConfirm: true,
+        preConfirm: () => {
+            return fetch('../Module B/wallet_pin_reset_handler.php', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: 'action=request_otp'
+            }).then(res => res.json());
+        }
+    }).then((result) => {
+        if (result.isConfirmed && result.value.success) {
+            // 步骤 2: 输入 OTP 和 新 PIN
+            handleOTPInput();
+        }
+    });
+}
+
+function handleOTPInput() {
+    Swal.fire({
+        title: 'Verify OTP',
+        html: `
+            <input type="text" id="otp_code" class="swal2-input" placeholder="6-digit OTP" maxlength="6">
+            <input type="password" id="reset_pin" class="swal2-input" placeholder="Enter New 6-digit PIN" maxlength="6">
+        `,
+        confirmButtonText: 'Reset PIN',
+        confirmButtonColor: '#17735b',
+        preConfirm: () => {
+            const otp = document.getElementById('otp_code').value;
+            const pin = document.getElementById('reset_pin').value;
+            if (!/^\d{6}$/.test(otp)) return Swal.showValidationMessage('Invalid OTP format');
+            if (!/^\d{6}$/.test(pin)) return Swal.showValidationMessage('PIN must be 6 digits');
+            
+            let formData = new URLSearchParams();
+            formData.append('action', 'verify_and_reset');
+            formData.append('otp', otp);
+            formData.append('new_pin', pin);
+
+            return fetch('../Module B/wallet_pin_reset_handler.php', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: formData.toString()
+            }).then(res => res.json());
+        }
+    }).then((result) => {
+        if (result.value && result.value.success) {
+            Swal.fire('Success!', 'Your Wallet PIN has been updated.', 'success').then(() => location.reload());
+        } else if (result.value) {
+            Swal.fire('Failed', result.value.message, 'error');
         }
     });
 }

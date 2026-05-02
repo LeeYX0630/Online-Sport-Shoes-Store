@@ -249,6 +249,66 @@ include '../includes/header.php';
         if (val.length >= 2) input.value = val.slice(0, 2) + '/' + val.slice(2, 4);
         else input.value = val;
     }
+
+    async function forgotWalletPIN() {
+    // 步骤 1: 发送 OTP
+    Swal.fire({
+        title: 'Reset Wallet PIN',
+        text: "We will send an OTP to your registered email.",
+        icon: 'info',
+        showCancelButton: true,
+        confirmButtonText: 'Send OTP',
+        confirmButtonColor: '#FF6B00',
+        showLoaderOnConfirm: true,
+        preConfirm: () => {
+            return fetch('wallet_pin_reset_handler.php', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: 'action=request_otp'
+            }).then(res => res.json());
+        }
+    }).then((result) => {
+        if (result.isConfirmed && result.value.success) {
+            // 步骤 2: 输入 OTP 和 新 PIN
+            handleOTPInput();
+        }
+    });
+}
+
+function handleOTPInput() {
+    Swal.fire({
+        title: 'Verify OTP',
+        html: `
+            <input type="text" id="otp_code" class="swal2-input" placeholder="6-digit OTP" maxlength="6">
+            <input type="password" id="reset_pin" class="swal2-input" placeholder="Enter New 6-digit PIN" maxlength="6">
+        `,
+        confirmButtonText: 'Reset PIN',
+        confirmButtonColor: '#17735b',
+        preConfirm: () => {
+            const otp = document.getElementById('otp_code').value;
+            const pin = document.getElementById('reset_pin').value;
+            if (!/^\d{6}$/.test(otp)) return Swal.showValidationMessage('Invalid OTP format');
+            if (!/^\d{6}$/.test(pin)) return Swal.showValidationMessage('PIN must be 6 digits');
+            
+            let formData = new URLSearchParams();
+            formData.append('action', 'verify_and_reset');
+            formData.append('otp', otp);
+            formData.append('new_pin', pin);
+
+            return fetch('wallet_pin_reset_handler.php', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: formData.toString()
+            }).then(res => res.json());
+        }
+    }).then((result) => {
+        if (result.value && result.value.success) {
+            Swal.fire('Success!', 'Your Wallet PIN has been updated.', 'success').then(() => location.reload());
+        } else if (result.value) {
+            Swal.fire('Failed', result.value.message, 'error');
+        }
+    });
+}
 </script>
 
 <?php include '../includes/footer.php'; ?>
