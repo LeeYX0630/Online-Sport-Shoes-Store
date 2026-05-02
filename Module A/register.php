@@ -295,6 +295,14 @@ include_once '../includes/header.php';
                         <label class="form-label">Password</label>
                         <input type="password" name="password" id="pwd" class="form-control no-group-radius" required>
                         <small id="strength" style="display:block; margin-top:5px;"></small>
+                        
+                        <div class="mt-2">
+                            <a href="password_assistant.php" target="_blank" style="color: var(--brand-orange); font-size: 0.75rem; text-decoration: none; font-weight: bold; display: inline-flex; align-items: center; gap: 4px;">
+                                <i class="bi bi-robot"></i> 
+                                <span>Looking for the perfect password? Try our AI Security Assistant</span>
+                            </a>
+                        </div>
+
                         <div class="pw-tip">
                             <strong>Password Strength Requirements</strong>
                             <ul class="mb-0 ps-3 mt-1">
@@ -304,20 +312,20 @@ include_once '../includes/header.php';
                             </ul>
                         </div>
                     </div>
+
                     <div class="col-md-6">
                         <label class="form-label">Confirm Password</label>
                         <input type="password" name="confirm_password" class="form-control no-group-radius" required>
                     </div>
                 </div>
 
-                <div class="mt-4">
+                <div class="mt-4 mb-2">
                     <button type="submit" name="register_btn" class="btn btn-stealth-prime">Verify Account</button>
                 </div>
             </form>
         </div>
     </div>
 </div>
-
 <script>
 document.getElementById('fullname').addEventListener('input', function(e) {
     e.target.value = e.target.value.replace(/[0-9]/g, '');
