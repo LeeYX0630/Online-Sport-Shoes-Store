@@ -71,7 +71,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && $token_valid) {
         body { 
             background-color: #F8FAFC; 
             font-family: 'Plus Jakarta Sans', sans-serif;
-            height: 100vh; display: flex; align-items: center; justify-content: center;
+            min-height: 100vh; display: flex; align-items: center; justify-content: center; margin: 0;
         }
 
         .reset-container { max-width: 500px; width: 100%; padding: 20px; }
@@ -100,6 +100,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && $token_valid) {
         .btn-update { 
             background: var(--brand-orange); color: white; border: none; padding: 18px; 
             border-radius: 15px; font-weight: 800; width: 100%; transition: 0.4s; margin-top: 10px;
+            text-align: center; display: block; text-decoration: none;
+        }
+        .btn-update:hover {
+            background: #E66000;
+            transform: translateY(-2px);
+            box-shadow: 0 15px 30px rgba(255, 107, 0, 0.2);
+            color: white;
         }
 
         .strength-meter { font-size: 0.8rem; font-weight: 800; display: block; margin-top: 12px; }
@@ -109,6 +116,20 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && $token_valid) {
         .tip-item { font-size: 0.75rem; color: #64748B; display: block; margin-bottom: 5px; transition: 0.3s; }
         .tip-item.met { color: var(--success); font-weight: 600; }
         .tip-item.met i { margin-right: 5px; }
+
+        /* Style for smaller custom buttons at the bottom */
+        .btn-small-link {
+            display: inline-block;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: #64748B;
+            text-decoration: none;
+            transition: color 0.2s;
+            margin-top: 15px;
+        }
+        .btn-small-link:hover {
+            color: var(--brand-orange);
+        }
     </style>
 </head>
 <body>
@@ -151,7 +172,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && $token_valid) {
                 </div>
             </div>
 
-            <button type="submit" class="btn-update" id="submitBtn">SAVE CHANGES</button>
+            <button type="submit" class="btn-update w-100" id="submitBtn">SAVE CHANGES</button>
+            
+            <div class="text-center d-flex justify-content-between align-items-center mt-2">
+                <a href="password_assistant.php" class="btn-small-link"><i class="bi bi-arrow-left"></i> Password Assistant</a>
+                <a href="login.php" class="btn-small-link">Back to Login</a>
+            </div>
         </form>
     </div>
 </div>
