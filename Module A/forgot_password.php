@@ -8,9 +8,8 @@ use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
 
 // 2. Corrected path: files are directly under the PHPMailer directory
-require '../includes/PHPMailer/Exception.php';
-require '../includes/PHPMailer/PHPMailer.php';
-require '../includes/PHPMailer/SMTP.php';
+require 'vendor/autoload.php';
+require '../includes/mail_config.php';
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -82,13 +81,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['verify_btn'])) {
                 $mail->isSMTP();
                 $mail->Host       = 'smtp.gmail.com';
                 $mail->SMTPAuth   = true;
-                $mail->Username   = 'onlinesportshoesstore@gmail.com'; 
-                $mail->Password   = 'brbg fbrs qwyh erkb'; 
+                $mail->Username   = 'SMTP_EMAIL'; 
+                $mail->Password   = 'SMTP_PASS'; 
                 $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
                 $mail->Port       = 587;
 
                 // Sender & Receiver Settings
-                $mail->setFrom('onlinesportshoesstore@gmail.com', 'Stealth Sport Shoes');
+                $mail->setFrom('yourname@gmail.com', 'Elite Sport Shoes');
                 $mail->addAddress($email);
 
                 // Email Content Template
