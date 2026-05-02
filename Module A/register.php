@@ -60,8 +60,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_btn'])) {
             $mail->isSMTP();
             $mail->Host       = 'smtp.gmail.com';
             $mail->SMTPAuth   = true;
-            $mail->Username   = 'onlinesportshoesstore@gmail.com'; // 你的 Gmail
-            $mail->Password   = 'brbg fbrs qwyh erkb'; // 你的 16 位应用专用密码
+            $mail->Username   = 'SMTP_MAIL'; // 你的 Gmail
+            $mail->Password   = 'SMTP_PASS'; // 你的 16 位应用专用密码
             $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
             $mail->Port       = 587;
 
