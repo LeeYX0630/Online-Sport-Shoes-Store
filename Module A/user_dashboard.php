@@ -44,14 +44,30 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             $conn->query("UPDATE `user` SET User_Name='$new_name', User_Phone='$clean_phone', User_Email='$new_email' WHERE User_Id='$user_id'");
             $_SESSION['user_name'] = $new_name;
 
-            // Handle Profile Image Upload
+            // ==========================================
+            // HANDLE PROFILE IMAGE UPLOAD
+            // ==========================================
             if (!empty($_FILES['profile_image']['name'])) {
+                // Point directly to the parent folder's uploads directory
+                $upload_dir = __DIR__ . "/../uploads/";
+
+                // Create the folder if it doesn't exist
+                if (!is_dir($upload_dir)) {
+                    mkdir($upload_dir, 0777, true);
+                }
+
+                // Append timestamp to prevent duplicate file names
                 $filename = time() . "_" . basename($_FILES['profile_image']['name']);
-                $target = "uploads/" . $filename;
+                $target = $upload_dir . $filename;
+                
                 if (move_uploaded_file($_FILES['profile_image']['tmp_name'], $target)) {
                     $conn->query("UPDATE `user` SET User_Image='$filename' WHERE User_Id='$user_id'");
+                } else {
+                    $msg = "Error: Failed to move uploaded file. Check folder permissions.";
+                    $msg_type = "danger";
                 }
             }
+            
             $msg = "Profile updated successfully!";
             $msg_type = "success";
         }
@@ -65,10 +81,10 @@ $user_res = $conn->query("SELECT * FROM `user` WHERE User_Id='$user_id'");
 $user = $user_res->fetch_assoc();
 
 // Use backticks for `order` table as it is a reserved SQL keyword
-// Ordered by DESC to put the latest purchases at the top
 $purchases = $conn->query("SELECT * FROM `order` WHERE User_Id = '$user_id' ORDER BY Order_Id DESC");
 
-$profile_pic = !empty($user['User_Image']) ? "uploads/".$user['User_Image'] : "uploads/default.png";
+// FIXED: Added "../" so HTML looks in the project root's uploads folder
+$profile_pic = !empty($user['User_Image']) ? "../uploads/".$user['User_Image'] : "../uploads/default.png";
 
 include '../includes/header.php';
 ?>
