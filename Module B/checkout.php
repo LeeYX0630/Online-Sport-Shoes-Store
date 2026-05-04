@@ -42,9 +42,6 @@ $name_parts = explode(' ', $user_info['User_Name'], 2);
 $first_name = $name_parts[0];
 $last_name = isset($name_parts[1]) ? $name_parts[1] : "";
 
-// 3. 计算购物车总额与商品清单
-// 3. 计算购物车总额与商品清单
-// 3. 计算购物车总额与商品清单
 $subtotal = 0;
 $checkout_items = [];
 foreach ($_SESSION['cart'] as $cart_key => $item) {
@@ -91,7 +88,6 @@ foreach ($_SESSION['cart'] as $cart_key => $item) {
                 $p_data['display_image'] = "../images/placeholder.png"; // 没搜到则显示占位图
             }
         }
-        // ----------------------------------------------------
 
         $p_data['item_total'] = $p_data['Pro_Price'] * $item['qty'];
         $subtotal += $p_data['item_total'];
@@ -125,15 +121,11 @@ $grand_total = max(0, ($subtotal + $shipping) - $discount);
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
-    
     $f_name = trim($_POST['first_name']);
-    $raw_postcode = $_POST['postcode'] ?? ''; 
     
-    if ($raw_postcode === 'other') {
-        $postcode = trim($_POST['custom_postcode'] ?? '');
-    } else {
-        $postcode = trim($raw_postcode);
-    }
+    // 【修复 1】：安全获取邮编，防止产生 Undefined array key 警告
+    $raw_postcode = $_POST['postcode'] ?? ''; 
+    $postcode = ($raw_postcode === 'other') ? trim($_POST['custom_postcode'] ?? '') : trim($raw_postcode);
     $phone = trim($_POST['phone']);
 
     // 后端验证
@@ -147,11 +139,16 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
         $error = "Please select a bank for FPX payment.";
     } elseif ($_POST['pay_type'] === 'wallet') {
         $input_pin = $_POST['wallet_pin'] ?? '';
-        if (!$has_pin) {
-            $error = "Wallet not activated. Please set a PIN in dashboard.";
-        } elseif (!password_verify($input_pin, $user_info['User_PIN'])) {
-            $error = "Incorrect Wallet PIN. Transaction denied."; //[cite: 39, 41]
-        } elseif ($current_balance < $grand_total) {
+        
+        $check_db = $conn->query("SELECT User_PIN, User_Balance FROM `user` WHERE User_Id = '$uid'");
+        $latest = $check_db->fetch_assoc();
+        if (!$latest || empty($latest['User_PIN'])) {
+            $error = "Wallet not activated. Please set a PIN in your dashboard.";
+        } 
+        elseif (!password_verify($input_pin, $latest['User_PIN'])) {
+            $error = "Incorrect Wallet PIN. Transaction denied.";
+        } 
+        elseif (floatval($latest['User_Balance']) < $grand_total) {
             $error = "Insufficient wallet balance.";
         }
     } elseif ($_POST['pay_type'] === 'card') {
@@ -214,11 +211,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
                 $item_pid = $item['pro_id'];
                 $item_qty = $item['qty'];
                 $item_size = $item['size'];
+                $item_color = $item['color'] ?? 'Default'; 
+
                 $res_p = $conn->query("SELECT Pro_Price FROM product WHERE Pro_Id = '$item_pid'");
                 $row_p = $res_p->fetch_assoc();
                 $item_sub = $row_p['Pro_Price'] * $item_qty;
                 $conn->query("INSERT INTO ORDER_DETAIL (Order_Id, Pro_Id, Order_Qty, Order_Subtotal) VALUES ('$order_id', '$item_pid', '$item_qty', '$item_sub')");
-                $conn->query("UPDATE PRODUCT_STOCK SET Quantity = Quantity - $item_qty WHERE Pro_Id = '$item_pid' AND Pro_Size = '$item_size'");
+                $db_color_key = ($item_pid == 16 || $item_pid == 17) ? 'Default' : $item_color;
+                $conn->query("UPDATE PRODUCT_STOCK SET Quantity = Quantity - $item_qty WHERE Pro_Id = '$item_pid' AND Pro_Size = '$item_size' AND Pro_Colour = '$db_color_key'");
             }
             $conn->commit();
             
@@ -285,7 +285,6 @@ include '../includes/header.php';
     <div class="checkout-grid">
         <div class="main-form">
             <form id="orderForm" method="POST" action="">
-                <input type="hidden" name="wallet_pin" id="hidden_wallet_pin">
                 <input type="hidden" name="place_order" value="1">
                 <div class="mb-5">
                     <h5 class="section-title">Contact</h5>
@@ -361,7 +360,7 @@ include '../includes/header.php';
 
                     <div id="walletPinField" style="display:none; margin-top: 10px; padding: 15px; background: #FFF5EE; border-radius: 8px; border: 1px solid #FFE4D3;">
                         <label class="small fw-bold">Enter 6-Digit Wallet PIN</label>
-                        <input type="password" name="wallet_pin" id="wallet_pin_input" class="form-control" maxlength="6" placeholder="******">
+                        <input type="password" name="wallet_pin" id="wallet_pin_input" class="input-field" maxlength="6" placeholder="Enter PIN" required>
                     </div>
 
                     <div class="payment-option active" onclick="selectPay(this)">
@@ -460,12 +459,6 @@ include '../includes/header.php';
                         <input type="text" name="coupon_code" class="form-control" placeholder="Discount code" value="<?php echo $applied_code; ?>">
                         <button type="submit" name="apply_coupon" class="btn btn-dark btn-apply">Apply</button>
                     </div>
-                    <?php if ($error): ?>
-                        Swal.fire({ icon: 'error', title: 'Payment Failed', text: '<?php echo $error; ?>', confirmButtonColor: '#17735b' });
-                    <?php endif; ?>
-                    <?php if ($success_msg): ?>
-                        Swal.fire({ icon: 'success', title: 'Success', text: '<?php echo $success_msg; ?>', timer: 2000 });
-                    <?php endif; ?>
                 </form>
 
                 <div class="total-line d-flex justify-content-between h4 fw-bold">
@@ -679,18 +672,22 @@ function selectPay(el) {
     const payType = radio ? radio.value : '';
     
     // 3. 切换输入框显示/隐藏
+    const walletDiv = document.getElementById('walletPinField');
     const fpxDiv = document.getElementById('fpxBankDiv');
     const cardDiv = document.getElementById('cardFieldsDiv');
     
+    if (walletDiv) walletDiv.style.display = (payType === 'wallet') ? 'block' : 'none';
     if (fpxDiv) fpxDiv.style.display = (payType === 'fpx') ? 'block' : 'none';
     if (cardDiv) cardDiv.style.display = (payType === 'card') ? 'block' : 'none';
 
     // 4. 清除/设置必填项，防止逻辑冲突
-    document.querySelectorAll('.fpx-auth-input, #fpxBank, .card-input').forEach(input => {
+    document.querySelectorAll('.fpx-auth-input, #fpxBank, .card-input, #wallet_pin_input').forEach(input => {
         input.removeAttribute('required');
     });
 
-    if (payType === 'fpx') {
+    if (payType === 'wallet') {
+        document.getElementById('wallet_pin_input').setAttribute('required', 'true');
+    } else if (payType === 'fpx') {
         document.getElementById('fpxBank').setAttribute('required', 'true');
         document.querySelectorAll('.fpx-auth-input').forEach(i => i.setAttribute('required', 'true'));
     }
@@ -699,7 +696,7 @@ function selectPay(el) {
 async function startPaymentProcess() {
     const payType = document.querySelector('input[name="pay_type"]:checked').value;
     
-    // 1. 基础验证：姓名、地址、电话[cite: 39]
+    // 1. 基础验证：姓名、地址、电话
     const firstName = document.querySelector('input[name="first_name"]').value.trim();
     const address = document.querySelector('input[name="address"]').value.trim();
     const phone = document.querySelector('input[name="phone"]').value.trim();
@@ -709,36 +706,24 @@ async function startPaymentProcess() {
         return;
     }
 
-    // 2. 钱包支付逻辑：弹出中间 PIN 码框
+    // 2. 钱包支付逻辑：验证PIN已正确输入
     if (payType === 'wallet') {
-        const { value: pin } = await Swal.fire({
-            title: 'Security Verification',
-            text: 'Please enter your 6-digit Wallet PIN',
-            input: 'password',
-            inputPlaceholder: 'Enter PIN',
-            inputAttributes: {
-                maxlength: 6,
-                autocapitalize: 'off',
-                autocorrect: 'off',
-                inputmode: 'numeric'
-            },
-            showCancelButton: true,
-            confirmButtonText: 'Verify & Pay',
-            confirmButtonColor: '#17735b',
-            inputValidator: (value) => {
-                if (!/^\d{6}$/.test(value)) {
-                    return 'Please enter exactly 6 digits!';
-                }
-            }
-        });
-
-        if (pin) {
-            // 将输入的密码填入隐藏域并提交[cite: 39]
-            document.getElementById('hidden_wallet_pin').value = pin;
-            submitCheckoutForm();
+        const pinInput = document.getElementById('wallet_pin_input');
+        const pin = pinInput.value.trim();
+        
+        if (!pin) {
+            Swal.fire('PIN Required', 'Please enter your 6-digit Wallet PIN.', 'warning');
+            pinInput.focus();
+            return;
         }
+        if (!/^\d{6}$/.test(pin)) {
+            Swal.fire('Invalid PIN', 'PIN must be exactly 6 digits.', 'error');
+            pinInput.focus();
+            return;
+        }
+        submitCheckoutForm();
     } 
-    // 3. 其他支付方式验证[cite: 39]
+    // 3. 卡支付验证
     else if (payType === 'card') {
         const cardNo = document.querySelector('input[name="card_no"]').value;
         if (cardNo.length < 16) {
@@ -902,15 +887,20 @@ function validateCheckoutForm() {
 
 // 页面加载时初始化
 document.addEventListener('DOMContentLoaded', function() {
-    initStates();
+    initStates(); // 初始化所有州属
     
     // 初始化支付方式的显示/隐藏状态
     const payType = document.querySelector('input[name="pay_type"]:checked').value;
+    const walletDiv = document.getElementById('walletPinField');
     const fpxDiv = document.getElementById('fpxBankDiv');
     const cardDiv = document.getElementById('cardFieldsDiv');
     
-    if (payType === 'card') {
-        cardDiv.style.display = 'block';
+    if (payType === 'wallet') {
+        if (walletDiv) walletDiv.style.display = 'block';
+        const pinField = document.getElementById('wallet_pin_input');
+        if (pinField) pinField.required = true;
+    } else if (payType === 'card') {
+        if (cardDiv) cardDiv.style.display = 'block';
         // 设置卡支付字段为必填
         const cardFields = ['card_no', 'cardholder_name', 'expiry', 'cvv'];
         cardFields.forEach(fieldId => {
@@ -918,15 +908,11 @@ document.addEventListener('DOMContentLoaded', function() {
             if (field) field.required = true;
         });
     } else if (payType === 'fpx') {
-        fpxDiv.style.display = 'block';
+        if (fpxDiv) fpxDiv.style.display = 'block';
         const fpxBank = document.getElementById('fpxBank');
         if (fpxBank) fpxBank.required = true;
     }
-});
-</script>
 
-<script>
-document.addEventListener('DOMContentLoaded', function() {
     // 统一显示来自后端的错误信息
     <?php if ($error): ?>
         Swal.fire({

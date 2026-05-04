@@ -8,7 +8,9 @@ use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
 
 // 2. Corrected path: files are directly under the PHPMailer directory
-require 'vendor/autoload.php';
+require '../includes/PHPMailer/Exception.php';
+require '../includes/PHPMailer/PHPMailer.php';
+require '../includes/PHPMailer/SMTP.php';
 require '../includes/mail_config.php';
 
 if (session_status() === PHP_SESSION_NONE) {
@@ -34,7 +36,6 @@ if ($table_check && $table_check->num_rows === 0) {
         die("Error automatically creating password_resets table: " . $conn->error);
     }
 }
-// ------------------------------
 
 $error = "";
 $success_message = "";
@@ -77,17 +78,16 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['verify_btn'])) {
             $mail = new PHPMailer(true);
 
             try {
-                // SMTP Configurations
                 $mail->isSMTP();
                 $mail->Host       = 'smtp.gmail.com';
                 $mail->SMTPAuth   = true;
-                $mail->Username   = 'SMTP_EMAIL'; 
-                $mail->Password   = 'SMTP_PASS'; 
+                $mail->Username   = SMTP_EMAIL;
+                $mail->Password   = SMTP_PASS;  
                 $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
                 $mail->Port       = 587;
 
-                // Sender & Receiver Settings
-                $mail->setFrom('yourname@gmail.com', 'Elite Sport Shoes');
+                // 修改发件人为你的系统邮箱
+                $mail->setFrom('sportshoes.system@gmail.com', 'SS Sport Security');
                 $mail->addAddress($email);
 
                 // Email Content Template
