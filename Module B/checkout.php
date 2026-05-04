@@ -121,6 +121,23 @@ $grand_total = max(0, ($subtotal + $shipping) - $discount);
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
+    // 如果是从银行授权页返回，先恢复之前暂存的订单数据再进行验证
+    if (isset($_POST['fpx_success']) && isset($_SESSION['fpx_temp_data'])) {
+        $savedPost = $_SESSION['fpx_temp_data'];
+        unset($_SESSION['fpx_temp_data']);
+        $_POST = array_merge($savedPost, $_POST);
+    }
+
+    if (isset($_POST['wallet_resume']) && isset($_SESSION['wallet_temp_data'])) {
+        $savedPost = $_SESSION['wallet_temp_data'];
+        unset($_SESSION['wallet_temp_data']);
+        $_POST = array_merge($savedPost, $_POST);
+        $grand_total = floatval($savedPost['grand_total'] ?? $grand_total);
+        $discount = floatval($savedPost['discount'] ?? $discount);
+        $shipping = floatval($savedPost['shipping'] ?? $shipping);
+        $subtotal = floatval($savedPost['subtotal'] ?? $subtotal);
+    }
+
     $f_name = trim($_POST['first_name']);
     
     // 【修复 1】：安全获取邮编，防止产生 Undefined array key 警告
@@ -137,19 +154,33 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
         $error = "Postcode must be 5 digits.";
     } elseif ($_POST['pay_type'] === 'fpx' && (empty($_POST['fpx_bank']) || $_POST['fpx_bank'] === '')) {
         $error = "Please select a bank for FPX payment.";
-    } elseif ($_POST['pay_type'] === 'wallet') {
+    } elseif ($_POST['pay_type'] === 'wallet' && !isset($_POST['wallet_resume'])) {
+        $_SESSION['wallet_temp_data'] = $_POST;
+        $_SESSION['wallet_temp_data']['grand_total'] = $grand_total;
+        $_SESSION['wallet_temp_data']['shipping'] = $shipping;
+        $_SESSION['wallet_temp_data']['discount'] = $discount;
+        $_SESSION['wallet_temp_data']['subtotal'] = $subtotal;
+        header("Location: wallet_auth.php");
+        exit();
+    } elseif ($_POST['pay_type'] === 'wallet' && isset($_POST['wallet_resume'])) {
         $input_pin = $_POST['wallet_pin'] ?? '';
         
-        $check_db = $conn->query("SELECT User_PIN, User_Balance FROM `user` WHERE User_Id = '$uid'");
-        $latest = $check_db->fetch_assoc();
-        if (!$latest || empty($latest['User_PIN'])) {
-            $error = "Wallet not activated. Please set a PIN in your dashboard.";
-        } 
-        elseif (!password_verify($input_pin, $latest['User_PIN'])) {
-            $error = "Incorrect Wallet PIN. Transaction denied.";
-        } 
-        elseif (floatval($latest['User_Balance']) < $grand_total) {
-            $error = "Insufficient wallet balance.";
+        // --- 新增：PIN 校验规则 (禁止字母和符号) ---
+        if (!preg_match('/^[0-9]{6}$/', $input_pin)) {
+            $error = "Security Error: PIN must be exactly 6 numeric digits. No letters or symbols allowed.";
+        } else {
+            $check_db = $conn->query("SELECT User_PIN, User_Balance FROM `user` WHERE User_Id = '$uid'");
+            $latest = $check_db->fetch_assoc();
+            
+            if (!$latest || empty($latest['User_PIN'])) {
+                $error = "Wallet not activated. Please set a PIN in your dashboard.";
+            } 
+            elseif (!password_verify($input_pin, $latest['User_PIN'])) {
+                $error = "Incorrect Wallet PIN. Transaction denied.";
+            } 
+            elseif (floatval($latest['User_Balance']) < $grand_total) {
+                $error = "Insufficient wallet balance.";
+            }
         }
     } elseif ($_POST['pay_type'] === 'card') {
         $card_no = trim($_POST['card_no'] ?? '');
@@ -185,8 +216,18 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
         $apt = $conn->real_escape_string($_POST['apartment']);
         $city = $conn->real_escape_string($_POST['city']);
         $state = $conn->real_escape_string($_POST['state']);
+        $pay_type = $_POST['pay_type'];
         
-        $final_addr = "$f_name $l_name, $addr" . ($apt ? " ($apt)" : "") . ", $postcode, $city, $state. Tel: $phone";
+        if ($pay_type === 'fpx' && !isset($_POST['fpx_success'])) {
+            $_SESSION['fpx_temp_data'] = $_POST; // 暂存所有寄送资料
+            $selected_bank = $_POST['fpx_bank'];
+            header("Location: bank_portal.php?bank=$selected_bank&amt=$grand_total");
+            exit();
+        }
+
+        if ($pay_type !== 'fpx' || isset($_POST['fpx_success'])) {
+        $final_addr = "$f_name $last_name, $addr" . ($apt ? " ($apt)" : "") . ", $postcode, $city, $state";
+        }
         $order_date = date('Y-m-d H:i:s');
         
         $conn->begin_transaction();
@@ -358,11 +399,6 @@ include '../includes/header.php';
                         <?php endif; ?>
                     </div>
 
-                    <div id="walletPinField" style="display:none; margin-top: 10px; padding: 15px; background: #FFF5EE; border-radius: 8px; border: 1px solid #FFE4D3;">
-                        <label class="small fw-bold">Enter 6-Digit Wallet PIN</label>
-                        <input type="password" name="wallet_pin" id="wallet_pin_input" class="input-field" maxlength="6" placeholder="Enter PIN" required>
-                    </div>
-
                     <div class="payment-option active" onclick="selectPay(this)">
                         <input type="radio" name="pay_type" value="card" checked>
                         <div><div class="fw-bold">Credit / Debit Card</div><div class="small text-muted">Visa, Mastercard</div></div>
@@ -418,16 +454,6 @@ include '../includes/header.php';
                             <option value="BANK_MUAMALAT">Bank Muamalat (MB)</option>
                         </select>
                         </div>
-
-                        <div class="mb-3">
-                            <label class="small fw-bold">Online Banking ID</label>
-                            <input type="text" name="fpx_user" id="fpxUser" class="input-field fpx-auth-input" placeholder="Username / Login ID">
-                        </div>
-
-                        <div>
-                            <label class="small fw-bold">Password</label>
-                            <input type="password" name="fpx_pass" id="fpxPass" class="input-field fpx-auth-input" placeholder="••••••••">
-                        </div>
                     </div>
                 </div>
 
@@ -438,6 +464,9 @@ include '../includes/header.php';
 
         <div class="sidebar-wrapper">
             <div class="sidebar">
+                <h5 class="section-title" style="border-bottom: 2px solid #eee; padding-bottom: 15px; margin-bottom: 25px;">
+                    Order Summary
+                </h5>
                 <div class="mb-4">
                     <?php foreach($checkout_items as $item): ?>
                         <div class="cart-item">
@@ -706,28 +735,21 @@ async function startPaymentProcess() {
         return;
     }
 
-    // 2. 钱包支付逻辑：验证PIN已正确输入
     if (payType === 'wallet') {
-        const pinInput = document.getElementById('wallet_pin_input');
-        const pin = pinInput.value.trim();
-        
-        if (!pin) {
-            Swal.fire('PIN Required', 'Please enter your 6-digit Wallet PIN.', 'warning');
-            pinInput.focus();
-            return;
-        }
-        if (!/^\d{6}$/.test(pin)) {
-            Swal.fire('Invalid PIN', 'PIN must be exactly 6 digits.', 'error');
-            pinInput.focus();
-            return;
-        }
         submitCheckoutForm();
-    } 
-    // 3. 卡支付验证
+    }
+
     else if (payType === 'card') {
         const cardNo = document.querySelector('input[name="card_no"]').value;
         if (cardNo.length < 16) {
             Swal.fire('Invalid Card', 'Please enter a valid 16-digit card number.', 'error');
+            return;
+        }
+        submitCheckoutForm();
+    } else if (payType === 'fpx') {
+        const fpxBank = document.querySelector('select[name="fpx_bank"]').value;
+        if (!fpxBank) {
+            Swal.fire('Bank Required', 'Please select a bank for FPX payment.', 'warning');
             return;
         }
         submitCheckoutForm();
