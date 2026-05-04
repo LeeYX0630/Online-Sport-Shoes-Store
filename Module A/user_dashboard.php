@@ -83,6 +83,9 @@ $user = $user_res->fetch_assoc();
 // Use backticks for `order` table as it is a reserved SQL keyword
 $purchases = $conn->query("SELECT * FROM `order` WHERE User_Id = '$user_id' ORDER BY Order_Id DESC");
 
+// Load active promo codes from database
+$available_promos = $conn->query("SELECT * FROM promo WHERE Promo_Status = 'Active' AND Expired_Date >= CURDATE() ORDER BY Promo_Id DESC");
+
 // FIXED: Added "../" so HTML looks in the project root's uploads folder
 $profile_pic = !empty($user['User_Image']) ? "../uploads/".$user['User_Image'] : "../uploads/default.png";
 
@@ -242,20 +245,31 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
             </div>
 
             <div class="card p-4">
-                <h5 class="fw-800 mb-4"><i class="bi bi-tag-fill text-warning me-2"></i>Store Vouchers</h5>
+                <h5 class="fw-800 mb-4"><i class="bi bi-tag-fill text-warning me-2"></i>Available Promo Codes</h5>
                 <div class="row">
-                    <div class="col-md-6 mb-3">
-                        <div class="voucher-box voucher-active">
-                            <div class="voucher-title">STEALTH10</div>
-                            <p class="small text-muted mb-0">10% OFF performance sneakers.</p>
+                    <?php if ($available_promos && $available_promos->num_rows > 0): ?>
+                        <?php while ($promo = $available_promos->fetch_assoc()): ?>
+                            <div class="col-md-6 mb-3">
+                                <div class="voucher-box voucher-active">
+                                    <div class="voucher-title"><?php echo htmlspecialchars($promo['Promo_Code']); ?></div>
+                                    <p class="small text-muted mb-1"><?php echo htmlspecialchars($promo['Promo_Name']); ?></p>
+                                    <p class="small text-dark mb-1 fw-bold">
+                                        <?php echo ($promo['Promo_Type'] === 'Percentage') 
+                                            ? intval($promo['Promo_Value']) . '% OFF' 
+                                            : 'RM ' . number_format($promo['Promo_Value'], 2) . ' OFF'; ?>
+                                    </p>
+                                    <p class="small text-muted mb-0">Expires <?php echo date('d M Y', strtotime($promo['Expired_Date'])); ?></p>
+                                </div>
+                            </div>
+                        <?php endwhile; ?>
+                    <?php else: ?>
+                        <div class="col-12">
+                            <div class="voucher-box voucher-claimed">
+                                <div class="voucher-title text-muted">No Active Promo</div>
+                                <p class="small text-muted mb-0">目前没有有效优惠券，请稍后再来查看。</p>
+                            </div>
                         </div>
-                    </div>
-                    <div class="col-md-6 mb-3">
-                        <div class="voucher-box voucher-claimed">
-                            <div class="voucher-title text-muted">NEWJOINER</div>
-                            <p class="small text-muted mb-0" style="text-decoration: line-through;">Already claimed.</p>
-                        </div>
-                    </div>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>

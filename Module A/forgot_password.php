@@ -80,13 +80,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && $token_valid) {
                 $mail->isSMTP();
                 $mail->Host       = 'smtp.gmail.com';
                 $mail->SMTPAuth   = true;
-                $mail->Username   = 'SMTP_EMAIL'; 
-                $mail->Password   = 'SMTP_PASS'; 
+                $mail->Username   = SMTP_EMAIL; 
+                $mail->Password   = SMTP_PASS; 
                 $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
                 $mail->Port       = 587;
 
                 // Sender & Receiver Settings
-                $mail->setFrom('yourname@gmail.com', 'Elite Sport Shoes');
+                $mail->setFrom('sportshoes.system@gmail.com', 'SS Sport Shoes');
                 $mail->addAddress($email);
 
                 // Email Content Template

@@ -11,6 +11,7 @@ use PHPMailer\PHPMailer\Exception;
 require '../includes/PHPMailer/Exception.php';
 require '../includes/PHPMailer/PHPMailer.php';
 require '../includes/PHPMailer/SMTP.php';
+require '../includes/mail_config.php'; // 包含 SMTP_EMAIL 和 SMTP_PASS 常量
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -60,13 +61,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_btn'])) {
             $mail->isSMTP();
             $mail->Host       = 'smtp.gmail.com';
             $mail->SMTPAuth   = true;
-            $mail->Username   = 'SMTP_MAIL'; // 你的 Gmail
-            $mail->Password   = 'SMTP_PASS'; // 你的 16 位应用专用密码
+            $mail->Username   = SMTP_EMAIL; // 你的 Gmail
+            $mail->Password   = SMTP_PASS; // 你的 16 位应用专用密码
             $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
             $mail->Port       = 587;
 
             // 收发件人设置
-            $mail->setFrom('your-email@gmail.com', 'Stealth Sport Shoes');
+            $mail->setFrom('sportshoes.system@gmail.com', 'SS Sport Shoes');
             $mail->addAddress($email, $full_name);
 
             // 邮件内容
