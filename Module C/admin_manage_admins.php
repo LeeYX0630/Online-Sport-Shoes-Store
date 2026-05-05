@@ -17,7 +17,20 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] != 1) {
 
 $admin_role = $_SESSION['role'];
 $username = $_SESSION['username'] ?? 'Admin';
-$admin_image = $_SESSION['admin_image'] ?? 'default_admin.png'; // 提取自 source 1[cite: 1]
+
+// 确保头像来源：优先使用 DB 中的图片，其次使用 session，最后回退到默认图
+$admin_image = 'default_admin.png';
+$admin_id = $_SESSION['admin_id'] ?? null;
+if ($admin_id) {
+    $img_res = $conn->query("SELECT Admin_Image FROM admin WHERE Admin_Id = $admin_id");
+    if ($img_res && $img_row = $img_res->fetch_assoc()) {
+        $admin_image = !empty($img_row['Admin_Image']) ? $img_row['Admin_Image'] : ($_SESSION['admin_image'] ?? 'default_admin.png');
+    } else {
+        $admin_image = $_SESSION['admin_image'] ?? 'default_admin.png';
+    }
+} else {
+    $admin_image = $_SESSION['admin_image'] ?? 'default_admin.png';
+}
 
 // --- 2. 获取管理员列表[cite: 6] ---
 $sql = "SELECT a.*, IFNULL(b.Brand_Name, 'Super Admin') AS Display_Brand 
@@ -113,6 +126,38 @@ $admin_img_path = "../uploads/admin/";
         .strength-medium { background-color: #f59e0b; }
         .strength-strong { background-color: #10b981; }
 
+        /* 选项卡容器样式 */
+        .status-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            background: #eee;
+            padding: 5px;
+            border-radius: 12px;
+            width: fit-content;
+        }
+
+        .tab-btn {
+            padding: 8px 25px;
+            border-radius: 10px;
+            border: none;
+            background: transparent;
+            font-weight: 600;
+            color: #64748b;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .tab-btn.active {
+            background: white;
+            color: var(--orange-primary);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+        }
+
+        .tab-btn:hover:not(.active) {
+            background: rgba(255, 255, 255, 0.5);
+        }
+
         @media (max-width: 991px) { .main-content { margin-left: 0; padding: 15px; } }
     </style>
 </head>
@@ -144,6 +189,17 @@ $admin_img_path = "../uploads/admin/";
             </div>
         </header>
 
+        <!-- 状态切换选项卡 -->
+        <div class="status-tabs shadow-sm">
+            <button class="tab-btn active" data-status="Active" onclick="filterByStatus('Active', this)">
+                <i class="bi bi-person-check-fill me-2"></i> Active Admins
+            </button>
+            <button class="tab-btn" data-status="Banned" onclick="filterByStatus('Banned', this)">
+                <i class="bi bi-person-x-fill me-2"></i> Banned Admins
+            </button>
+        </div>
+
+
         <div class="container-fluid p-0">
             <!-- 操作栏[cite: 6] -->
             <div class="action-bar">
@@ -160,14 +216,15 @@ $admin_img_path = "../uploads/admin/";
             <div class="row g-4" id="adminList">
                 <?php if($result && $result->num_rows > 0): ?>
                     <?php while($row = $result->fetch_assoc()): 
-                        $isBanned = (isset($row['Admin_Status']) && $row['Admin_Status'] == 'Banned');
-                        if (!empty($row['Admin_Image'])) {
-                            $displayImg = $admin_img_path . $row['Admin_Image'];
-                        } else {
-                            $displayImg = 'https://ui-avatars.com/api/?name='.urlencode($row['Admin_Name']).'&background=random';
-                        }
-                    ?>
-                    <div class="col-xl-3 col-lg-4 col-md-6 admin-item" data-name="<?php echo strtolower(htmlspecialchars($row['Admin_Name'])); ?>">
+                            $isBanned = (isset($row['Admin_Status']) && $row['Admin_Status'] == 'Banned');
+                            $status = $isBanned ? 'Banned' : 'Active';
+                            if (!empty($row['Admin_Image'])) {
+                                $displayImg = $admin_img_path . $row['Admin_Image'];
+                            } else {
+                                $displayImg = 'https://ui-avatars.com/api/?name='.urlencode($row['Admin_Name']).'&background=random';
+                            }
+                        ?>
+                        <div class="col-xl-3 col-lg-4 col-md-6 admin-item" data-name="<?php echo strtolower(htmlspecialchars($row['Admin_Name'])); ?>" data-status="<?php echo $status; ?>">
                         <div class="admin-card">
                             <div>
                                 <div class="avatar-container">
@@ -283,6 +340,40 @@ $admin_img_path = "../uploads/admin/";
             item.style.display = name.includes(filter) ? "" : "none";
         });
     }
+
+    function filterByStatus(status, btn) {
+        // update active tab UI
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        if (btn) btn.classList.add('active');
+
+        const adminItems = document.querySelectorAll('.admin-item');
+        adminItems.forEach(item => {
+            const itemStatus = item.getAttribute('data-status');
+            // keep search filter applied
+            const searchTerm = document.getElementById('adminSearch').value.toLowerCase();
+            const matchesSearch = (item.getAttribute('data-name') || '').includes(searchTerm);
+            item.style.display = (itemStatus === status && matchesSearch) ? "" : "none";
+        });
+    }
+
+    // Initialize view from URL (supports ?status= or ?view=)
+    (function() {
+        const params = new URLSearchParams(window.location.search);
+        const s = params.get('status') || params.get('view');
+        if (s && (s === 'Active' || s === 'Banned')) {
+            // find matching tab button
+            const btns = document.querySelectorAll('.tab-btn');
+                btns.forEach(b => {
+                    if (b.dataset.status === s) {
+                        filterByStatus(s, b);
+                    }
+                });
+        } else {
+            // default to Active
+            const activeBtn = document.querySelector('.tab-btn');
+            if (activeBtn) filterByStatus('Active', activeBtn);
+        }
+    })();
 
     function toggleStatus(adminId, newStatus, adminName) {
         const isBanning = newStatus === 'Banned';

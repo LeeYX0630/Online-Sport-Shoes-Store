@@ -11,10 +11,21 @@ if (!isset($_SESSION['role'])) {
 
 $current_admin_level = $_SESSION['role']; 
 $admin_name = $_SESSION['username'] ?? 'Admin';
-$admin_image = $_SESSION['admin_image'] ?? 'default_admin.png';
+$admin_image = 'default_admin.png';
+$admin_id = $_SESSION['admin_id'] ?? null;
+if ($admin_id) {
+    $img_res = $conn->query("SELECT Admin_Image FROM admin WHERE Admin_Id = $admin_id");
+    if ($img_res && $img_row = $img_res->fetch_assoc()) {
+        $admin_image = !empty($img_row['Admin_Image']) ? $img_row['Admin_Image'] : ($_SESSION['admin_image'] ?? 'default_admin.png');
+    } else {
+        $admin_image = $_SESSION['admin_image'] ?? 'default_admin.png';
+    }
+} else {
+    $admin_image = $_SESSION['admin_image'] ?? 'default_admin.png';
+}
+
 $today_date = date('Y-m-d');
 $conn->query("UPDATE promo SET Promo_Status = 'Inactive' WHERE Expired_Date < '$today_date' AND Promo_Status = 'Active'");
-
 $msg = "";
 
 // --- 2. 逻辑处理 ---

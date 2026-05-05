@@ -12,8 +12,19 @@ if (!isset($_SESSION['role'])) {
 $admin_role = $_SESSION['role'];
 $admin_brand = $_SESSION['admin_brand'] ?? 'ALL';
 $username = $_SESSION['username'] ?? 'Admin';
-// 提取自 source 1 的头像变量逻辑[cite: 1]
-$admin_image = $_SESSION['admin_image'] ?? 'default_admin.png'; 
+// 确保头像来源：优先使用 DB 中的图片，其次使用 session，最后回退到默认图
+$admin_image = 'default_admin.png';
+$admin_id = $_SESSION['admin_id'] ?? null;
+if ($admin_id) {
+    $img_res = $conn->query("SELECT Admin_Image FROM admin WHERE Admin_Id = $admin_id");
+    if ($img_res && $img_row = $img_res->fetch_assoc()) {
+        $admin_image = !empty($img_row['Admin_Image']) ? $img_row['Admin_Image'] : ($_SESSION['admin_image'] ?? 'default_admin.png');
+    } else {
+        $admin_image = $_SESSION['admin_image'] ?? 'default_admin.png';
+    }
+} else {
+    $admin_image = $_SESSION['admin_image'] ?? 'default_admin.png';
+}
 
 // --- 2. 品牌过滤逻辑[cite: 2] ---
 $brand_filter = "";
