@@ -47,6 +47,72 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $conn->query("DELETE FROM promo WHERE Promo_Id = $p_id");
             $msg = "<script>window.onload = () => { Swal.fire('Deleted!', 'The promo has been removed.', 'success'); }</script>";
         }
+
+        // Auto-Issue Birthday Promos
+        if (isset($_POST['auto_birthday_promo'])) {
+            $current_month = date('m'); // Get current month (01-12)
+            $current_year = date('Y');
+            
+            // Get all users with birthday in current month
+            $birthday_users = $conn->query("
+                SELECT User_Id, User_Name, User_Email, User_DateOfBirth 
+                FROM user 
+                WHERE MONTH(User_DateOfBirth) = '$current_month' 
+                AND User_Status = 'Active'
+            ");
+            
+            $count_issued = 0;
+            $count_already_exists = 0;
+            
+            if ($birthday_users && $birthday_users->num_rows > 0) {
+                while ($user = $birthday_users->fetch_assoc()) {
+                    $user_id = $user['User_Id'];
+                    $user_name = $user['User_Name'];
+                    $birth_day = date('d', strtotime($user['User_DateOfBirth']));
+                    
+                    // Create unique promo code: BDAY_userid_month_day (e.g., BDAY_5_0512)
+                    $month_day = $current_month . $birth_day;
+                    $promo_code = "BDAY{$user_id}{$month_day}";
+                    
+                    // Check if this birthday promo already exists for this user in this month
+                    $check_existing = $conn->query("
+                        SELECT Promo_Id FROM promo 
+                        WHERE Promo_Code = '$promo_code' 
+                        OR (Promo_Name LIKE '%Birthday%' AND Promo_Code LIKE '%{$user_id}%')
+                        LIMIT 1
+                    ");
+                    
+                    if ($check_existing && $check_existing->num_rows > 0) {
+                        $count_already_exists++;
+                    } else {
+                        // Create new birthday promo: 15% off
+                        $promo_name = "Birthday Special - {$user_name} 15% Off";
+                        $promo_value = 15.00;
+                        $promo_type = 'Percentage';
+                        $promo_status = 'Active';
+                        $promo_expiry = date('Y-m-d', strtotime('+30 days')); // Valid for 30 days
+                        
+                        $insert_stmt = $conn->prepare("
+                            INSERT INTO promo 
+                            (Promo_Name, Promo_Code, Promo_Value, Expired_Date, Promo_Status, Promo_Type) 
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        ");
+                        
+                        if ($insert_stmt) {
+                            $insert_stmt->bind_param('sddsss', $promo_name, $promo_code, $promo_value, $promo_expiry, $promo_status, $promo_type);
+                            if ($insert_stmt->execute()) {
+                                $count_issued++;
+                            }
+                            $insert_stmt->close();
+                        }
+                    }
+                }
+                
+                $msg = "<script>window.onload = () => { Swal.fire('Birthday Promos Generated!', 'Issued: {$count_issued} new promos | Already existing: {$count_already_exists}', 'success'); }</script>";
+            } else {
+                $msg = "<script>window.onload = () => { Swal.fire('No Birthday Users', 'No active users with birthdays this month.', 'info'); }</script>";
+            }
+        }
     }
 }
 
@@ -139,6 +205,17 @@ $promos = $conn->query("SELECT * FROM promo ORDER BY Promo_Id DESC");
                             <button type="submit" name="add_promo" class="btn btn-orange w-100 py-2 fw-bold shadow-sm <?php echo ($current_admin_level != 1) ? 'disabled' : ''; ?>" <?php echo ($current_admin_level != 1) ? 'disabled' : ''; ?>>
                                 <i class="bi <?php echo ($current_admin_level != 1) ? 'bi-lock-fill' : 'bi-plus-circle'; ?> me-2"></i>
                                 <?php echo ($current_admin_level != 1) ? 'Super Admin Only' : 'Add Promo Code'; ?>
+                            </button>
+                        </form>
+                    </div>
+
+                    <div class="card p-4 mt-4">
+                        <h5 class="fw-bold mb-4" style="color: var(--orange-primary);"><i class="bi bi-cake2 me-2"></i>Birthday Promo Manager</h5>
+                        <p class="text-muted small mb-4">Auto-generate 15% off promo codes for users with birthdays this month.</p>
+                        <form action="" method="POST">
+                            <button type="submit" name="auto_birthday_promo" class="btn btn-orange w-100 py-2 fw-bold shadow-sm <?php echo ($current_admin_level != 1) ? 'disabled' : ''; ?>" <?php echo ($current_admin_level != 1) ? 'disabled' : ''; ?>>
+                                <i class="bi <?php echo ($current_admin_level != 1) ? 'bi-lock-fill' : 'bi-gift'; ?> me-2"></i>
+                                <?php echo ($current_admin_level != 1) ? 'Super Admin Only' : 'Generate Birthday Promos'; ?>
                             </button>
                         </form>
                     </div>

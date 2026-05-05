@@ -42,9 +42,6 @@ $name_parts = explode(' ', $user_info['User_Name'], 2);
 $first_name = $name_parts[0];
 $last_name = isset($name_parts[1]) ? $name_parts[1] : "";
 
-// 3. 计算购物车总额与商品清单
-// 3. 计算购物车总额与商品清单
-// 3. 计算购物车总额与商品清单
 $subtotal = 0;
 $checkout_items = [];
 foreach ($_SESSION['cart'] as $cart_key => $item) {
@@ -91,7 +88,6 @@ foreach ($_SESSION['cart'] as $cart_key => $item) {
                 $p_data['display_image'] = "../images/placeholder.png"; // 没搜到则显示占位图
             }
         }
-        // ----------------------------------------------------
 
         $p_data['item_total'] = $p_data['Pro_Price'] * $item['qty'];
         $subtotal += $p_data['item_total'];
@@ -99,24 +95,179 @@ foreach ($_SESSION['cart'] as $cart_key => $item) {
     }
 }
 
-// 4. 处理优惠码逻辑
+function getOptimalPromo($conn, $user_id, $subtotal) {
+    $best_promo = null;
+    $best_discount = 0;
+    $best_discount_info = '';
+    
+    // 【核心修复】：只查询该用户拥有且未使用的优惠券
+    $promo_query = $conn->query("
+        SELECT p.*, up.User_Promo_Id 
+        FROM user_promo up
+        JOIN promo p ON up.Promo_Id = p.Promo_Id
+        WHERE up.User_Id = '$user_id' 
+        AND up.Is_Used = 'No' 
+        AND p.Promo_Status = 'Active' 
+        AND p.Expired_Date >= CURDATE()
+        ORDER BY p.Promo_Value DESC
+    ");
+    
+    if ($promo_query && $promo_query->num_rows > 0) {
+        while ($promo = $promo_query->fetch_assoc()) {
+            // 计算该 promo 的折扣额度
+            $discount_amount = 0;
+            if ($promo['Promo_Type'] === 'Percentage') {
+                $discount_amount = $subtotal * (floatval($promo['Promo_Value']) / 100);
+                $discount_display = intval($promo['Promo_Value']) . '% OFF';
+            } else {
+                $discount_amount = floatval($promo['Promo_Value']);
+                $discount_display = 'RM ' . number_format($discount_amount, 2) . ' OFF';
+            }
+            
+            // 判断该 promo 是否对该用户可用
+            // 规则1: 新用户 promo (包含 "Welcome" 或 "New User" 的)
+            $is_new_user_promo = (
+                strpos(strtoupper($promo['Promo_Name']), 'WELCOME') !== false ||
+                strpos(strtoupper($promo['Promo_Name']), 'NEW USER') !== false
+            );
+            
+            // 规则2: 生日 promo (包含 "Birthday" 的，并且用户 ID 在代码中)
+            $is_birthday_promo = (
+                strpos(strtoupper($promo['Promo_Name']), 'BIRTHDAY') !== false &&
+                strpos($promo['Promo_Code'], (string)$user_id) !== false
+            );
+            
+            // 规则3: 全局 promo (既不是新用户也不是生日的)
+            $is_global_promo = !$is_new_user_promo && !$is_birthday_promo;
+            
+            // 如果是新用户 promo，检查用户是否有订单（有订单就不是新用户）
+            if ($is_new_user_promo) {
+                $order_check = $conn->query("SELECT 1 FROM `order` WHERE User_Id = '$user_id' LIMIT 1");
+                if ($order_check && $order_check->num_rows > 0) {
+                    continue; // 跳过这个新用户 promo
+                }
+            }
+            
+            // 如果是生日 promo，检查用户生日是否在当月
+            if ($is_birthday_promo) {
+                $birthday_check = $conn->query("
+                    SELECT 1 FROM `user` 
+                    WHERE User_Id = '$user_id' 
+                    AND MONTH(User_DateOfBirth) = MONTH(CURDATE())
+                    LIMIT 1
+                ");
+                if (!$birthday_check || $birthday_check->num_rows === 0) {
+                    continue; // 跳过这个生日 promo
+                }
+            }
+            
+            // 比较折扣，选择最大的
+            if ($discount_amount > $best_discount) {
+                $best_discount = $discount_amount;
+                $best_promo = $promo;
+                $best_discount_info = $discount_display;
+            }
+        }
+    }
+    
+    return [
+        'promo' => $best_promo,
+        'discount_amount' => $best_discount,
+        'discount_info' => $best_discount_info
+    ];
+}
+
+function getUserAvailablePromos($conn, $user_id, $subtotal) {
+    $available_promos = [];
+    $promo_query = $conn->query("
+        SELECT p.*, up.User_Promo_Id 
+        FROM user_promo up
+        JOIN promo p ON up.Promo_Id = p.Promo_Id
+        WHERE up.User_Id = '$user_id' 
+        AND up.Is_Used = 'No' 
+        AND p.Promo_Status = 'Active' 
+        AND p.Expired_Date >= CURDATE()
+    ");
+
+    while ($promo = $promo_query && $row = $promo_query->fetch_assoc()) {
+        $available_promos[] = [
+            'promo_code' => $row['Promo_Code'],
+            'promo_name' => $row['Promo_Name'],
+            'discount_display' => ($row['Promo_Type'] === 'Percentage') ? intval($row['Promo_Value'])."% OFF" : "RM ".$row['Promo_Value']." OFF",
+            'discount_amount' => ($row['Promo_Type'] === 'Percentage') ? ($subtotal * ($row['Promo_Value']/100)) : $row['Promo_Value'],
+            'expired_date' => $row['Expired_Date']
+        ];
+    }
+    return $available_promos;
+}
+
+
+// 4. 处理优惠码逻辑 - 如果用户没有手动输入，则自动应用最优优惠
+// 4. 处理优惠码逻辑 - 修复手动选择被覆盖的漏洞
 $discount = 0;
 $applied_code = "";
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['apply_coupon'])) {
+$auto_applied = false;
+$available_vouchers = getUserAvailablePromos($conn, $uid, $subtotal);
+
+// 【核心修复】：检查当前请求中是否有优惠码输入，或者 Session 中是否已记录用户的手动选择
+$is_manual_action = isset($_POST['apply_coupon']);
+$has_input_code = (isset($_POST['coupon_code']) && trim($_POST['coupon_code']) !== '');
+
+if ($is_manual_action || $has_input_code) {
+    // A. 用户正在手动操作（输入了代码并点击 Apply 或直接点击支付）
     $code = $conn->real_escape_string(trim($_POST['coupon_code']));
-    $sql_c = "SELECT * FROM promo WHERE Promo_Code = '$code' AND Expired_Date >= CURDATE() AND Promo_Status = 'Active'";
-    $res_c = $conn->query($sql_c);
-    if ($res_c && $res_c->num_rows > 0) {
-        $promo = $res_c->fetch_assoc();
-        $applied_code = $code;
-        if ($promo['Promo_Type'] === 'Percentage') {
-            $discount = $subtotal * (floatval($promo['Promo_Value']) / 100);
-            $success_msg = "Applied " . intval($promo['Promo_Value']) . "% OFF";
+    
+    if ($code !== "") {
+        // 【核心修复】：从 user_promo 表验证用户是否真的拥有该优惠券
+        $sql_c = "SELECT p.*, up.User_Promo_Id FROM user_promo up 
+                  JOIN promo p ON up.Promo_Id = p.Promo_Id 
+                  WHERE p.Promo_Code = '$code' AND up.User_Id = '$uid' AND up.Is_Used = 'No' 
+                  AND p.Expired_Date >= CURDATE() AND p.Promo_Status = 'Active'";
+        $res_c = $conn->query($sql_c);
+        
+        if ($res_c && $res_c->num_rows > 0) {
+            $promo = $res_c->fetch_assoc();
+            $applied_code = $code;
+            if ($promo['Promo_Type'] === 'Percentage') {
+                $discount = $subtotal * (floatval($promo['Promo_Value']) / 100);
+                $success_msg = "Applied " . intval($promo['Promo_Value']) . "% OFF";
+            } else {
+                $discount = floatval($promo['Promo_Value']);
+                $success_msg = "Applied RM " . number_format($discount, 2) . " OFF";
+            }
+            // 锁定手动选择状态，禁止自动优化干扰，并记录 User_Promo_Id
+            $_SESSION['user_chose_promo'] = true;
+            $_SESSION['applied_promo_code'] = $applied_code;
+            $_SESSION['applied_discount'] = $discount;
+            $_SESSION['applied_user_promo_id'] = $promo['User_Promo_Id'];  // 记录用于核销
         } else {
-            $discount = floatval($promo['Promo_Value']);
-            $success_msg = "Applied RM " . number_format($discount, 2) . " OFF";
+            $error = "Invalid or expired code, or you don't own this coupon.";
+            // 即使无效，也维持手动状态，防止系统自动跳回 Best Deal
+            $_SESSION['user_chose_promo'] = true;
+            $applied_code = $code; 
         }
-    } else { $error = "Invalid or expired code."; }
+    } else {
+        // 用户清空了输入框，恢复自动优化
+        $_SESSION['user_chose_promo'] = false;
+        unset($_SESSION['applied_promo_code'], $_SESSION['applied_discount'], $_SESSION['applied_user_promo_id']);
+    }
+} else {
+    // B. 无手动操作时：检查 Session 记录[cite: 39]
+    if (isset($_SESSION['user_chose_promo']) && $_SESSION['user_chose_promo']) {
+        $applied_code = $_SESSION['applied_promo_code'] ?? '';
+        $discount = $_SESSION['applied_discount'] ?? 0;
+        $auto_applied = false;
+    } else {
+        // 只有在完全没有手动干预的情况下，才执行“自动寻找最大折扣”[cite: 39]
+        $optimal = getOptimalPromo($conn, $uid, $subtotal);
+        if ($optimal['promo'] !== null) {
+            $best_promo = $optimal['promo'];
+            $discount = $optimal['discount_amount'];
+            $applied_code = $best_promo['Promo_Code'];
+            $auto_applied = true;
+            $success_msg = "✨ Auto-Applied Best Deal: " . htmlspecialchars($best_promo['Promo_Name']) . " - " . $optimal['discount_info'];
+        }
+    }
 }
 
 $shipping = ($subtotal >= 250) ? 0 : 15.00;
@@ -125,15 +276,28 @@ $grand_total = max(0, ($subtotal + $shipping) - $discount);
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
-    
-    $f_name = trim($_POST['first_name']);
-    $raw_postcode = $_POST['postcode'] ?? ''; 
-    
-    if ($raw_postcode === 'other') {
-        $postcode = trim($_POST['custom_postcode'] ?? '');
-    } else {
-        $postcode = trim($raw_postcode);
+    // 如果是从银行授权页返回，先恢复之前暂存的订单数据再进行验证
+    if (isset($_POST['fpx_success']) && isset($_SESSION['fpx_temp_data'])) {
+        $savedPost = $_SESSION['fpx_temp_data'];
+        unset($_SESSION['fpx_temp_data']);
+        $_POST = array_merge($savedPost, $_POST);
     }
+
+    if (isset($_POST['wallet_resume']) && isset($_SESSION['wallet_temp_data'])) {
+        $savedPost = $_SESSION['wallet_temp_data'];
+        unset($_SESSION['wallet_temp_data']);
+        $_POST = array_merge($savedPost, $_POST);
+        $grand_total = floatval($savedPost['grand_total'] ?? $grand_total);
+        $discount = floatval($savedPost['discount'] ?? $discount);
+        $shipping = floatval($savedPost['shipping'] ?? $shipping);
+        $subtotal = floatval($savedPost['subtotal'] ?? $subtotal);
+    }
+
+    $f_name = trim($_POST['first_name']);
+    
+    // 【修复 1】：安全获取邮编，防止产生 Undefined array key 警告
+    $raw_postcode = $_POST['postcode'] ?? ''; 
+    $postcode = ($raw_postcode === 'other') ? trim($_POST['custom_postcode'] ?? '') : trim($raw_postcode);
     $phone = trim($_POST['phone']);
 
     // 后端验证
@@ -145,14 +309,33 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
         $error = "Postcode must be 5 digits.";
     } elseif ($_POST['pay_type'] === 'fpx' && (empty($_POST['fpx_bank']) || $_POST['fpx_bank'] === '')) {
         $error = "Please select a bank for FPX payment.";
-    } elseif ($_POST['pay_type'] === 'wallet') {
+    } elseif ($_POST['pay_type'] === 'wallet' && !isset($_POST['wallet_resume'])) {
+        $_SESSION['wallet_temp_data'] = $_POST;
+        $_SESSION['wallet_temp_data']['grand_total'] = $grand_total;
+        $_SESSION['wallet_temp_data']['shipping'] = $shipping;
+        $_SESSION['wallet_temp_data']['discount'] = $discount;
+        $_SESSION['wallet_temp_data']['subtotal'] = $subtotal;
+        header("Location: wallet_auth.php");
+        exit();
+    } elseif ($_POST['pay_type'] === 'wallet' && isset($_POST['wallet_resume'])) {
         $input_pin = $_POST['wallet_pin'] ?? '';
-        if (!$has_pin) {
-            $error = "Wallet not activated. Please set a PIN in dashboard.";
-        } elseif (!password_verify($input_pin, $user_info['User_PIN'])) {
-            $error = "Incorrect Wallet PIN. Transaction denied."; //[cite: 39, 41]
-        } elseif ($current_balance < $grand_total) {
-            $error = "Insufficient wallet balance.";
+        
+        // --- 新增：PIN 校验规则 (禁止字母和符号) ---
+        if (!preg_match('/^[0-9]{6}$/', $input_pin)) {
+            $error = "Security Error: PIN must be exactly 6 numeric digits. No letters or symbols allowed.";
+        } else {
+            $check_db = $conn->query("SELECT User_PIN, User_Balance FROM `user` WHERE User_Id = '$uid'");
+            $latest = $check_db->fetch_assoc();
+            
+            if (!$latest || empty($latest['User_PIN'])) {
+                $error = "Wallet not activated. Please set a PIN in your dashboard.";
+            } 
+            elseif (!password_verify($input_pin, $latest['User_PIN'])) {
+                $error = "Incorrect Wallet PIN. Transaction denied.";
+            } 
+            elseif (floatval($latest['User_Balance']) < $grand_total) {
+                $error = "Insufficient wallet balance.";
+            }
         }
     } elseif ($_POST['pay_type'] === 'card') {
         $card_no = trim($_POST['card_no'] ?? '');
@@ -188,8 +371,18 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
         $apt = $conn->real_escape_string($_POST['apartment']);
         $city = $conn->real_escape_string($_POST['city']);
         $state = $conn->real_escape_string($_POST['state']);
+        $pay_type = $_POST['pay_type'];
         
-        $final_addr = "$f_name $l_name, $addr" . ($apt ? " ($apt)" : "") . ", $postcode, $city, $state. Tel: $phone";
+        if ($pay_type === 'fpx' && !isset($_POST['fpx_success'])) {
+            $_SESSION['fpx_temp_data'] = $_POST; // 暂存所有寄送资料
+            $selected_bank = $_POST['fpx_bank'];
+            header("Location: bank_portal.php?bank=$selected_bank&amt=$grand_total");
+            exit();
+        }
+
+        if ($pay_type !== 'fpx' || isset($_POST['fpx_success'])) {
+        $final_addr = "$f_name $last_name, $addr" . ($apt ? " ($apt)" : "") . ", $postcode, $city, $state";
+        }
         $order_date = date('Y-m-d H:i:s');
         
         $conn->begin_transaction();
@@ -214,12 +407,22 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
                 $item_pid = $item['pro_id'];
                 $item_qty = $item['qty'];
                 $item_size = $item['size'];
+                $item_color = $item['color'] ?? 'Default'; 
+
                 $res_p = $conn->query("SELECT Pro_Price FROM product WHERE Pro_Id = '$item_pid'");
                 $row_p = $res_p->fetch_assoc();
                 $item_sub = $row_p['Pro_Price'] * $item_qty;
                 $conn->query("INSERT INTO ORDER_DETAIL (Order_Id, Pro_Id, Order_Qty, Order_Subtotal) VALUES ('$order_id', '$item_pid', '$item_qty', '$item_sub')");
-                $conn->query("UPDATE PRODUCT_STOCK SET Quantity = Quantity - $item_qty WHERE Pro_Id = '$item_pid' AND Pro_Size = '$item_size'");
+                $db_color_key = ($item_pid == 16 || $item_pid == 17) ? 'Default' : $item_color;
+                $conn->query("UPDATE PRODUCT_STOCK SET Quantity = Quantity - $item_qty WHERE Pro_Id = '$item_pid' AND Pro_Size = '$item_size' AND Pro_Colour = '$db_color_key'");
             }
+            
+            // 【核心修复】：标记使用过的优惠券为已使用（核销）
+            if (isset($_SESSION['applied_user_promo_id']) && !empty($_SESSION['applied_user_promo_id'])) {
+                $user_promo_id = intval($_SESSION['applied_user_promo_id']);
+                $conn->query("UPDATE user_promo SET Is_Used = 'Yes', Used_Date = NOW() WHERE User_Promo_Id = '$user_promo_id'");
+            }
+            
             $conn->commit();
             
             require_once 'send_receipt_handler.php'; 
@@ -285,7 +488,6 @@ include '../includes/header.php';
     <div class="checkout-grid">
         <div class="main-form">
             <form id="orderForm" method="POST" action="">
-                <input type="hidden" name="wallet_pin" id="hidden_wallet_pin">
                 <input type="hidden" name="place_order" value="1">
                 <div class="mb-5">
                     <h5 class="section-title">Contact</h5>
@@ -359,11 +561,6 @@ include '../includes/header.php';
                         <?php endif; ?>
                     </div>
 
-                    <div id="walletPinField" style="display:none; margin-top: 10px; padding: 15px; background: #FFF5EE; border-radius: 8px; border: 1px solid #FFE4D3;">
-                        <label class="small fw-bold">Enter 6-Digit Wallet PIN</label>
-                        <input type="password" name="wallet_pin" id="wallet_pin_input" class="form-control" maxlength="6" placeholder="******">
-                    </div>
-
                     <div class="payment-option active" onclick="selectPay(this)">
                         <input type="radio" name="pay_type" value="card" checked>
                         <div><div class="fw-bold">Credit / Debit Card</div><div class="small text-muted">Visa, Mastercard</div></div>
@@ -419,16 +616,6 @@ include '../includes/header.php';
                             <option value="BANK_MUAMALAT">Bank Muamalat (MB)</option>
                         </select>
                         </div>
-
-                        <div class="mb-3">
-                            <label class="small fw-bold">Online Banking ID</label>
-                            <input type="text" name="fpx_user" id="fpxUser" class="input-field fpx-auth-input" placeholder="Username / Login ID">
-                        </div>
-
-                        <div>
-                            <label class="small fw-bold">Password</label>
-                            <input type="password" name="fpx_pass" id="fpxPass" class="input-field fpx-auth-input" placeholder="••••••••">
-                        </div>
                     </div>
                 </div>
 
@@ -439,6 +626,9 @@ include '../includes/header.php';
 
         <div class="sidebar-wrapper">
             <div class="sidebar">
+                <h5 class="section-title" style="border-bottom: 2px solid #eee; padding-bottom: 15px; margin-bottom: 25px;">
+                    Order Summary
+                </h5>
                 <div class="mb-4">
                     <?php foreach($checkout_items as $item): ?>
                         <div class="cart-item">
@@ -455,17 +645,71 @@ include '../includes/header.php';
                     <?php endforeach; ?>
                 </div>
 
+                <?php if ($auto_applied && $applied_code): ?>
+                    <div style="background: #f0f9f7; border-left: 4px solid #17735b; padding: 12px; border-radius: 6px; margin-bottom: 12px;">
+                        <div style="color: #17735b; font-weight: 600; font-size: 0.9rem; margin-bottom: 4px;">✨ Auto-Applied Best Deal</div>
+                        <div style="color: #333; font-size: 0.85rem;">
+                            <strong><?php echo htmlspecialchars($best_promo['Promo_Name'] ?? ''); ?></strong><br>
+                            Code: <code style="background: white; padding: 2px 6px; border-radius: 3px;"><?php echo htmlspecialchars($applied_code); ?></code>
+                            &nbsp;|&nbsp;
+                            Saving: <span style="color: #17735b; font-weight: 600;">RM <?php echo number_format($discount, 2); ?></span>
+                        </div>
+                    </div>
+                <?php endif; ?>
+
+                <?php if (!empty($available_vouchers)): ?>
+                    <div style="margin-bottom: 12px;">
+                        <div style="font-size: 0.85rem; color: #666; margin-bottom: 8px; font-weight: 600;">
+                            💳 Your Available Vouchers:
+                        </div>
+                        <div style="display: grid; gap: 8px;">
+                            <?php foreach ($available_vouchers as $voucher): ?>
+                                <div class="voucher-card" 
+                                     style="border: 1px solid #e0e0e0; border-radius: 6px; padding: 10px; cursor: pointer; transition: all 0.2s; background: white;"
+                                     onmouseover="this.style.borderColor='#17735b'; this.style.boxShadow='0 2px 8px rgba(23, 115, 91, 0.1)'"
+                                     onmouseout="this.style.borderColor='#e0e0e0'; this.style.boxShadow='none'"
+                                     onclick="applyVoucher('<?php echo htmlspecialchars($voucher['promo_code']); ?>')">
+                                    
+                                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 6px;">
+                                        <div>
+                                            <div style="font-weight: 600; font-size: 0.85rem; color: #333;">
+                                                <?php echo htmlspecialchars($voucher['promo_name']); ?>
+                                            </div>
+                                            <div style="font-size: 0.75rem; color: #999; margin-top: 2px;">
+                                                Expires: <?php echo date('d M Y', strtotime($voucher['expired_date'])); ?>
+                                            </div>
+                                        </div>
+                                        <div style="text-align: right;">
+                                            <div style="font-weight: 700; color: #17735b; font-size: 0.9rem;">
+                                                <?php echo htmlspecialchars($voucher['discount_display']); ?>
+                                            </div>
+                                            <div style="font-size: 0.7rem; color: #17735b;">
+                                                Save RM <?php echo number_format($voucher['discount_amount'], 2); ?>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div style="font-size: 0.75rem; color: #666; font-family: monospace; background: #f5f5f5; padding: 4px 6px; border-radius: 3px; display: inline-block;">
+                                        <?php echo htmlspecialchars($voucher['promo_code']); ?>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                <?php endif; ?>
+
                 <form method="POST" action="" class="mb-4">
+                    <div style="margin-bottom: 8px; font-size: 0.85rem; color: #666;">
+                        <?php if ($auto_applied && $applied_code): ?>
+                            Have a different code? Enter it below:
+                        <?php else: ?>
+                            Have a promo code? Enter it below:
+                        <?php endif; ?>
+                    </div>
                     <div class="input-group">
-                        <input type="text" name="coupon_code" class="form-control" placeholder="Discount code" value="<?php echo $applied_code; ?>">
+                        <input type="text" name="coupon_code" class="form-control" placeholder="Discount code" value="">
                         <button type="submit" name="apply_coupon" class="btn btn-dark btn-apply">Apply</button>
                     </div>
-                    <?php if ($error): ?>
-                        Swal.fire({ icon: 'error', title: 'Payment Failed', text: '<?php echo $error; ?>', confirmButtonColor: '#17735b' });
-                    <?php endif; ?>
-                    <?php if ($success_msg): ?>
-                        Swal.fire({ icon: 'success', title: 'Success', text: '<?php echo $success_msg; ?>', timer: 2000 });
-                    <?php endif; ?>
                 </form>
 
                 <div class="total-line d-flex justify-content-between h4 fw-bold">
@@ -478,6 +722,23 @@ include '../includes/header.php';
 </div>
 
 <script>
+
+// 处理 voucher 点击应用
+function applyVoucher(promoCode) {
+    // 填入优惠码
+    const couponInput = document.querySelector('input[name="coupon_code"]');
+    if (couponInput) {
+        couponInput.value = promoCode;
+    }
+    
+    // 提交表单应用优惠码
+    const forms = document.querySelectorAll('form');
+    forms.forEach(form => {
+        if (form.querySelector('input[name="coupon_code"]')) {
+            form.submit();
+        }
+    });
+}
 
 const locationData = {
     "Johor": {
@@ -679,18 +940,22 @@ function selectPay(el) {
     const payType = radio ? radio.value : '';
     
     // 3. 切换输入框显示/隐藏
+    const walletDiv = document.getElementById('walletPinField');
     const fpxDiv = document.getElementById('fpxBankDiv');
     const cardDiv = document.getElementById('cardFieldsDiv');
     
+    if (walletDiv) walletDiv.style.display = (payType === 'wallet') ? 'block' : 'none';
     if (fpxDiv) fpxDiv.style.display = (payType === 'fpx') ? 'block' : 'none';
     if (cardDiv) cardDiv.style.display = (payType === 'card') ? 'block' : 'none';
 
     // 4. 清除/设置必填项，防止逻辑冲突
-    document.querySelectorAll('.fpx-auth-input, #fpxBank, .card-input').forEach(input => {
+    document.querySelectorAll('.fpx-auth-input, #fpxBank, .card-input, #wallet_pin_input').forEach(input => {
         input.removeAttribute('required');
     });
 
-    if (payType === 'fpx') {
+    if (payType === 'wallet') {
+        document.getElementById('wallet_pin_input').setAttribute('required', 'true');
+    } else if (payType === 'fpx') {
         document.getElementById('fpxBank').setAttribute('required', 'true');
         document.querySelectorAll('.fpx-auth-input').forEach(i => i.setAttribute('required', 'true'));
     }
@@ -699,7 +964,7 @@ function selectPay(el) {
 async function startPaymentProcess() {
     const payType = document.querySelector('input[name="pay_type"]:checked').value;
     
-    // 1. 基础验证：姓名、地址、电话[cite: 39]
+    // 1. 基础验证：姓名、地址、电话
     const firstName = document.querySelector('input[name="first_name"]').value.trim();
     const address = document.querySelector('input[name="address"]').value.trim();
     const phone = document.querySelector('input[name="phone"]').value.trim();
@@ -709,40 +974,21 @@ async function startPaymentProcess() {
         return;
     }
 
-    // 2. 钱包支付逻辑：弹出中间 PIN 码框
     if (payType === 'wallet') {
-        const { value: pin } = await Swal.fire({
-            title: 'Security Verification',
-            text: 'Please enter your 6-digit Wallet PIN',
-            input: 'password',
-            inputPlaceholder: 'Enter PIN',
-            inputAttributes: {
-                maxlength: 6,
-                autocapitalize: 'off',
-                autocorrect: 'off',
-                inputmode: 'numeric'
-            },
-            showCancelButton: true,
-            confirmButtonText: 'Verify & Pay',
-            confirmButtonColor: '#17735b',
-            inputValidator: (value) => {
-                if (!/^\d{6}$/.test(value)) {
-                    return 'Please enter exactly 6 digits!';
-                }
-            }
-        });
+        submitCheckoutForm();
+    }
 
-        if (pin) {
-            // 将输入的密码填入隐藏域并提交[cite: 39]
-            document.getElementById('hidden_wallet_pin').value = pin;
-            submitCheckoutForm();
-        }
-    } 
-    // 3. 其他支付方式验证[cite: 39]
     else if (payType === 'card') {
         const cardNo = document.querySelector('input[name="card_no"]').value;
         if (cardNo.length < 16) {
             Swal.fire('Invalid Card', 'Please enter a valid 16-digit card number.', 'error');
+            return;
+        }
+        submitCheckoutForm();
+    } else if (payType === 'fpx') {
+        const fpxBank = document.querySelector('select[name="fpx_bank"]').value;
+        if (!fpxBank) {
+            Swal.fire('Bank Required', 'Please select a bank for FPX payment.', 'warning');
             return;
         }
         submitCheckoutForm();
@@ -902,15 +1148,20 @@ function validateCheckoutForm() {
 
 // 页面加载时初始化
 document.addEventListener('DOMContentLoaded', function() {
-    initStates();
+    initStates(); // 初始化所有州属
     
     // 初始化支付方式的显示/隐藏状态
     const payType = document.querySelector('input[name="pay_type"]:checked').value;
+    const walletDiv = document.getElementById('walletPinField');
     const fpxDiv = document.getElementById('fpxBankDiv');
     const cardDiv = document.getElementById('cardFieldsDiv');
     
-    if (payType === 'card') {
-        cardDiv.style.display = 'block';
+    if (payType === 'wallet') {
+        if (walletDiv) walletDiv.style.display = 'block';
+        const pinField = document.getElementById('wallet_pin_input');
+        if (pinField) pinField.required = true;
+    } else if (payType === 'card') {
+        if (cardDiv) cardDiv.style.display = 'block';
         // 设置卡支付字段为必填
         const cardFields = ['card_no', 'cardholder_name', 'expiry', 'cvv'];
         cardFields.forEach(fieldId => {
@@ -918,15 +1169,11 @@ document.addEventListener('DOMContentLoaded', function() {
             if (field) field.required = true;
         });
     } else if (payType === 'fpx') {
-        fpxDiv.style.display = 'block';
+        if (fpxDiv) fpxDiv.style.display = 'block';
         const fpxBank = document.getElementById('fpxBank');
         if (fpxBank) fpxBank.required = true;
     }
-});
-</script>
 
-<script>
-document.addEventListener('DOMContentLoaded', function() {
     // 统一显示来自后端的错误信息
     <?php if ($error): ?>
         Swal.fire({

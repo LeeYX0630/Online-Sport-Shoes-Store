@@ -11,6 +11,7 @@ use PHPMailer\PHPMailer\Exception;
 require '../includes/PHPMailer/Exception.php';
 require '../includes/PHPMailer/PHPMailer.php';
 require '../includes/PHPMailer/SMTP.php';
+require '../includes/mail_config.php'; // 包含 SMTP_EMAIL 和 SMTP_PASS 常量
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -28,12 +29,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_btn'])) {
     $password = $_POST['password'];
 
     $clean_phone = preg_replace('/[^0-9]/', '', $phone_input);
-
+    
     // 检查邮箱是否已注册
     $checkUser = $conn->prepare("SELECT * FROM user WHERE User_Email = ?");
     $checkUser->bind_param("s", $email);
     $checkUser->execute();
     $result = $checkUser->get_result();
+    $conn->begin_transaction();
 
     if ($result->num_rows > 0) {
         $error = "This Email is already registered. Please use another one.";
@@ -44,11 +46,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_btn'])) {
         
         // 将用户信息存入临时 Session
         $_SESSION['temp_user'] = [
-            'full_name' => $full_name, 
-            'email'     => $email, 
+            'full_name' => $full_name,
+            'email'     => $email,
             'phone'     => $clean_phone,
-            'password'  => $hashed_password, 
-            'otp'       => $otp, 
+            'address'   => trim($_POST['address']),
+            'postcode'  => trim($_POST['postcode']),
+            'state'     => trim($_POST['state']),
+            'dob'       => trim($_POST['dob']),
+            'password'  => $hashed_password,
+            'otp'       => $otp,
             'expiry'    => strtotime("+5 minutes") // 5分钟有效
         ];
 
@@ -60,13 +66,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_btn'])) {
             $mail->isSMTP();
             $mail->Host       = 'smtp.gmail.com';
             $mail->SMTPAuth   = true;
-            $mail->Username   = 'SMTP_MAIL'; // 你的 Gmail
-            $mail->Password   = 'SMTP_PASS'; // 你的 16 位应用专用密码
+            $mail->Username   = SMTP_EMAIL; // 你的 Gmail
+            $mail->Password   = SMTP_PASS; // 你的 16 位应用专用密码
             $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
             $mail->Port       = 587;
 
             // 收发件人设置
-            $mail->setFrom('your-email@gmail.com', 'Stealth Sport Shoes');
+            $mail->setFrom('sportshoes.system@gmail.com', 'SS Sport Shoes');
             $mail->addAddress($email, $full_name);
 
             // 邮件内容

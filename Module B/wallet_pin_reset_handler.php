@@ -36,7 +36,7 @@ if ($action === 'request_otp') {
         $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
         $mail->Port = 587;
 
-        $mail->setFrom(SMTP_EMAIL, 'Sole 2 Soul Security');
+        $mail->setFrom(SMTP_EMAIL, 'SS Sport Security');
         $mail->addAddress($user['User_Email'], $user['User_Name']);
         $mail->isHTML(true);
         $mail->Subject = "Your Wallet Reset OTP";
@@ -52,7 +52,11 @@ elseif ($action === 'verify_and_reset') {
     $input_otp = $_POST['otp'] ?? '';
     $new_pin = $_POST['new_pin'] ?? '';
 
-    // 校验 OTP 是否有效
+    if (!preg_match('/^\d{6}$/', $new_pin)) {
+        echo json_encode(['success' => false, 'message' => 'Security Error: PIN must be 6 numeric digits.']);
+        exit;
+    }
+
     $stmt = $conn->prepare("SELECT User_Id FROM `USER` WHERE User_Id = ? AND User_OTP = ? AND User_OTP_Expiry > NOW()");
     $stmt->bind_param("is", $uid, $input_otp);
     $stmt->execute();
