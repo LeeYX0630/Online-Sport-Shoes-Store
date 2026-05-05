@@ -95,24 +95,179 @@ foreach ($_SESSION['cart'] as $cart_key => $item) {
     }
 }
 
-// 4. 处理优惠码逻辑
+function getOptimalPromo($conn, $user_id, $subtotal) {
+    $best_promo = null;
+    $best_discount = 0;
+    $best_discount_info = '';
+    
+    // 【核心修复】：只查询该用户拥有且未使用的优惠券
+    $promo_query = $conn->query("
+        SELECT p.*, up.User_Promo_Id 
+        FROM user_promo up
+        JOIN promo p ON up.Promo_Id = p.Promo_Id
+        WHERE up.User_Id = '$user_id' 
+        AND up.Is_Used = 'No' 
+        AND p.Promo_Status = 'Active' 
+        AND p.Expired_Date >= CURDATE()
+        ORDER BY p.Promo_Value DESC
+    ");
+    
+    if ($promo_query && $promo_query->num_rows > 0) {
+        while ($promo = $promo_query->fetch_assoc()) {
+            // 计算该 promo 的折扣额度
+            $discount_amount = 0;
+            if ($promo['Promo_Type'] === 'Percentage') {
+                $discount_amount = $subtotal * (floatval($promo['Promo_Value']) / 100);
+                $discount_display = intval($promo['Promo_Value']) . '% OFF';
+            } else {
+                $discount_amount = floatval($promo['Promo_Value']);
+                $discount_display = 'RM ' . number_format($discount_amount, 2) . ' OFF';
+            }
+            
+            // 判断该 promo 是否对该用户可用
+            // 规则1: 新用户 promo (包含 "Welcome" 或 "New User" 的)
+            $is_new_user_promo = (
+                strpos(strtoupper($promo['Promo_Name']), 'WELCOME') !== false ||
+                strpos(strtoupper($promo['Promo_Name']), 'NEW USER') !== false
+            );
+            
+            // 规则2: 生日 promo (包含 "Birthday" 的，并且用户 ID 在代码中)
+            $is_birthday_promo = (
+                strpos(strtoupper($promo['Promo_Name']), 'BIRTHDAY') !== false &&
+                strpos($promo['Promo_Code'], (string)$user_id) !== false
+            );
+            
+            // 规则3: 全局 promo (既不是新用户也不是生日的)
+            $is_global_promo = !$is_new_user_promo && !$is_birthday_promo;
+            
+            // 如果是新用户 promo，检查用户是否有订单（有订单就不是新用户）
+            if ($is_new_user_promo) {
+                $order_check = $conn->query("SELECT 1 FROM `order` WHERE User_Id = '$user_id' LIMIT 1");
+                if ($order_check && $order_check->num_rows > 0) {
+                    continue; // 跳过这个新用户 promo
+                }
+            }
+            
+            // 如果是生日 promo，检查用户生日是否在当月
+            if ($is_birthday_promo) {
+                $birthday_check = $conn->query("
+                    SELECT 1 FROM `user` 
+                    WHERE User_Id = '$user_id' 
+                    AND MONTH(User_DateOfBirth) = MONTH(CURDATE())
+                    LIMIT 1
+                ");
+                if (!$birthday_check || $birthday_check->num_rows === 0) {
+                    continue; // 跳过这个生日 promo
+                }
+            }
+            
+            // 比较折扣，选择最大的
+            if ($discount_amount > $best_discount) {
+                $best_discount = $discount_amount;
+                $best_promo = $promo;
+                $best_discount_info = $discount_display;
+            }
+        }
+    }
+    
+    return [
+        'promo' => $best_promo,
+        'discount_amount' => $best_discount,
+        'discount_info' => $best_discount_info
+    ];
+}
+
+function getUserAvailablePromos($conn, $user_id, $subtotal) {
+    $available_promos = [];
+    $promo_query = $conn->query("
+        SELECT p.*, up.User_Promo_Id 
+        FROM user_promo up
+        JOIN promo p ON up.Promo_Id = p.Promo_Id
+        WHERE up.User_Id = '$user_id' 
+        AND up.Is_Used = 'No' 
+        AND p.Promo_Status = 'Active' 
+        AND p.Expired_Date >= CURDATE()
+    ");
+
+    while ($promo = $promo_query && $row = $promo_query->fetch_assoc()) {
+        $available_promos[] = [
+            'promo_code' => $row['Promo_Code'],
+            'promo_name' => $row['Promo_Name'],
+            'discount_display' => ($row['Promo_Type'] === 'Percentage') ? intval($row['Promo_Value'])."% OFF" : "RM ".$row['Promo_Value']." OFF",
+            'discount_amount' => ($row['Promo_Type'] === 'Percentage') ? ($subtotal * ($row['Promo_Value']/100)) : $row['Promo_Value'],
+            'expired_date' => $row['Expired_Date']
+        ];
+    }
+    return $available_promos;
+}
+
+
+// 4. 处理优惠码逻辑 - 如果用户没有手动输入，则自动应用最优优惠
+// 4. 处理优惠码逻辑 - 修复手动选择被覆盖的漏洞
 $discount = 0;
 $applied_code = "";
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['apply_coupon'])) {
+$auto_applied = false;
+$available_vouchers = getUserAvailablePromos($conn, $uid, $subtotal);
+
+// 【核心修复】：检查当前请求中是否有优惠码输入，或者 Session 中是否已记录用户的手动选择
+$is_manual_action = isset($_POST['apply_coupon']);
+$has_input_code = (isset($_POST['coupon_code']) && trim($_POST['coupon_code']) !== '');
+
+if ($is_manual_action || $has_input_code) {
+    // A. 用户正在手动操作（输入了代码并点击 Apply 或直接点击支付）
     $code = $conn->real_escape_string(trim($_POST['coupon_code']));
-    $sql_c = "SELECT * FROM promo WHERE Promo_Code = '$code' AND Expired_Date >= CURDATE() AND Promo_Status = 'Active'";
-    $res_c = $conn->query($sql_c);
-    if ($res_c && $res_c->num_rows > 0) {
-        $promo = $res_c->fetch_assoc();
-        $applied_code = $code;
-        if ($promo['Promo_Type'] === 'Percentage') {
-            $discount = $subtotal * (floatval($promo['Promo_Value']) / 100);
-            $success_msg = "Applied " . intval($promo['Promo_Value']) . "% OFF";
+    
+    if ($code !== "") {
+        // 【核心修复】：从 user_promo 表验证用户是否真的拥有该优惠券
+        $sql_c = "SELECT p.*, up.User_Promo_Id FROM user_promo up 
+                  JOIN promo p ON up.Promo_Id = p.Promo_Id 
+                  WHERE p.Promo_Code = '$code' AND up.User_Id = '$uid' AND up.Is_Used = 'No' 
+                  AND p.Expired_Date >= CURDATE() AND p.Promo_Status = 'Active'";
+        $res_c = $conn->query($sql_c);
+        
+        if ($res_c && $res_c->num_rows > 0) {
+            $promo = $res_c->fetch_assoc();
+            $applied_code = $code;
+            if ($promo['Promo_Type'] === 'Percentage') {
+                $discount = $subtotal * (floatval($promo['Promo_Value']) / 100);
+                $success_msg = "Applied " . intval($promo['Promo_Value']) . "% OFF";
+            } else {
+                $discount = floatval($promo['Promo_Value']);
+                $success_msg = "Applied RM " . number_format($discount, 2) . " OFF";
+            }
+            // 锁定手动选择状态，禁止自动优化干扰，并记录 User_Promo_Id
+            $_SESSION['user_chose_promo'] = true;
+            $_SESSION['applied_promo_code'] = $applied_code;
+            $_SESSION['applied_discount'] = $discount;
+            $_SESSION['applied_user_promo_id'] = $promo['User_Promo_Id'];  // 记录用于核销
         } else {
-            $discount = floatval($promo['Promo_Value']);
-            $success_msg = "Applied RM " . number_format($discount, 2) . " OFF";
+            $error = "Invalid or expired code, or you don't own this coupon.";
+            // 即使无效，也维持手动状态，防止系统自动跳回 Best Deal
+            $_SESSION['user_chose_promo'] = true;
+            $applied_code = $code; 
         }
-    } else { $error = "Invalid or expired code."; }
+    } else {
+        // 用户清空了输入框，恢复自动优化
+        $_SESSION['user_chose_promo'] = false;
+        unset($_SESSION['applied_promo_code'], $_SESSION['applied_discount'], $_SESSION['applied_user_promo_id']);
+    }
+} else {
+    // B. 无手动操作时：检查 Session 记录[cite: 39]
+    if (isset($_SESSION['user_chose_promo']) && $_SESSION['user_chose_promo']) {
+        $applied_code = $_SESSION['applied_promo_code'] ?? '';
+        $discount = $_SESSION['applied_discount'] ?? 0;
+        $auto_applied = false;
+    } else {
+        // 只有在完全没有手动干预的情况下，才执行“自动寻找最大折扣”[cite: 39]
+        $optimal = getOptimalPromo($conn, $uid, $subtotal);
+        if ($optimal['promo'] !== null) {
+            $best_promo = $optimal['promo'];
+            $discount = $optimal['discount_amount'];
+            $applied_code = $best_promo['Promo_Code'];
+            $auto_applied = true;
+            $success_msg = "✨ Auto-Applied Best Deal: " . htmlspecialchars($best_promo['Promo_Name']) . " - " . $optimal['discount_info'];
+        }
+    }
 }
 
 $shipping = ($subtotal >= 250) ? 0 : 15.00;
@@ -261,6 +416,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
                 $db_color_key = ($item_pid == 16 || $item_pid == 17) ? 'Default' : $item_color;
                 $conn->query("UPDATE PRODUCT_STOCK SET Quantity = Quantity - $item_qty WHERE Pro_Id = '$item_pid' AND Pro_Size = '$item_size' AND Pro_Colour = '$db_color_key'");
             }
+            
+            // 【核心修复】：标记使用过的优惠券为已使用（核销）
+            if (isset($_SESSION['applied_user_promo_id']) && !empty($_SESSION['applied_user_promo_id'])) {
+                $user_promo_id = intval($_SESSION['applied_user_promo_id']);
+                $conn->query("UPDATE user_promo SET Is_Used = 'Yes', Used_Date = NOW() WHERE User_Promo_Id = '$user_promo_id'");
+            }
+            
             $conn->commit();
             
             require_once 'send_receipt_handler.php'; 
@@ -483,9 +645,69 @@ include '../includes/header.php';
                     <?php endforeach; ?>
                 </div>
 
+                <?php if ($auto_applied && $applied_code): ?>
+                    <div style="background: #f0f9f7; border-left: 4px solid #17735b; padding: 12px; border-radius: 6px; margin-bottom: 12px;">
+                        <div style="color: #17735b; font-weight: 600; font-size: 0.9rem; margin-bottom: 4px;">✨ Auto-Applied Best Deal</div>
+                        <div style="color: #333; font-size: 0.85rem;">
+                            <strong><?php echo htmlspecialchars($best_promo['Promo_Name'] ?? ''); ?></strong><br>
+                            Code: <code style="background: white; padding: 2px 6px; border-radius: 3px;"><?php echo htmlspecialchars($applied_code); ?></code>
+                            &nbsp;|&nbsp;
+                            Saving: <span style="color: #17735b; font-weight: 600;">RM <?php echo number_format($discount, 2); ?></span>
+                        </div>
+                    </div>
+                <?php endif; ?>
+
+                <?php if (!empty($available_vouchers)): ?>
+                    <div style="margin-bottom: 12px;">
+                        <div style="font-size: 0.85rem; color: #666; margin-bottom: 8px; font-weight: 600;">
+                            💳 Your Available Vouchers:
+                        </div>
+                        <div style="display: grid; gap: 8px;">
+                            <?php foreach ($available_vouchers as $voucher): ?>
+                                <div class="voucher-card" 
+                                     style="border: 1px solid #e0e0e0; border-radius: 6px; padding: 10px; cursor: pointer; transition: all 0.2s; background: white;"
+                                     onmouseover="this.style.borderColor='#17735b'; this.style.boxShadow='0 2px 8px rgba(23, 115, 91, 0.1)'"
+                                     onmouseout="this.style.borderColor='#e0e0e0'; this.style.boxShadow='none'"
+                                     onclick="applyVoucher('<?php echo htmlspecialchars($voucher['promo_code']); ?>')">
+                                    
+                                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 6px;">
+                                        <div>
+                                            <div style="font-weight: 600; font-size: 0.85rem; color: #333;">
+                                                <?php echo htmlspecialchars($voucher['promo_name']); ?>
+                                            </div>
+                                            <div style="font-size: 0.75rem; color: #999; margin-top: 2px;">
+                                                Expires: <?php echo date('d M Y', strtotime($voucher['expired_date'])); ?>
+                                            </div>
+                                        </div>
+                                        <div style="text-align: right;">
+                                            <div style="font-weight: 700; color: #17735b; font-size: 0.9rem;">
+                                                <?php echo htmlspecialchars($voucher['discount_display']); ?>
+                                            </div>
+                                            <div style="font-size: 0.7rem; color: #17735b;">
+                                                Save RM <?php echo number_format($voucher['discount_amount'], 2); ?>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div style="font-size: 0.75rem; color: #666; font-family: monospace; background: #f5f5f5; padding: 4px 6px; border-radius: 3px; display: inline-block;">
+                                        <?php echo htmlspecialchars($voucher['promo_code']); ?>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                <?php endif; ?>
+
                 <form method="POST" action="" class="mb-4">
+                    <div style="margin-bottom: 8px; font-size: 0.85rem; color: #666;">
+                        <?php if ($auto_applied && $applied_code): ?>
+                            Have a different code? Enter it below:
+                        <?php else: ?>
+                            Have a promo code? Enter it below:
+                        <?php endif; ?>
+                    </div>
                     <div class="input-group">
-                        <input type="text" name="coupon_code" class="form-control" placeholder="Discount code" value="<?php echo $applied_code; ?>">
+                        <input type="text" name="coupon_code" class="form-control" placeholder="Discount code" value="">
                         <button type="submit" name="apply_coupon" class="btn btn-dark btn-apply">Apply</button>
                     </div>
                 </form>
@@ -500,6 +722,23 @@ include '../includes/header.php';
 </div>
 
 <script>
+
+// 处理 voucher 点击应用
+function applyVoucher(promoCode) {
+    // 填入优惠码
+    const couponInput = document.querySelector('input[name="coupon_code"]');
+    if (couponInput) {
+        couponInput.value = promoCode;
+    }
+    
+    // 提交表单应用优惠码
+    const forms = document.querySelectorAll('form');
+    forms.forEach(form => {
+        if (form.querySelector('input[name="coupon_code"]')) {
+            form.submit();
+        }
+    });
+}
 
 const locationData = {
     "Johor": {

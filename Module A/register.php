@@ -29,12 +29,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_btn'])) {
     $password = $_POST['password'];
 
     $clean_phone = preg_replace('/[^0-9]/', '', $phone_input);
-
+    
     // 检查邮箱是否已注册
     $checkUser = $conn->prepare("SELECT * FROM user WHERE User_Email = ?");
     $checkUser->bind_param("s", $email);
     $checkUser->execute();
     $result = $checkUser->get_result();
+    $conn->begin_transaction();
 
     if ($result->num_rows > 0) {
         $error = "This Email is already registered. Please use another one.";
@@ -45,11 +46,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_btn'])) {
         
         // 将用户信息存入临时 Session
         $_SESSION['temp_user'] = [
-            'full_name' => $full_name, 
-            'email'     => $email, 
+            'full_name' => $full_name,
+            'email'     => $email,
             'phone'     => $clean_phone,
-            'password'  => $hashed_password, 
-            'otp'       => $otp, 
+            'address'   => trim($_POST['address']),
+            'postcode'  => trim($_POST['postcode']),
+            'state'     => trim($_POST['state']),
+            'dob'       => trim($_POST['dob']),
+            'password'  => $hashed_password,
+            'otp'       => $otp,
             'expiry'    => strtotime("+5 minutes") // 5分钟有效
         ];
 
