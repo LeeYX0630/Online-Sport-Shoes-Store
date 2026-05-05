@@ -4,10 +4,51 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// 获取用户信息
-$current_admin_level = $_SESSION['role'] ?? 2; 
+// 获取用户信息：优先从 DB 读取最新头像与权限，回退到 session 或默认图
+$current_admin_level = $_SESSION['role'] ?? 2;
 $admin_name = $_SESSION['username'] ?? 'Admin';
-$admin_image = $_SESSION['admin_image'] ?? 'default_admin.png';
+$admin_image = 'default_admin.png';
+
+// 确保有数据库连接可用（尝试包含同目录的 db_connection.php）
+if (!isset($conn)) {
+    $dbPath = __DIR__ . '/db_connection.php';
+    if (file_exists($dbPath)) {
+        require_once $dbPath;
+    }
+}
+
+if (isset($_SESSION['admin_id']) && isset($conn) && $conn) {
+    $admin_id = (int)$_SESSION['admin_id'];
+    $stmt = $conn->prepare("SELECT Admin_Image, Admin_Level, Admin_Name FROM admin WHERE Admin_Id = ? LIMIT 1");
+    if ($stmt) {
+        $stmt->bind_param('i', $admin_id);
+        if ($stmt->execute()) {
+            $res = $stmt->get_result();
+            if ($row = $res->fetch_assoc()) {
+                if (!empty($row['Admin_Image'])) {
+                    $admin_image = $row['Admin_Image'];
+                } elseif (!empty($_SESSION['admin_image'])) {
+                    $admin_image = $_SESSION['admin_image'];
+                }
+                if (!empty($row['Admin_Name'])) {
+                    $admin_name = $row['Admin_Name'];
+                }
+                if (isset($row['Admin_Level'])) {
+                    $current_admin_level = $row['Admin_Level'];
+                }
+            } else {
+                // 无 DB 记录时回退到 session
+                $admin_image = $_SESSION['admin_image'] ?? $admin_image;
+            }
+        }
+        $stmt->close();
+    } else {
+        // 无法准备语句时回退到 session
+        $admin_image = $_SESSION['admin_image'] ?? $admin_image;
+    }
+} else {
+    $admin_image = $_SESSION['admin_image'] ?? $admin_image;
+}
 
 /**
  * 变量说明：

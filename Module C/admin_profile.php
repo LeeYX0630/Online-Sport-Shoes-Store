@@ -10,12 +10,14 @@ if (!isset($_SESSION['role'])) {
 
 $admin_id = $_SESSION['admin_id'];
 $admin_name = $_SESSION['username'] ?? 'Admin';
-$admin_image = $_SESSION['admin_image'] ?? 'default_admin.png';
 
 // 2. 获取当前管理员资料
 $sql = "SELECT * FROM admin WHERE Admin_Id = $admin_id";
 $result = $conn->query($sql);
 $admin = $result->fetch_assoc();
+
+// 优先使用 DB 中的图片，其次使用 session，最后使用默认图
+$admin_image = !empty($admin['Admin_Image']) ? $admin['Admin_Image'] : ($_SESSION['admin_image'] ?? 'default_admin.png');
 
 // 3. 处理更新逻辑
 $message = "";
@@ -41,13 +43,18 @@ if (isset($_POST['update_profile'])) {
     $update_sql = "UPDATE admin SET Admin_Name='$new_name', Admin_Email='$new_email', Admin_Image='$image_name' WHERE Admin_Id=$admin_id";
     
     if ($conn->query($update_sql)) {
-        $message = "Profile updated successfully!";
-        // 刷新变量
-        $admin['Admin_Name'] = $new_name;
-        $admin['Admin_Email'] = $new_email;
-        $admin['Admin_Image'] = $image_name;
+        // 更新成功：更新 session 并使用 PRG 模式重定向，确保 header/其他包含文件能立即读取到新头像
         $_SESSION['username'] = $new_name;
+        $_SESSION['admin_image'] = $image_name;
+        // 使用查询参数传递成功消息，避免表单重提交
+        header("Location: admin_profile.php?updated=1");
+        exit();
     }
+}
+
+// 显示成功消息（PRG 重定向后使用）
+if (isset($_GET['updated']) && $_GET['updated'] == '1') {
+    $message = "Profile updated successfully!";
 }
 ?>
 
