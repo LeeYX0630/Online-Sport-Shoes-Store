@@ -322,8 +322,10 @@ $where_clause = count($where_clauses) > 0 ? "WHERE " . implode(" AND ", $where_c
                             <summary>Category</summary>
                             <div class="filter-options">
                                 <?php
+                                // 【核心修复】：直接查询 category 表以确保选项唯一且同步[cite: 34]
                                 $cat_res = $conn->query("SELECT * FROM category ORDER BY Cat_Name ASC");
                                 while($c = $cat_res->fetch_assoc()) {
+                                    // 保持原本的勾选状态
                                     $checked = (isset($_GET['categories']) && in_array($c['Cat_Id'], $_GET['categories'])) ? "checked" : "";
                                     echo '<label><input type="checkbox" name="categories[]" value="'.$c['Cat_Id'].'" '.$checked.'> '.$c['Cat_Name'].'</label>';
                                 }
@@ -442,9 +444,10 @@ $where_clause = count($where_clauses) > 0 ? "WHERE " . implode(" AND ", $where_c
                 <main class="product-listing">
                     <div class="room-grid">
                         <?php
-                        $sql = "SELECT product.*, brand.Brand_Name 
+                        $sql = "SELECT product.*, brand.Brand_Name, category.Cat_Name 
                                 FROM product 
                                 JOIN brand ON product.Brand_Id = brand.Brand_Id
+                                LEFT JOIN category ON product.Cat_Id = category.Cat_Id
                                 $where_clause 
                                 ORDER BY product.Pro_Id DESC";
                         
@@ -528,10 +531,10 @@ $where_clause = count($where_clauses) > 0 ? "WHERE " . implode(" AND ", $where_c
                                             <img src="<?php echo htmlspecialchars($img_src); ?>" alt="<?php echo htmlspecialchars($row['Pro_Name']); ?>" onerror="this.onerror=null; this.src='../images/brands/placeholder.png'">
                                         </div>
                                         <div class="card-content">
-                                            <div class="category-badge"><?php echo $row['Brand_Name']; ?></div>
-                                            <h3 class="room-title"><?php echo $row['Pro_Name']; ?> - <?php echo htmlspecialchars($current_variant_color); ?></h3>
-                                            <div class="room-price">RM <?php echo number_format($row['Pro_Price'], 2); ?></div>
-                                        </div>
+                                        <div class="category-badge"><?php echo htmlspecialchars($row['Cat_Name'] ?? 'Uncategorized'); ?></div>
+                                        <h3 class="room-title"><?php echo $row['Pro_Name']; ?> - <?php echo htmlspecialchars($current_variant_color); ?></h3>
+                                        <div class="room-price">RM <?php echo number_format($row['Pro_Price'], 2); ?></div>
+                                    </div>
                                     </a>
 
                                     <?php
