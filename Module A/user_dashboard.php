@@ -221,36 +221,109 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
                         </form>
                     </div>
 
-                    <div class="tab-pane fade" id="purchased">
-                        <div class="table-responsive">
-                            <table class="table align-middle">
-                                <thead>
-                                    <tr class="text-muted">
-                                        <th class="border-0">ID</th>
-                                        <th class="border-0">Date</th>
-                                        <th class="border-0">Total</th>
-                                        <th class="border-0">Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php if($purchases && $purchases->num_rows > 0): ?>
-                                        <?php while($row = $purchases->fetch_assoc()): ?>
-                                            <tr>
-                                                <td class="fw-bold">#<?php echo $row['Order_Id']; ?></td>
-                                                <td><?php echo date("d M Y", strtotime($row['Order_Date'])); ?></td>
-                                                <td class="fw-bold text-orange">RM <?php echo number_format($row['Total_Amount'] ?? 0, 2); ?></td>
-                                                <td><span class="badge rounded-pill bg-light text-success border">Completed</span></td>
-                                            </tr>
-                                        <?php endwhile; ?>
-                                    <?php else: ?>
-                                        <tr><td colspan="4" class="text-center py-4 text-muted">No purchases found.</td></tr>
-                                    <?php endif; ?>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+                  <div class="tab-pane fade" id="purchased">
+    <?php
+    // Set the current date as the maximum limit
+    $today = date('Y-m-d');
+    
+    // 1. Logic to fetch data with date restrictions
+    $f_id = isset($_GET['search_id']) ? mysqli_real_escape_string($conn, $_GET['search_id']) : '';
+    $f_date = isset($_GET['filter_date']) ? mysqli_real_escape_string($conn, $_GET['filter_date']) : '';
+    $f_status = isset($_GET['status']) ? mysqli_real_escape_string($conn, $_GET['status']) : '';
+
+    // The query strictly filters for this user and ensures no future dates are shown
+    $query_str = "SELECT * FROM `order` WHERE User_Id = '$user_id' AND DATE(Order_Date) <= '$today'";
+
+    if ($f_id != '') {
+        $clean_id = str_replace('ORD#', '', $f_id);
+        $query_str .= " AND Order_Id LIKE '%$clean_id%'";
+    }
+    if ($f_date != '') {
+        // Validation: If a user manually tries to view tomorrow's date, force it to today
+        if ($f_date > $today) { $f_date = $today; }
+        $query_str .= " AND DATE(Order_Date) = '$f_date'";
+    }
+    if ($f_status != '' && $f_status != 'All Status') {
+        $query_str .= " AND Order_Status = '$f_status'";
+    }
+
+    $query_str .= " ORDER BY Order_Id DESC";
+    $purchased_data = $conn->query($query_str);
+    ?>
+
+    <!-- 2. Filter Form with fixed date picker -->
+    <form method="GET" action="user_dashboard.php">
+        <div class="row g-2 mb-4 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label small fw-bold text-muted text-uppercase">Search Order ID</label>
+                <div class="input-group input-group-sm border-0 shadow-sm rounded-3 overflow-hidden">
+                    <span class="input-group-text bg-white border-0"><i class="bi bi-hash"></i></span>
+                    <input type="text" name="search_id" class="form-control border-0" placeholder="ORD#xxxxxx" value="<?php echo htmlspecialchars($f_id); ?>">
                 </div>
             </div>
+            <div class="col-md-3">
+                <label class="form-label small fw-bold text-muted text-uppercase">Filter Date</label>
+                <div class="input-group input-group-sm border-0 shadow-sm rounded-3 overflow-hidden">
+                    <span class="input-group-text bg-white border-0"><i class="bi bi-calendar3"></i></span>
+                    <!-- The 'max' attribute disables tomorrow and any future dates in the picker -->
+                    <input type="date" name="filter_date" class="form-control border-0" 
+                           max="<?php echo $today; ?>" 
+                           value="<?php echo htmlspecialchars($f_date); ?>">
+                </div>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small fw-bold text-muted text-uppercase">Status</label>
+                <select name="status" class="form-select form-select-sm border-0 shadow-sm rounded-3">
+                    <option value="">All Status</option>
+                    <option value="Processing" <?php if($f_status == 'Processing') echo 'selected'; ?>>Processing</option>
+                    <option value="Shipping" <?php if($f_status == 'Shipping') echo 'selected'; ?>>Shipping</option>
+                    <option value="Complete" <?php if($f_status == 'Complete') echo 'selected'; ?>>Complete</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <button type="submit" class="btn btn-dark btn-sm w-100 rounded-3 shadow-sm py-2 fw-bold text-uppercase" style="background: #FF6B00; border: none;">
+                    <i class="bi bi-search me-1"></i> Search
+                </button>
+            </div>
+        </div>
+    </form>
+
+    <!-- 3. Results Table with fixed date display -->
+    <div class="table-responsive bg-white rounded-4 shadow-sm p-3">
+        <table class="table align-middle table-hover mb-0">
+            <thead>
+                <tr class="text-muted small">
+                    <th class="border-0 pb-3">ORDER ID</th>
+                    <th class="border-0 pb-3">TRANS. DATE</th>
+                    <th class="border-0 pb-3">ORDER AMOUNT</th>
+                    <th class="border-0 pb-3">STATUS</th>
+                </tr>
+            </thead>
+            <tbody class="fw-semibold">
+                <?php if($purchased_data && $purchased_data->num_rows > 0): ?>
+                    <?php while($row = $purchased_data->fetch_assoc()): 
+                        $status = $row['Order_Status'] ?? 'Complete';
+                        $badge_color = ($status == 'Processing') ? "bg-warning-subtle text-warning" : (($status == 'Shipping') ? "bg-info-subtle text-info" : "bg-success-subtle text-success");
+                    ?>
+                        <tr>
+                            <td class="py-3"><span class="text-dark">ORD#<?php echo sprintf("%06d", $row['Order_Id']); ?></span></td>
+                            <!-- Displays the date in a fixed Y-m-d format -->
+                            <td><?php echo date("Y-m-d", strtotime($row['Order_Date'])); ?></td>
+                            <td>RM <?php echo number_format($row['Total_Amount'] ?? 0, 2); ?></td>
+                            <td>
+                                <span class="badge rounded-pill <?php echo $badge_color; ?> px-3 py-2">
+                                    <?php echo $status; ?>
+                                </span>
+                            </td>
+                        </tr>
+                    <?php endwhile; ?>
+                <?php else: ?>
+                    <tr><td colspan="4" class="text-center py-4 text-muted">No purchases found.</td></tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
+    </div>
+</div>
 
             <h5 class="fw-800 mb-4"><i class="bi bi-tag-fill text-warning me-2"></i>Available Promo Codes</h5>
             <div class="row">
