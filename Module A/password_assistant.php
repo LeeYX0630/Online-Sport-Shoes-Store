@@ -1,17 +1,19 @@
 <?php
 /**
- * STEALTH SPORT SHOES - AI PASSWORD ASSISTANT
+ * SS SPORT - AI PASSWORD ASSISTANT
+ * Fully responsive and optimized for scrolling visibility.
  */
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
+include_once '../includes/header.php'; 
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Password Security Assistant - Stealth Sport Shoes</title>
+    <title>AI Password Security Assistant - SS Sport</title>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;800&family=Space+Grotesk:wght@700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
@@ -20,26 +22,27 @@ if (session_status() === PHP_SESSION_NONE) {
         :root {
             --brand-orange: #FF6B00;
             --brand-dark: #0F172A;
-            --bg-light: #F8FAFC;
+            --bg-light: #F1F5F9;
             --card-white: #FFFFFF;
-            --border-color: rgba(0, 0, 0, 0.05);
+            --border-color: #E2E8F0;
         }
 
         body {
             background-color: var(--bg-light);
+            background-image: radial-gradient(circle at 2px 2px, #e2e8f0 1px, transparent 0);
+            background-size: 40px 40px;
             font-family: 'Plus Jakarta Sans', sans-serif;
             color: #334155;
             min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px 0;
+            display: block; 
+            padding: 60px 20px;
+            overflow-y: auto;
         }
 
         .assistant-wrapper {
             width: 100%;
-            max-width: 650px;
-            margin: auto;
+            max-width: 600px;
+            margin: 0 auto;
         }
 
         .assistant-card {
@@ -47,15 +50,27 @@ if (session_status() === PHP_SESSION_NONE) {
             padding: 40px;
             border-radius: 32px;
             border: 1px solid var(--border-color);
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.06);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .assistant-card::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 8px;
+            background: linear-gradient(90deg, var(--brand-orange), #ff9d00);
         }
 
         .brand-logo-area {
             font-family: 'Space Grotesk', sans-serif;
-            font-size: 1.5rem;
+            font-size: 1.4rem;
             font-weight: 700;
             color: var(--brand-dark);
-            letter-spacing: -1px;
+            letter-spacing: -0.5px;
         }
 
         .brand-logo-area span {
@@ -64,44 +79,58 @@ if (session_status() === PHP_SESSION_NONE) {
 
         .page-title {
             font-family: 'Space Grotesk', sans-serif;
-            font-size: 2.2rem;
-            font-weight: 700;
-            line-height: 1.2;
-            letter-spacing: -1px;
+            font-size: 2.4rem;
+            font-weight: 800;
+            line-height: 1.1;
+            letter-spacing: -1.5px;
             color: var(--brand-dark);
+            margin-top: 15px;
         }
 
         .section-tag {
             color: var(--brand-orange);
             font-weight: 800;
-            font-size: 0.7rem;
-            background: rgba(255, 107, 0, 0.08);
-            padding: 6px 14px;
+            font-size: 0.75rem;
+            background: rgba(255, 107, 0, 0.1);
+            padding: 8px 16px;
             border-radius: 50px;
-            display: inline-block;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
             text-transform: uppercase;
             letter-spacing: 1px;
         }
 
         .form-control-custom {
-            height: 56px;
-            border-radius: 14px;
-            border: 1px solid #E2E8F0;
+            height: 64px;
+            border-radius: 18px;
+            border: 2px solid #F1F5F9;
             background: #F8FAFC;
-            font-size: 1.1rem;
-            padding: 0 18px;
-            font-weight: 500;
-            transition: all 0.2s ease;
+            font-size: 1.15rem;
+            padding: 0 20px;
+            font-weight: 600;
+            color: var(--brand-dark);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            font-family: monospace;
         }
 
         .form-control-custom:focus {
-            box-shadow: 0 0 0 4px rgba(255, 107, 0, 0.1);
+            box-shadow: 0 0 0 5px rgba(255, 107, 0, 0.15);
             border-color: var(--brand-orange);
             background: #FFFFFF;
+            outline: none;
+        }
+
+        .strength-meter-container {
+            background: #F8FAFC;
+            padding: 20px;
+            border-radius: 20px;
+            margin-top: 20px;
+            border: 1px solid #F1F5F9;
         }
 
         .strength-meter-bar {
-            height: 6px;
+            height: 8px;
             width: 100%;
             background-color: #E2E8F0;
             border-radius: 10px;
@@ -112,70 +141,79 @@ if (session_status() === PHP_SESSION_NONE) {
         .strength-fill {
             height: 100%;
             width: 0%;
-            transition: width 0.4s ease, background-color 0.4s ease;
+            transition: width 0.6s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.4s ease;
             border-radius: 10px;
         }
 
         .metric-card {
-            background: #F8FAFC;
-            border: 1px solid #E2E8F0;
-            border-radius: 14px;
-            padding: 14px 18px;
+            background: #FFFFFF;
+            border: 2px solid #F1F5F9;
+            border-radius: 16px;
+            padding: 12px 15px;
             font-size: 0.85rem;
+            font-weight: 600;
             display: flex;
             align-items: center;
-            gap: 12px;
-            transition: all 0.3s ease;
+            gap: 10px;
+            transition: all 0.2s ease;
+            color: #64748B;
         }
 
         .metric-card.valid {
-            background: rgba(16, 185, 129, 0.05);
-            border-color: rgba(16, 185, 129, 0.2);
-            color: #065F46;
+            background: #F0FDF4;
+            border-color: #BBF7D0;
+            color: #166534;
         }
 
         .metric-card i {
-            font-size: 1.2rem;
-            color: #94A3B8;
+            font-size: 1.1rem;
+            color: #CBD5E1;
         }
 
         .metric-card.valid i {
-            color: #10B981;
+            color: #22C55E;
         }
 
         .btn-action {
-            height: 54px;
-            border-radius: 14px;
-            font-weight: 700;
+            height: 58px;
+            border-radius: 18px;
+            font-weight: 800;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            gap: 8px;
-            transition: all 0.2s ease;
+            gap: 10px;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            font-size: 0.85rem;
+            letter-spacing: 0.5px;
         }
 
+       
         .btn-copy {
-            background: var(--brand-dark);
+            background: var(--brand-orange);
             color: white;
             border: none;
             width: 100%;
         }
 
         .btn-copy:hover {
-            background: #1e293b;
-            transform: translateY(-2px);
+            background: #e66000; /* Slightly darker orange on hover */
+            transform: translateY(-3px);
+            box-shadow: 0 10px 15px -3px rgba(255, 107, 0, 0.3);
         }
-
+        
         .btn-generate {
-            background: transparent;
+            background: white;
             color: var(--brand-orange);
             border: 2px solid var(--brand-orange);
             width: 100%;
         }
 
         .btn-generate:hover {
-            background: rgba(255, 107, 0, 0.05);
-            transform: translateY(-2px);
+            background: var(--brand-orange);
+            color: white;
+            transform: translateY(-3px);
+            box-shadow: 0 10px 15px -3px rgba(255, 107, 0, 0.2);
         }
 
         .btn-back {
@@ -188,34 +226,41 @@ if (session_status() === PHP_SESSION_NONE) {
 
         .btn-back:hover {
             background: #E2E8F0;
-            color: #1e293b;
-            transform: translateY(-2px);
+            color: var(--brand-dark);
+        }
+
+        #ai-feedback {
+            border: none;
+            background: linear-gradient(135deg, #FFF7ED 0%, #FFEDD5 100%);
+            position: relative;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);
         }
 
         .copy-toast {
             visibility: hidden;
-            background-color: #0F172A;
+            background-color: var(--brand-dark);
             color: #fff;
             text-align: center;
-            border-radius: 8px;
-            padding: 10px 20px;
+            border-radius: 12px;
+            padding: 14px 28px;
             position: fixed;
-            z-index: 100;
-            bottom: 30px;
+            z-index: 1000;
+            bottom: 40px;
             left: 50%;
             transform: translateX(-50%);
-            font-weight: 600;
-            font-size: 0.9rem;
-            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+            font-weight: 700;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2);
         }
 
         .copy-toast.show {
             visibility: visible;
-            animation: fadein 0.3s, fadeout 0.3s 2.2s;
+            animation: slideUpFade 0.4s forwards, slideDownFade 0.4s 2.2s forwards;
         }
 
-        @keyframes fadein { from { bottom: 0; opacity: 0; } to { bottom: 30px; opacity: 1; } }
-        @keyframes fadeout { from { bottom: 30px; opacity: 1; } to { bottom: 0; opacity: 0; } }
+        @keyframes slideUpFade { from { bottom: 0; opacity: 0; } to { bottom: 40px; opacity: 1; } }
+        @keyframes slideDownFade { from { bottom: 40px; opacity: 1; } to { bottom: 0; opacity: 0; } }
+        
+        hr { opacity: 0.1; }
     </style>
 </head>
 <body>
@@ -223,28 +268,26 @@ if (session_status() === PHP_SESSION_NONE) {
 <div class="container assistant-wrapper">
     <div class="assistant-card">
         
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <div class="brand-logo-area"><i class="bi bi-lightning-fill"></i> STEALTH <span>SPORT</span></div>
-            <span class="section-tag"><i class="bi bi-robot"></i> AI Powered</span>
+        <div class="d-flex justify-content-between align-items-center">
+            <div class="brand-logo-area"><i class="bi bi-lightning-charge-fill"></i> SS <span>SPORT</span></div>
+            <span class="section-tag"><i class="bi bi-cpu"></i> AI Secured</span>
         </div>
 
-        <div class="mb-4">
-            <h1 class="page-title">AI Password Assistant</h1>
-            <p class="text-muted mb-0">Evaluate your password security or generate a rock-solid one in a click.</p>
+        <div class="mt-3 mb-4">
+            <h1 class="page-title">Password Assistant</h1>
+            <p class="text-muted mt-2 mb-0">Security auditing and high-entropy generation for your account.</p>
         </div>
 
-        <hr style="border-color: #E2E8F0; margin-bottom: 30px;">
+        <hr class="my-4">
 
         <div class="mb-4">
-            <label class="form-label fw-bold text-dark text-uppercase small" style="letter-spacing: 1px;">Input Password</label>
-            <div class="input-group">
-                <input type="text" id="ai-password-input" class="form-control form-control-custom" placeholder="Type your password or generate one below" autocomplete="off">
-            </div>
+            <label class="form-label fw-800 text-dark text-uppercase small mb-2" style="letter-spacing: 1.5px;">Password Audit</label>
+            <input type="text" id="ai-password-input" class="form-control form-control-custom" placeholder="Type or generate a secure key" autocomplete="off">
             
-            <div class="mt-3">
+            <div class="strength-meter-container">
                 <div class="d-flex justify-content-between align-items-center mb-2">
-                    <span id="strength-label" class="small fw-bold text-muted" style="text-transform: uppercase; letter-spacing: 0.5px;">Strength: Not Entered</span>
-                    <span id="strength-percent" class="small fw-bold text-muted">0%</span>
+                    <span id="strength-label" class="small fw-800 text-muted" style="text-transform: uppercase;">Strength: Not Entered</span>
+                    <span id="strength-percent" class="badge rounded-pill bg-white text-dark border fw-800">0%</span>
                 </div>
                 <div class="strength-meter-bar">
                     <div id="strength-fill" class="strength-fill"></div>
@@ -252,62 +295,83 @@ if (session_status() === PHP_SESSION_NONE) {
             </div>
         </div>
 
-        <div class="row g-3 mb-4">
-            <div class="col-sm-6">
+        <div class="row g-2 mb-4">
+            <div class="col-6">
                 <div id="rule-length" class="metric-card">
-                    <i id="icon-length" class="bi bi-circle"></i> 8+ Characters
+                    <i id="icon-length" class="bi bi-circle"></i> 8+ Char
                 </div>
             </div>
-            <div class="col-sm-6">
+            <div class="col-6">
                 <div id="rule-case" class="metric-card">
-                    <i id="icon-case" class="bi bi-circle"></i> Upper & Lower Case
+                    <i id="icon-case" class="bi bi-circle"></i> A-z Mixed
                 </div>
             </div>
-            <div class="col-sm-6">
+            <div class="col-6">
                 <div id="rule-number" class="metric-card">
-                    <i id="icon-number" class="bi bi-circle"></i> Numbers (0-9)
+                    <i id="icon-number" class="bi bi-circle"></i> Numbers
                 </div>
             </div>
-            <div class="col-sm-6">
+            <div class="col-6">
                 <div id="rule-symbol" class="metric-card">
-                    <i id="icon-symbol" class="bi bi-circle"></i> Symbols (!@#$%^&*)
+                    <i id="icon-symbol" class="bi bi-circle"></i> Symbols
                 </div>
             </div>
         </div>
 
-        <div id="ai-feedback" class="p-3 mb-4 rounded-3 d-none" style="font-size: 0.85rem; border-left: 4px solid var(--brand-orange); background: #FFF7ED;">
-            <strong style="color: #9A3412;"><i class="bi bi-shield-shaded"></i> AI Security Advice:</strong>
-            <p id="ai-feedback-text" class="mb-0 mt-1 text-muted"></p>
+        <div id="ai-feedback" class="p-3 mb-4 rounded-4 d-none">
+            <div class="d-flex gap-2 align-items-center mb-1">
+                <i class="bi bi-shield-check text-orange fs-5"></i>
+                <strong style="color: #9A3412; font-size: 0.9rem;">AI SECURITY ADVICE</strong>
+            </div>
+            <p id="ai-feedback-text" class="mb-0 text-muted" style="font-size: 0.85rem; line-height: 1.5;"></p>
         </div>
 
         <div class="row g-3">
             <div class="col-md-4">
                 <button type="button" id="btn-generate" class="btn btn-action btn-generate">
-                    <i class="bi bi-magic"></i> Suggest
+                    <i class="bi bi-stars"></i> Suggest
                 </button>
             </div>
             <div class="col-md-4">
                 <button type="button" id="btn-copy" class="btn btn-action btn-copy">
-                    <i class="bi bi-clipboard-check"></i> Copy & Use
+                    <i class="bi bi-shield-lock"></i> Copy
                 </button>
             </div>
             <div class="col-md-4">
-                <button type="button" onclick="window.close();" class="btn btn-action btn-back">
-                    <i class="bi bi-arrow-left"></i> Go Back
+                <!-- Fixed Close Button Logic -->
+                <button type="button" id="btn-close-app" class="btn btn-action btn-back">
+                    <i class="bi bi-x-lg"></i> Close
                 </button>
             </div>
         </div>
 
-        <div class="text-center mt-4 pt-2">
-            <span class="small text-muted">Go back to your registration tab and paste it once satisfied.</span>
+        <div class="text-center mt-4">
+            <p class="small text-muted mb-0 fw-500">Securely copy and paste into the registration form.</p>
         </div>
 
     </div>
 </div>
 
-<div id="copy-toast" class="copy-toast">Password copied to clipboard!</div>
+<div id="copy-toast" class="copy-toast">Security Key Copied to Clipboard!</div>
 
 <script>
+// Logic to handle Close vs Back based on how the window was opened
+document.getElementById('btn-close-app').addEventListener('click', () => {
+    // Check if the page has a referrer (where it came from)
+    if (window.opener || window.history.length > 1) {
+        // Try to close if it's a popup
+        window.close();
+        // If it's still open, go back in history
+        setTimeout(() => {
+            window.history.back();
+        }, 100);
+    } else {
+        // Default to your home page if all else fails
+        window.location.href = '../index.php';
+    }
+});
+
+// --- START OF UNMODIFIED FUNCTIONAL LOGIC ---
 const pwdInput = document.getElementById('ai-password-input');
 const fill = document.getElementById('strength-fill');
 const sLabel = document.getElementById('strength-label');
@@ -416,6 +480,6 @@ document.getElementById('btn-copy').addEventListener('click', () => {
     });
 });
 </script>
-
 </body>
 </html>
+<?php include_once '../includes/footer.php'; ?>
