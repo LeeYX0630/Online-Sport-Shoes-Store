@@ -69,10 +69,30 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['verify_btn'])) {
             $stmt->bind_param("sssssiss", $name, $email, $password, $phone, $address, $postcode, $state, $dob);
 
             if ($stmt->execute()) {
+                // Auto-create one-time new user promo code for 20% off
+                $promo_code = null;
+                do {
+                    $candidate = rand(100000, 999999);
+                    $check_code = $conn->query("SELECT 1 FROM promo WHERE Promo_Code = $candidate LIMIT 1");
+                } while ($check_code && $check_code->num_rows > 0);
+                $promo_code = $candidate;
+                $promo_name = 'New User 20% Welcome';
+                $promo_value = 20.00;
+                $promo_type = 'Percentage';
+                $promo_status = 'Active';
+                $promo_expiry = date('Y-m-d', strtotime('+30 days'));
+
+                $promo_stmt = $conn->prepare("INSERT INTO promo (Promo_Name, Promo_Code, Promo_Value, Expired_Date, Promo_Status, Promo_Type) VALUES (?, ?, ?, ?, ?, ?)");
+                if ($promo_stmt) {
+                    $promo_stmt->bind_param('sddsss', $promo_name, $promo_code, $promo_value, $promo_expiry, $promo_status, $promo_type);
+                    $promo_stmt->execute();
+                    $promo_stmt->close();
+                }
+
                 // 成功：清除临时 Session 并跳转
                 unset($_SESSION['temp_user']);
                 echo "<script>
-                    alert('Account Verified Successfully! Welcome to Stealth Sport.');
+                    alert('Account Verified Successfully! A 20% new user promo code has been issued: $promo_code');
                     window.location.href='login.php';
                 </script>";
                 exit();

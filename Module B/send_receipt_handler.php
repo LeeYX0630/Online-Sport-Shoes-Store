@@ -95,7 +95,7 @@ function sendOrderReceiptEmail($order_id, $conn) {
 
                 <div style='background-color: #f9f9f9; padding: 15px; border-radius: 6px; margin-bottom: 30px; border-left: 4px solid #FF6B00;'>
                     <p style='margin: 0; font-size: 12px; color: #888; text-transform: uppercase; font-weight: bold;'>Shipping Address:</p>
-                    <p style='margin: 5px 0 0; font-size: 14px; color: #333;'>{$order['Order_Shipping_Addr']}</p>
+                    <p style='margin: 5px 0 0; font-size: 14px; color: #333;'>{$clean_shipping_addr}</p>
                 </div>
 
                 <table style='width: 100%; border-collapse: collapse; margin-bottom: 20px;'>

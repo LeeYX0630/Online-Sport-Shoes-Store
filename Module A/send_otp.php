@@ -2,7 +2,10 @@
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
 
-require 'vendor/autoload.php'; // 如果没有用 composer，请手动引用 PHPMailer 的三个核心文件
+
+require '../includes/PHPMailer/Exception.php';
+require '../includes/PHPMailer/PHPMailer.php';
+require '../includes/PHPMailer/SMTP.php';
 require '../includes/mail_config.php';
 
 session_start();
@@ -23,13 +26,14 @@ function sendOTP($recipientEmail) {
         $mail->Host       = 'smtp.gmail.com';
         $mail->SMTPAuth   = true;
         $mail->Username   = SMTP_EMAIL;
-        $mail->Password   = SMTP_PASS; 
-        $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS; 
+        $mail->Password   = SMTP_PASS;
+        $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
         $mail->Port       = 587;
+        
 
         // --- 收件人 ---
         $mail->setFrom('sportshoes.system@gmail.com', 'SS SPORT SHOES STORE');
-        $mail->addAddress($user_email, $order['User_Name']);
+        $mail->addAddress($recipientEmail);
 
         // --- 内容 ---
         $mail->isHTML(true);
@@ -52,7 +56,6 @@ function sendOTP($recipientEmail) {
     }
 }
 
-// 调用示例
 if (isset($_POST['email'])) {
     $result = sendOTP($_POST['email']);
     if ($result === true) {
@@ -61,4 +64,3 @@ if (isset($_POST['email'])) {
         echo "Error: " . $result;
     }
 }
-?>

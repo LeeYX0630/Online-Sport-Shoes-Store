@@ -30,6 +30,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['submit_contact'])) {
         $name = $email = $message = "";
     }
 }
+include_once '../includes/header.php'; 
 ?>
 
 <!DOCTYPE html>
@@ -212,4 +213,5 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['submit_contact'])) {
     <?php if (!empty($swalCode)) { echo "<script>$swalCode</script>"; } ?>
 
 </body>
+<?php include_once '../includes/footer.php'; ?>
 </html>

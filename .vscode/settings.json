@@ -1,0 +1,8 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^php -l \"Module B/checkout\\.php\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}

@@ -279,8 +279,11 @@ function handleOTPInput() {
     Swal.fire({
         title: 'Verify OTP',
         html: `
-            <input type="text" id="otp_code" class="swal2-input" placeholder="6-digit OTP" maxlength="6">
-            <input type="password" id="reset_pin" class="swal2-input" placeholder="Enter New 6-digit PIN" maxlength="6">
+            <!-- 增加 inputmode 弹出数字键盘，oninput 实时删除非数字字符 -->
+            <input type="text" id="otp_code" class="swal2-input" placeholder="6-digit OTP" maxlength="6" 
+                   inputmode="numeric" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+            <input type="password" id="reset_pin" class="swal2-input" placeholder="Enter New 6-digit PIN" maxlength="6" 
+                   inputmode="numeric" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
         `,
         confirmButtonText: 'Reset PIN',
         confirmButtonColor: '#17735b',

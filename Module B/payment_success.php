@@ -104,7 +104,11 @@ $res_details = $conn->query($sql_details);
             </div>
             <div class="col-6 text-end">
                 <h6 class="text-uppercase fw-bold text-muted small">Shipping Address:</h6>
-                <p class="mb-0 text-break small"><?php echo nl2br(htmlspecialchars($order['Order_Shipping_Addr'])); ?></p>
+                <?php 
+                    $display_addr = $order['Order_Shipping_Addr'];
+                    $display_addr = preg_replace('/\. Tel:.*$/i', '', $display_addr);
+                ?>
+                <p class="mb-0 text-break small"><?php echo nl2br(htmlspecialchars($display_addr)); ?></p>
             </div>
         </div>
 

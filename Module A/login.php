@@ -1,39 +1,42 @@
 <?php
-/** * Design: Stealth Sport Shoes - Light Aesthetic
- * Palette: Pink (Background), #FF6B00 (Action), #FFFFFF (Form)
+/** 
+ * Design: Stealth Sport Shoes - Compact Light Aesthetic
+ * Logic: Role-based redirection (@sport for Admin)
  */
 ob_start();
 session_start();
 require_once '../includes/db_connection.php';
 
-// --- 在原有代码的 ob_start(); 之后插入这段逻辑 ---
-
-$login_error = ""; // 用于存放错误提示
+$login_error = ""; 
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $email = $conn->real_escape_string(trim($_POST['email']));
-    $password = $_POST['password']; // 密码先不转义，因为要进行验证
+    $password = $_POST['password']; 
 
-    // 1. 查询数据库中是否存在该邮箱
     $sql = "SELECT * FROM `USER` WHERE User_Email = '$email'";
     $result = $conn->query($sql);
 
     if ($result && $result->num_rows > 0) {
         $user = $result->fetch_assoc();
 
-        // 2. 验证密码
-        // 提示：如果你的密码是加密存储的，请使用 password_verify($password, $user['User_Password'])
-        // 如果目前是明文存储（仅限开发测试），则直接对比：
         if (password_verify($password, $user['User_Password'])) {
-            
-            // 3. 登录成功，写入 Session
+            // Set basic session data
             $_SESSION['user_id'] = $user['User_Id'];
             $_SESSION['user_name'] = $user['User_Name'];
-            $_SESSION['role'] = $user['User_Role']; // 如果有权限区分
-
-            // 4. 重定向到商城目录页 (Module B)
-            header("Location: ../Module B/catalogue.php");
-            exit();
+            
+            // --- NEW REDIRECTION LOGIC ---
+            // Check if the email contains '@sport' to identify admin status
+            if (strpos($email, '@sport') !== false) {
+                $_SESSION['role'] = 'Admin';
+                header("Location: ../Module A/admin_dashboard.php"); // Path to your admin page
+                exit();
+            } else {
+                $_SESSION['role'] = 'Customer';
+                header("Location: ../Module B/catalogue.php"); // Path to customer catalogue
+                exit();
+            }
+            // ------------------------------
+            
         } else {
             $login_error = "Security Key (Password) is incorrect.";
         }
@@ -41,6 +44,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $login_error = "Email Handle not found in our records.";
     }
 }
+
+include_once '../includes/header.php'; 
 ?>
 
 <!DOCTYPE html>
@@ -56,162 +61,167 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     <style>
         :root {
             --brand-orange: #FF6B00;
-            --soft-pink: #FDF2F8; /* Very light pink background */
+            --soft-pink: #FDF2F8; 
             --deep-slate: #0F172A;
         }
 
-        body {
+        .login-page-wrapper {
             background-color: var(--soft-pink);
             font-family: 'Plus Jakarta Sans', sans-serif;
-            min-height: 100vh;
+            min-height: 85vh; 
             display: flex;
             align-items: center;
             justify-content: center;
-            margin: 0;
-            overflow: hidden;
+            padding: 40px 0;
             position: relative;
+            z-index: 1;
         }
 
-        /* LIGHT PINK SHOE BACKGROUND LAYER */
-        body::before {
+        .login-page-wrapper::before {
             content: "";
             position: absolute;
-            width: 100%;
-            height: 100%;
-            /* Using a light/pink high-end shoe as requested */
+            top: 0; left: 0; width: 100%; height: 100%;
             background-image: url('https://images.unsplash.com/photo-1595950653106-6c9ebd614d3a?q=80&w=2000'); 
-            background-size: 60%; /* Keeps shoe scale large but subtle */
+            background-size: 45%;
             background-repeat: no-repeat;
-            background-position: -5% 50%; /* Pushes shoe to the far left background */
-            opacity: 0.15; /* Keeps it very light so words are readable */
-            filter: grayscale(10%) sepia(20%) hue-rotate(300deg); /* Shifts color toward pink tones */
+            background-position: -10% 50%;
+            opacity: 0.1;
+            filter: grayscale(10%) sepia(20%) hue-rotate(300deg);
             z-index: -1;
         }
 
         .master-container {
-            width: 1050px;
-            height: 600px;
-            background: rgba(255, 255, 255, 0.9);
+            width: 900px; 
+            height: 540px; 
+            background: rgba(255, 255, 255, 0.92);
             backdrop-filter: blur(20px);
-            border-radius: 40px;
+            border-radius: 32px; 
             display: flex;
             overflow: hidden;
-            box-shadow: 0 40px 100px rgba(255, 107, 0, 0.05);
+            box-shadow: 0 30px 70px rgba(0, 0, 0, 0.05);
             border: 1px solid rgba(255, 255, 255, 0.8);
         }
 
-        /* Left side stays clean for the Pink background to show through */
         .branding-panel {
             flex: 1;
-            padding: 80px;
+            padding: 60px; 
             display: flex;
             flex-direction: column;
             justify-content: center;
-            z-index: 1;
         }
 
         .branding-panel h1 {
             font-family: 'Space Grotesk', sans-serif;
-            font-size: 5rem;
+            font-size: 4.2rem; 
             font-weight: 900;
-            line-height: 0.85;
+            line-height: 0.9;
             color: var(--deep-slate);
         }
 
         .branding-panel h1 span { color: var(--brand-orange); }
 
-        /* Form side stays pure White/Orange focus */
         .form-panel {
             flex: 1;
-            padding: 80px;
-            background: #FFFFFF; /* Pure white focus as requested */
+            padding: 60px; 
+            background: #FFFFFF; 
             display: flex;
             flex-direction: column;
             justify-content: center;
-            box-shadow: -20px 0 50px rgba(0,0,0,0.02);
+            box-shadow: -15px 0 40px rgba(0,0,0,0.02);
         }
 
         .form-label {
             font-weight: 800;
-            font-size: 0.7rem;
+            font-size: 0.65rem;
             text-transform: uppercase;
-            letter-spacing: 1.5px;
+            letter-spacing: 1.2px;
             color: #94A3B8;
         }
 
         .form-control {
-            height: 55px;
-            border-radius: 15px;
+            height: 48px; 
+            border-radius: 12px;
             border: 2px solid #F1F5F9;
             background: #F8FAFC;
             font-weight: 600;
-            margin-bottom: 25px;
+            margin-bottom: 18px;
+            font-size: 0.9rem;
         }
 
         .form-control:focus {
-            border-color: var(--brand-orange); /* Keep orange focus */
+            border-color: var(--brand-orange);
             background: #fff;
-            box-shadow: 0 10px 20px rgba(255, 107, 0, 0.05);
+            box-shadow: 0 8px 16px rgba(255, 107, 0, 0.05);
         }
 
         .btn-access {
-            background: var(--brand-orange); /* Orange button focus */
+            background: var(--brand-orange);
             color: white;
-            height: 60px;
-            border-radius: 18px;
+            height: 54px;
+            border-radius: 14px;
             font-weight: 800;
             text-transform: uppercase;
-            letter-spacing: 2px;
+            letter-spacing: 1.5px;
             border: none;
-            transition: 0.4s;
+            transition: 0.3s;
+            margin-top: 5px;
         }
 
         .btn-access:hover {
             background: #E66000;
-            transform: translateY(-2px);
-            box-shadow: 0 15px 30px rgba(255, 107, 0, 0.2);
+            transform: translateY(-1px);
+            box-shadow: 0 10px 20px rgba(255, 107, 0, 0.15);
+            color: white;
         }
 
         @media (max-width: 992px) {
             .branding-panel { display: none; }
-            .master-container { width: 100%; max-width: 450px; }
+            .master-container { width: 95%; max-width: 400px; height: auto; padding: 20px 0; }
         }
     </style>
 </head>
 <body>
 
-<div class="master-container">
-    <div class="branding-panel">
-        <span class="badge rounded-pill mb-3" style="background: rgba(255,107,0,0.1); color: var(--brand-orange); width: fit-content; font-weight: 800;">LITE COLLECTION</span>
-        <h1>Welcome<br>Back<span></span></h1>
-        <p class="text-muted mt-3">Access your exclusive locker at Stealth Sport Shoes.</p>
-    </div>
-
-    <div class="form-panel">
-        <div class="mb-5">
-            <h2 class="fw-800" style="font-weight: 800;">Sign In</h2>
-            <p class="text-muted small">Orange branding, Light aesthetic.</p>
+<div class="login-page-wrapper">
+    <div class="master-container">
+        <div class="branding-panel">
+            <span class="badge rounded-pill mb-3" style="background: rgba(255,107,0,0.1); color: var(--brand-orange); width: fit-content; font-weight: 800; padding: 6px 14px; font-size: 0.7rem;">LITE COLLECTION</span>
+            <h1>Welcome<br>Back<span>.</span></h1>
+            <p class="text-muted mt-2 small">Sign in to access your dashboard.</p>
         </div>
 
-        <form method="POST">
-            <div>
-                <label class="form-label">Email Handle</label>
-                <input type="email" name="email" class="form-control" placeholder="your@email.com" required>
+        <div class="form-panel">
+            <div class="mb-4">
+                <h3 style="font-weight: 800;">Sign In</h3>
+                <p class="text-muted small">Orange branding, light aesthetic.</p>
             </div>
 
-            <div>
-                <div class="d-flex justify-content-between">
-                    <label class="form-label">Security Key</label>
-                    <a href="forgot_password.php" class="text-decoration-none small fw-bold" style="color: var(--brand-orange);">FORGOT PASSWORD?</a>
+            <?php if (!empty($login_error)): ?>
+                <div class="alert alert-danger py-2 mb-3" style="border-radius: 10px; font-size: 0.8rem; font-weight: 600; border: none; background: rgba(220, 53, 69, 0.08); color: #dc3545;">
+                    <i class="bi bi-exclamation-circle me-2"></i><?php echo $login_error; ?>
                 </div>
-                <input type="password" name="password" class="form-control" placeholder="••••••••" required>
+            <?php endif; ?>
+
+            <form method="POST">
+                <div class="mb-2">
+                    <label class="form-label">Email Handle</label>
+                    <input type="email" name="email" class="form-control" placeholder="your@email.com" required>
+                </div>
+
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between">
+                        <label class="form-label">Security Key</label>
+                        <a href="forgot_password.php" class="text-decoration-none extra-small fw-bold" style="color: var(--brand-orange); font-size: 0.7rem;">FORGOT?</a>
+                    </div>
+                    <input type="password" name="password" class="form-control" placeholder="••••••••" required>
+                </div>
+
+                <button type="submit" class="btn btn-access w-100">Access Account</button>
+            </form>
+
+            <div class="text-center mt-4">
+                <p class="small text-muted">New member? <a href="register.php" class="fw-bold text-decoration-none" style="color: var(--brand-orange);">Join Now</a></p>
             </div>
-
-            <button type="submit" class="btn btn-access w-100">Access Account</button>
-        </form>
-
-        <div class="text-center mt-5">
-            <p class="small text-muted">New member? <a href="register.php" class="fw-bold text-decoration-none" style="color: var(--brand-orange);">Join Now</a></p>
         </div>
     </div>
 </div>
@@ -219,8 +229,4 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 </body>
 </html>
 
-<?php if (!empty($login_error)): ?>
-    <div class="alert alert-danger" style="border-radius: 12px; font-size: 0.85rem; font-weight: 600; border: none; background: rgba(220, 53, 69, 0.1); color: #dc3545;">
-        <i class="bi bi-exclamation-circle me-2"></i><?php echo $login_error; ?>
-    </div>
-<?php endif; ?>
+<?php include_once '../includes/footer.php'; ?>
