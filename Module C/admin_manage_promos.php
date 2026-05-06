@@ -28,13 +28,11 @@ $today_date = date('Y-m-d');
 $conn->query("UPDATE promo SET Promo_Status = 'Inactive' WHERE Expired_Date < '$today_date' AND Promo_Status = 'Active'");
 $msg = "";
 
-// --- 2. 逻辑处理 ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($current_admin_level != 1) {
         $msg = "<script>window.onload = () => { Swal.fire('Denied', 'Only Super Admin can manage promos.', 'error'); }</script>";
     } else {
         // Add Promo
-        // --- 【后端关键修复】：防止选择过去日期 ---
     if (isset($_POST['add_promo'])) {
         $name = $conn->real_escape_string($_POST['promo_name']);
         $code = strtoupper(trim($_POST['promo_code'])); 

@@ -7,11 +7,10 @@
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
 
-// 2. 修正后的路径：根据你的截图，文件直接在 PHPMailer 目录下
 require '../includes/PHPMailer/Exception.php';
 require '../includes/PHPMailer/PHPMailer.php';
 require '../includes/PHPMailer/SMTP.php';
-require '../includes/mail_config.php'; // 包含 SMTP_EMAIL 和 SMTP_PASS 常量
+require '../includes/mail_config.php';
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -66,8 +65,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_btn'])) {
             $mail->isSMTP();
             $mail->Host       = 'smtp.gmail.com';
             $mail->SMTPAuth   = true;
-            $mail->Username   = SMTP_EMAIL; // 你的 Gmail
-            $mail->Password   = SMTP_PASS; // 你的 16 位应用专用密码
+            $mail->Username   = SMTP_EMAIL;
+            $mail->Password   = SMTP_PASS;
             $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
             $mail->Port       = 587;
 
