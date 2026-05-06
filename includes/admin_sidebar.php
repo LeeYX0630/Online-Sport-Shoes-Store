@@ -9,10 +9,10 @@ $current_page = basename($_SERVER['PHP_SELF']);
     
     <div class="sidebar-header">
         <div class="logo-icon">
-            <img src="../images/picture/logo1.png" alt="Logo">
+            <img src="../images/picture/Logo 2.png" alt="Logo">
         </div>
         <div class="logo-text">
-            <h5>Online Sport Shoes</h5>
+            <h5>SS Sport</h5>
             <p>Admin Panel</p>
         </div>
     </div>
@@ -82,6 +82,9 @@ $current_page = basename($_SERVER['PHP_SELF']);
 </nav>
 
 <style>
+/* 导入谷歌字体 */
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@700;800&family=Bebas+Neue&display=swap');
+
 /* --- 基础布局 --- */
 .sidebar-container {
     width: 260px;
@@ -97,8 +100,16 @@ $current_page = basename($_SERVER['PHP_SELF']);
 }
 
 .sidebar-header { padding: 25px; display: flex; align-items: center; gap: 12px; }
-.logo-icon img { max-width: 40px; object-fit: contain; }
-.logo-text h5 { margin: 0; font-size: 16px; font-weight: 600; }
+.logo-icon img { max-width: 55px; object-fit: contain; }
+.logo-text h5 { 
+    margin: 0; 
+    font-size: 22px; 
+    font-weight: 800;
+    font-family: 'Bebas Neue', 'Poppins', sans-serif;
+    letter-spacing: 1px;
+    color: #FF6B00;
+    text-transform: uppercase;
+}
 .logo-text p { margin: 0; font-size: 12px; color: #888; }
 
 .sidebar-content { flex: 1; overflow-y: auto; padding: 10px 15px; }
