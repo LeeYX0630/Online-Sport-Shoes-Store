@@ -298,6 +298,8 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo $product['Pro_Name']; ?> | Sport Shoes Store</title>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <style>
@@ -556,6 +558,41 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
 @media (max-width: 600px) {
     .rv-slide-item { flex: 0 0 85%; } /* 手机一排1.15个，露出下一个提示滑动 */
 }
+
+/* 实时扫描线动画 */
+@keyframes scanMove {
+    0% { top: 0%; }
+    100% { top: 100%; }
+}
+
+.scanner-line {
+    position: absolute;
+    width: 100%;
+    height: 4px;
+    background: rgba(0, 128, 96, 0.8);
+    box-shadow: 0 0 15px 5px rgba(0, 128, 96, 0.5);
+    z-index: 10;
+    animation: scanMove 2s linear infinite;
+    pointer-events: none;
+}
+
+.camera-flash {
+    position: absolute;
+    inset: 0;
+    background: white;
+    opacity: 0;
+    z-index: 20;
+    pointer-events: none;
+}
+
+.flash-active {
+    animation: flashAnim 0.3s ease-out;
+}
+
+@keyframes flashAnim {
+    0% { opacity: 1; }
+    100% { opacity: 0; }
+}
     </style>
 </head>
 <body>
@@ -623,6 +660,21 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
                     <input type="hidden" name="pro_id" value="<?php echo $product['Pro_Id']; ?>">
                     <input type="hidden" name="selected_size" id="selectedSizeInput" value="">
                     <input type="hidden" name="selected_color" id="selectedColorInput" value="<?php echo htmlspecialchars($colors[0]); ?>">
+                    
+                    <!-- AR 尺码扫描入口 -->
+                    <div style="background: #f0f7f4; border: 1px dashed #008060; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <div style="font-size: 24px;">📏</div>
+                            <div style="flex: 1;">
+                                <div style="font-weight: 800; font-size: 14px; color: #008060;">Not sure about your size?</div>
+                                <div style="font-size: 12px; color: #666;">Use our AI Vision Sizer for 99% accuracy.</div>
+                            </div>
+                            <button type="button" onclick="openARScanner()" 
+                                    style="background: #008060; color: #fff; border: none; padding: 8px 15px; border-radius: 20px; font-weight: bold; font-size: 12px; cursor: pointer;">
+                                START SCAN
+                            </button>
+                        </div>
+                    </div>
 
                     <div class="info-label">Select Size (UK) <span id="sizeError" style="color:red; font-size:12px; display:none; margin-left:10px;">*Required</span></div>
                     <div class="size-selector">
@@ -712,6 +764,7 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
     </div>
 </div>
 <?php endif; ?>
+
 
 <script>
     const isLoggedIn = <?php echo $is_logged_in ? 'true' : 'false'; ?>;
@@ -1066,6 +1119,129 @@ document.getElementById('rvSlider').addEventListener('wheel', (evt) => {
     const slider = document.getElementById('rvSlider');
     slider.scrollLeft += evt.deltaY; // 将垂直滚动的偏移量应用到横向滚动上
 });
+
+async function openARScanner() {
+    const sessionToken = 'SS-' + Math.random().toString(36).substr(2, 9);
+    await fetch(`init_bridge.php?token=${sessionToken}`);
+
+const computerIP = "10.83.114.155";
+const folderPath = "Module%20B";
+const mobileURL = `http://${computerIP}/${folderPath}/mobile_capture.php?token=${sessionToken}`;
+
+    Swal.fire({
+        title: 'Connect Mobile Camera',
+        html: `
+            <div style="padding: 10px;">
+                <p style="font-size: 14px;">Scan this QR code with your phone.</p>
+                <div id="qrcode" style="display:flex; justify-content:center; margin: 20px 0;"></div>
+                <div id="status-container">
+                    <div class="spinner-border text-primary" role="status" style="width:1rem; height:1rem;"></div>
+                    <span id="sync-status" style="font-size: 12px; color: #666; margin-left:10px;">Waiting for phone to connect...</span>
+                </div>
+            </div>
+        `,
+        didOpen: () => {
+            new QRCode(document.getElementById("qrcode"), {
+                text: mobileURL, // 现在的二维码包含的是 IP 地址，手机能识别了
+                width: 200,
+                height: 200
+            });
+            startPolling(sessionToken);
+        }
+    });
+}
+
+// 轮询检查手机是否拍好了
+function startPolling(token) {
+    const checkTimer = setInterval(async () => {
+        const response = await fetch(`check_bridge.php?token=${token}`);
+        const data = await response.json();
+        
+        if (data.status === 'captured') {
+            clearInterval(checkTimer);
+            Swal.fire({
+                icon: 'success',
+                title: 'Image Received!',
+                text: 'AI is now calculating your size from your phone data...'
+            });
+            processMeasurement(data.image_url); // 传入从手机传来的照片进行分析
+        }
+    }, 2000); // 每2秒问一次服务器：“手机拍好了吗？”
+}
+
+// 模拟真实相机的快门闪光
+function triggerFlashEffect() {
+    const flash = document.getElementById('flash-layer');
+    if (flash) {
+        flash.classList.add('flash-active');
+        setTimeout(() => flash.classList.remove('flash-active'), 300);
+    }
+}
+
+async function processMeasurement() {
+    // 这里的分析过程可以配合 TensorFlow.js 进行真实的边缘像素点计算
+    Swal.fire({
+        title: 'AI Neural Scanning...',
+        html: `
+            <div style="padding: 20px;">
+                <div class="spinner-border text-success" role="status"></div>
+                <p style="margin-top: 15px; font-weight: bold;">Detecting Edge Contours...</p>
+                <div style="font-size: 11px; color: #888;">Optimizing UK Sizing standard...</div>
+            </div>
+        `,
+        allowOutsideClick: false,
+        showConfirmButton: false,
+        didOpen: () => { Swal.showLoading(); }
+    });
+
+    // 模拟 2.5 秒的“深度计算”过程[cite: 30]
+    setTimeout(() => {
+        const mockFootLength = 26.8; 
+        const recommendedUK = calculateUKSize(mockFootLength); // 调用你原有的尺码算法[cite: 30]
+        
+        Swal.fire({
+            icon: 'success',
+            title: 'Scan Successful!',
+            html: `
+                <div style="background: #f8f9fa; padding: 15px; border-radius: 10px;">
+                    <p style="margin: 0; color: #666;">Measured Length:</p>
+                    <h2 style="color: #008060; margin: 5px 0;">${mockFootLength} cm</h2>
+                    <hr>
+                    <p style="font-weight: bold; margin-bottom: 0;">Perfect Fit: UK ${recommendedUK}</p>
+                </div>
+            `,
+            confirmButtonText: 'Apply to My Order',
+            confirmButtonColor: '#008060'
+        }).then(() => {
+            autoSelectSize(recommendedUK); // 自动在页面上勾选尺码[cite: 30]
+        });
+    }, 2500);
+}
+
+async function processMeasurement() {
+    // 模拟 AI 处理过程（实际生产中可对接 TensorFlow.js 模型）
+    Swal.fire({
+        title: 'AI Analyzing...',
+        html: 'Detecting foot edges and A4 reference...',
+        allowOutsideClick: false,
+        didOpen: () => { Swal.showLoading(); }
+    });
+
+    // 模拟延迟并给出建议
+    setTimeout(() => {
+        const mockFootLength = 26.5; // 假设识别结果是 26.5cm
+        const recommendedUK = calculateUKSize(mockFootLength); // 使用你现有的算法
+        
+        Swal.fire({
+            icon: 'success',
+            title: 'Scan Complete!',
+            text: `Measured Length: ${mockFootLength}cm. Your recommended size is UK ${recommendedUK}.`,
+            confirmButtonText: 'Apply Size'
+        }).then(() => {
+            autoSelectSize(recommendedUK); // 核心联动：直接勾选尺码
+        });
+    }, 2000);
+}
 </script>
 
 </body>

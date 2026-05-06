@@ -79,6 +79,16 @@ $color_names = [
     </div>
 
     <div class="config-panel">
+        <div class="fixed-section" style="background: linear-gradient(135deg, #f0f7f4 0%, #ffffff 100%); border-bottom: 2px solid #008060;">
+            <p class="section-title" style="color: #008060;"><i class="bi bi-magic"></i> AI Dream Generator</p>
+            <div style="display: flex; gap: 8px;">
+                <input type="text" id="aiStyleInput" class="input-field" 
+                    placeholder="e.g. Cyberpunk 2077, Mars Exploration..." 
+                    style="margin-bottom: 0; flex: 1; height: 40px; font-size: 13px;">
+                <button type="button" class="nav-btn active" id="aiGenBtn" onclick="generateAIDesign()" 
+                        style="width: 60px; height: 40px; padding: 0;">GEN</button>
+            </div>
+        </div>
         <div class="fixed-nav-area">
             <div class="fixed-section">
                 <p class="section-title">Presentation</p>
@@ -438,6 +448,66 @@ async function executeSave(targetId) {
             });
         }, { once: true });
     }
+
+    async function generateAIDesign() {
+    const input = document.getElementById('aiStyleInput');
+    const btn = document.getElementById('aiGenBtn');
+    const style = input.value.trim();
+
+    if (!style) {
+        Swal.fire('Input Required', 'Please describe your style first!', 'info');
+        return;
+    }
+
+    // UI 反馈：开始加载
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    viewer.classList.add('is-loading'); // 利用你现有的加载遮罩[cite: 24]
+
+    try {
+        const response = await fetch('gemini_handler.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: style, mode: 'designer' })
+        });
+        
+        const data = await response.json();
+        const design = JSON.parse(data.reply); // 解析 AI 返回的颜色 JSON
+
+        // --- 核心联动：将 AI 的建议涂装到模型上 ---
+        for (const part in design) {
+            if (currentSelections[part]) {
+                const config = design[part];
+                
+                // 1. 更新内部数据对象[cite: 24]
+                currentSelections[part].color = config.color;
+                currentSelections[part].roughness = config.roughness;
+
+                // 2. 物理应用到 3D 模型[cite: 24]
+                const materials = viewer.model.materials.filter(m => m.name.includes(part));
+                materials.forEach(m => {
+                    m.pbrMetallicRoughness.setBaseColorFactor(config.color);
+                    m.pbrMetallicRoughness.setRoughnessFactor(config.roughness);
+                });
+            }
+        }
+
+        Swal.fire({
+            icon: 'success',
+            title: 'Design Generated!',
+            text: 'AI has applied the "' + style + '" theme to your shoe.',
+            toast: true, position: 'top-end', showConfirmButton: false, timer: 3000
+        });
+
+    } catch (error) {
+        console.error('AI Design Error:', error);
+        Swal.fire('AI Error', 'Failed to generate design. Please try a different description.', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerText = 'GEN';
+        viewer.classList.remove('is-loading');
+    }
+}
 </script>
 
 <?php include '../includes/footer.php'; ?>
