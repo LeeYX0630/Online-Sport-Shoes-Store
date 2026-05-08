@@ -1,16 +1,15 @@
 <?php
 /**
- * STEALTH SPORT SHOES - RESET PASSWORD
- * Module A: User Permissions & Profile
+ * STEALTH SPORT SHOES - SECURITY RESET
+ * SUCCESS STATE: Soft Green Pill Alert (Matches Reference Image)
  */
 session_start();
 ob_start();
 
-// Use the database connection established in previous modules
 require_once '../includes/db_connection.php';
 
 $error = "";
-// Ensure the session key matches what you set in your forgot_password logic
+$success = false; 
 $token_valid = isset($_SESSION['reset_user_id']) || isset($_SESSION['reset_data']['email']);
 
 if ($_SERVER["REQUEST_METHOD"] == "POST" && $token_valid) {
@@ -18,16 +17,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && $token_valid) {
     $pass2 = $_POST['confirm_password'];
 
     if ($pass1 !== $pass2) {
-        $error = "Passwords do not match.";
+        $error = "Security mismatch: Password confirmation failed.";
     } elseif (strlen($pass1) < 8) {
-        $error = "Password must be at least 8 characters.";
+        $error = "Validation error: Minimum 8 characters required.";
     } else {
         $hashed_password = password_hash($pass1, PASSWORD_DEFAULT);
         
-        /* ✅ SQL FIX: 
-           Matching lowercase table 'user' and prefixed columns 'User_Password'/'User_Id'
-           as seen in your phpMyAdmin screenshot.
-        */
         if (isset($_SESSION['reset_user_id'])) {
             $user_id = $_SESSION['reset_user_id'];
             $update = $conn->prepare("UPDATE user SET User_Password = ? WHERE User_Id = ?");
@@ -39,15 +34,16 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && $token_valid) {
         }
 
         if ($update->execute()) {
-            session_unset();
+            $success = true;
+            session_unset(); 
             session_destroy();
-            echo "<script>alert('Password updated successfully!'); window.location.href='login.php';</script>";
-            exit();
+            header("refresh:4;url=login.php");
         } else {
-            $error = "Database update failed: " . $conn->error;
+            $error = "System synchronization error: " . $conn->error;
         }
     }
 }
+include_once '../includes/header.php'; 
 ?>
 
 <!DOCTYPE html>
@@ -55,180 +51,216 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && $token_valid) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Reset Password | Stealth Sport Shoes</title>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap" rel="stylesheet">
+    <title>Security Portal | Sole 2 Soul</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
 
     <style>
         :root { 
             --brand-orange: #FF6B00; 
-            --soft-gray: #F1F5F9; 
-            --danger: #EF4444;
-            --warning: #F59E0B;
-            --success: #10B981;
-        }
-        body { 
-            background-color: #F8FAFC; 
-            font-family: 'Plus Jakarta Sans', sans-serif;
-            min-height: 100vh; display: flex; align-items: center; justify-content: center; margin: 0;
+            --brand-blue: #0F172A;
+            --bg-canvas: #F1F5F9;
+            --success-bg: #D1E7DD; /* Matches your image */
+            --success-text: #0F5132;
         }
 
-        .reset-container { max-width: 500px; width: 100%; padding: 20px; }
-        .glass-card { 
-            background: #FFFFFF; padding: 45px; border-radius: 35px; 
-            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.08); 
-            border: 1px solid rgba(0,0,0,0.03);
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: var(--bg-canvas); }
+
+        .modular-wrapper {
+            max-width: 1000px;
+            margin: 60px auto;
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            gap: 25px;
+            padding: 0 20px;
         }
 
-        .brand-icon {
-            width: 60px; height: 60px; background: rgba(255, 107, 0, 0.1);
-            color: var(--brand-orange); border-radius: 18px;
-            display: flex; align-items: center; justify-content: center;
-            margin: 0 auto 20px; font-size: 1.8rem;
+        .card-module {
+            background: #FFFFFF;
+            border-radius: 24px;
+            padding: 30px;
+            box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05);
+            border: 1px solid rgba(226, 232, 240, 0.8);
         }
 
-        .form-label { font-weight: 800; font-size: 0.75rem; color: #94A3B8; text-transform: uppercase; letter-spacing: 1px; }
+        .section-title { font-weight: 800; font-size: 0.8rem; color: #64748B; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 20px; display: block; }
+
+        /* Left Side Status */
+        .status-pill {
+            display: flex; align-items: center; gap: 12px; padding: 14px 18px;
+            border-radius: 16px; margin-bottom: 10px; background: #F8FAFC; border: 2px solid transparent;
+        }
+        .active-weak { background: #FEF2F2 !important; border-color: #FECACA !important; color: #B91C1C !important; }
+        .active-medium { background: #FFFBEB !important; border-color: #FDE68A !important; color: #92400E !important; }
+        .active-strong { background: #F0FDF4 !important; border-color: #BBF7D0 !important; color: #065F46 !important; }
+
+        /* Form Styling */
+        .form-card { padding: 50px; }
+        .form-header { margin-bottom: 30px; border-bottom: 2px solid #F1F5F9; padding-bottom: 20px; }
+        .form-header h2 { font-weight: 800; color: var(--brand-blue); display: flex; align-items: center; gap: 12px; }
+        .header-icon { color: var(--brand-orange); font-size: 2.2rem; }
         
-        .input-group-custom { 
-            background: var(--soft-gray); border-radius: 15px; padding: 5px 15px; 
-            display: flex; align-items: center; border: 2px solid transparent; transition: 0.3s;
+        .field-wrapper {
+            background: #F8FAFC; border-radius: 16px; padding: 4px 18px;
+            display: flex; align-items: center; border: 2px solid #E2E8F0; transition: 0.3s;
         }
-        .input-group-custom:focus-within { border-color: var(--brand-orange); background: #FFF; }
-        .input-group-custom input { border: none; background: transparent; padding: 12px; width: 100%; outline: none; font-weight: 600; }
+        .field-wrapper:focus-within { border-color: var(--brand-orange); background: white; }
+        .field-wrapper input { border: none; background: transparent; padding: 14px; width: 100%; outline: none; font-weight: 600; }
 
-        .btn-update { 
-            background: var(--brand-orange); color: white; border: none; padding: 18px; 
-            border-radius: 15px; font-weight: 800; width: 100%; transition: 0.4s; margin-top: 10px;
-            text-align: center; display: block; text-decoration: none;
+        .btn-main {
+            background: var(--brand-orange); color: white; border: none; padding: 18px;
+            border-radius: 16px; font-weight: 800; width: 100%; text-transform: uppercase;
+            letter-spacing: 1px; transition: 0.4s; margin-top: 10px;
         }
-        .btn-update:hover {
-            background: #E66000;
-            transform: translateY(-2px);
-            box-shadow: 0 15px 30px rgba(255, 107, 0, 0.2);
-            color: white;
+        .btn-main:hover { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(255, 107, 0, 0.2); }
+
+        /* IMAGE STYLE SUCCESS BOX */
+        .success-pill-box {
+            background-color: var(--success-bg);
+            color: var(--success-text);
+            padding: 22px 30px;
+            border-radius: 18px;
+            text-align: center;
+            margin-bottom: 35px;
+            font-size: 0.95rem;
+            font-weight: 500;
+            line-height: 1.5;
+            animation: fadeIn 0.4s ease-out;
         }
 
-        .strength-meter { font-size: 0.8rem; font-weight: 800; display: block; margin-top: 12px; }
-        .guidance-box {
-            background: #F8FAFC; border-radius: 15px; padding: 15px; margin-top: 10px; border: 1px solid #EDF2F7;
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
-        .tip-item { font-size: 0.75rem; color: #64748B; display: block; margin-bottom: 5px; transition: 0.3s; }
-        .tip-item.met { color: var(--success); font-weight: 600; }
-        .tip-item.met i { margin-right: 5px; }
 
-        /* Style for smaller custom buttons at the bottom */
-        .btn-small-link {
-            display: inline-block;
-            font-size: 0.85rem;
-            font-weight: 600;
-            color: #64748B;
-            text-decoration: none;
-            transition: color 0.2s;
-            margin-top: 15px;
+        .assistance-link {
+            display: inline-block; margin-top: 25px; color: var(--brand-blue);
+            font-weight: 700; font-size: 0.85rem; text-decoration: none; opacity: 0.6; transition: 0.3s;
         }
-        .btn-small-link:hover {
-            color: var(--brand-orange);
-        }
+        .assistance-link:hover { opacity: 1; color: var(--brand-orange); }
+
+        @media (max-width: 900px) { .modular-wrapper { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
 
-<div class="reset-container">
-    <div class="glass-card">
-        <div class="brand-icon"><i class="bi bi-shield-lock"></i></div>
-        <div class="text-center mb-4">
-            <h2 class="fw-bold">New Password</h2>
-            <p class="text-muted small">Update your credentials below.</p>
+<div class="modular-wrapper">
+    <div class="side-column">
+        <div class="card-module mb-4" style="background: #FFF9F5; border: 1px solid #FFEDD5;">
+            <span class="section-title"><i class="bi bi-shield-lock-fill"></i> Security Guide</span>
+            <p style="font-size: 0.85rem; color: #9A3412; line-height: 1.6; font-weight: 500;">
+                Creating a robust password protects your account from unauthorized access. Mix letters, numbers, and symbols.
+            </p>
         </div>
 
-        <?php if($error): ?>
-            <div class="alert alert-danger border-0 small text-center mb-4"><?php echo $error; ?></div>
-        <?php endif; ?>
+        <div class="card-module">
+            <span class="section-title">Strength Analysis</span>
+            <div class="status-pill" id="lvl-weak"><i class="bi bi-shield-x"></i><span>WEAK</span></div>
+            <div class="status-pill" id="lvl-medium"><i class="bi bi-shield-minus"></i><span>MEDIUM</span></div>
+            <div class="status-pill" id="lvl-strong"><i class="bi bi-shield-check"></i><span>STRONG</span></div>
+        </div>
+    </div>
 
-        <form method="POST" id="resetForm">
-            <div class="mb-4">
-                <label class="form-label">Create Password</label>
-                <div class="input-group-custom">
-                    <i class="bi bi-key-fill text-muted"></i>
-                    <input type="password" name="password" id="main-pwd" placeholder="Type password..." required autofocus>
-                </div>
-                
-                <div id="strength-label" class="strength-meter"></div>
-                
-                <div class="guidance-box">
-                    <span class="tip-item" id="tip-len"><i class="bi bi-circle"></i> At least 8 characters</span>
-                    <span class="tip-item" id="tip-upper"><i class="bi bi-circle"></i> One uppercase letter (A-Z)</span>
-                    <span class="tip-item" id="tip-num"><i class="bi bi-circle"></i> One number (0-9)</span>
-                    <span class="tip-item" id="tip-sym"><i class="bi bi-circle"></i> One special character (@$!%)</span>
-                </div>
-            </div>
-
-            <div class="mb-4">
-                <label class="form-label">Confirm Password</label>
-                <div class="input-group-custom">
-                    <i class="bi bi-check-circle-fill text-muted"></i>
-                    <input type="password" name="confirm_password" placeholder="Repeat password" required>
-                </div>
-            </div>
-
-            <button type="submit" class="btn-update w-100" id="submitBtn">SAVE CHANGES</button>
+    <div class="form-column">
+        <div class="card-module form-card">
             
-            <div class="text-center d-flex justify-content-between align-items-center mt-2">
-                <a href="password_assistant.php" class="btn-small-link"><i class="bi bi-arrow-left"></i> Password Assistant</a>
-                <a href="login.php" class="btn-small-link">Back to Login</a>
+            <div class="form-header">
+                <h2><i class="bi bi-shield-lock header-icon"></i> New Credentials</h2>
+                <p class="text-muted small mb-0">Established your new account access keys below.</p>
             </div>
-        </form>
+
+            <?php if($success): ?>
+                <div class="success-pill-box">
+                    Your password was updated successfully! <br> 
+                    Please wait while we redirect you to the login portal.
+                </div>
+            <?php endif; ?>
+
+            <?php if($error): ?>
+                <div class="alert alert-danger border-0 small py-2 mb-4" style="border-radius:12px;">
+                    <i class="bi bi-exclamation-octagon me-2"></i><?php echo $error; ?>
+                </div>
+            <?php endif; ?>
+
+            <form method="POST" id="resetForm" <?php if($success) echo 'style="opacity: 0.3; pointer-events: none;"'; ?>>
+                <div class="mb-4">
+                    <label class="fw-bold small text-secondary mb-2 d-block">New Password</label>
+                    <div class="field-wrapper">
+                        <i class="bi bi-key text-muted"></i>
+                        <input type="password" name="password" id="main-pwd" placeholder="Min. 8 characters" required autofocus>
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <label class="fw-bold small text-secondary mb-2 d-block">Verify Password</label>
+                    <div class="field-wrapper" id="verify-border">
+                        <i class="bi bi-check2-all text-muted"></i>
+                        <input type="password" name="confirm_password" id="confirm-pwd" placeholder="Confirm your entry" required>
+                    </div>
+                    <div id="match-status" style="font-weight:800; font-size:0.7rem; margin-top:10px; display:none;"></div>
+                </div>
+
+                <button type="submit" class="btn-main">Save Changes</button>
+
+                <div class="text-center">
+                    <a href="password_assistant.php" class="assistance-link">
+                        <i class="bi bi-patch-question me-1"></i> Need Password Assistance?
+                    </a>
+                </div>
+            </form>
+        </div>
     </div>
 </div>
 
 <script>
 const pwdInput = document.getElementById('main-pwd');
-const strengthLabel = document.getElementById('strength-label');
-const tips = {
-    len: document.getElementById('tip-len'),
-    upper: document.getElementById('tip-upper'),
-    num: document.getElementById('tip-num'),
-    sym: document.getElementById('tip-sym')
+const confInput = document.getElementById('confirm-pwd');
+const matchStatus = document.getElementById('match-status');
+const verifyBorder = document.getElementById('verify-border');
+
+const levels = {
+    weak: document.getElementById('lvl-weak'),
+    medium: document.getElementById('lvl-medium'),
+    strong: document.getElementById('lvl-strong')
 };
 
-function updateTip(element, isMet) {
-    if (isMet) {
-        element.classList.add('met');
-        element.querySelector('i').className = 'bi bi-check-circle-fill';
+function monitorSecurity() {
+    if(!pwdInput) return;
+    const p1 = pwdInput.value;
+    const p2 = confInput.value;
+
+    const score = [p1.length >= 8, /[A-Z]/.test(p1), /[0-9]/.test(p1), /[^A-Za-z0-9]/.test(p1)].filter(Boolean).length;
+
+    Object.values(levels).forEach(l => l.classList.remove('active-weak', 'active-medium', 'active-strong'));
+
+    if (p1 !== "") {
+        if (score <= 1) levels.weak.classList.add('active-weak');
+        else if (score <= 3) levels.medium.classList.add('active-medium');
+        else levels.strong.classList.add('active-strong');
+    }
+
+    if (p2 === "") {
+        matchStatus.style.display = "none";
+        verifyBorder.style.borderColor = "#E2E8F0";
+    } else if (p1 === p2) {
+        matchStatus.innerText = "IDENTITY VERIFIED ✓";
+        matchStatus.style.color = "#10B981";
+        matchStatus.style.display = "block";
+        verifyBorder.style.borderColor = "#10B981";
     } else {
-        element.classList.remove('met');
-        element.querySelector('i').className = 'bi bi-circle';
+        matchStatus.innerText = "SECURITY MISMATCH ✗";
+        matchStatus.style.color = "#EF4444";
+        matchStatus.style.display = "block";
+        verifyBorder.style.borderColor = "#EF4444";
     }
 }
 
-pwdInput.addEventListener('input', function() {
-    const val = this.value;
-    const hasLen = val.length >= 8;
-    const hasUpper = /[A-Z]/.test(val);
-    const hasNum = /[0-9]/.test(val);
-    const hasSym = /[^A-Za-z0-9]/.test(val);
-
-    updateTip(tips.len, hasLen);
-    updateTip(tips.upper, hasUpper);
-    updateTip(tips.num, hasNum);
-    updateTip(tips.sym, hasSym);
-
-    const score = [hasLen, hasUpper, hasNum, hasSym].filter(Boolean).length;
-
-    if (val === "") {
-        strengthLabel.innerText = "";
-    } else if (score <= 1) {
-        strengthLabel.innerText = "STRENGTH: WEAK 🔴";
-        strengthLabel.style.color = "#EF4444";
-    } else if (score <= 3) {
-        strengthLabel.innerText = "STRENGTH: MEDIUM 🟡";
-        strengthLabel.style.color = "#F59E0B";
-    } else {
-        strengthLabel.innerText = "STRENGTH: STRONG 🟢";
-        strengthLabel.style.color = "#10B981";
-    }
-});
+if(pwdInput){
+    pwdInput.addEventListener('input', monitorSecurity);
+    confInput.addEventListener('input', monitorSecurity);
+}
 </script>
 </body>
 </html>
+<?php include_once '../includes/footer.php'; ?>
