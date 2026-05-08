@@ -240,8 +240,16 @@ if ($admin_id) {
         .text-success-custom { color: #10b981; }
         .text-danger-custom { color: #ef4444; }
 
-        .calendar-trigger { width: 38px; height: 38px; background: #f1f5f9; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; border: 1px solid #e2e8f0; color: #64748b; }
+        .calendar-trigger {position: relative; width: 38px; height: 38px; background: #f1f5f9; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; border: 1px solid #e2e8f0; color: #64748b; }
         .calendar-trigger:hover { background: var(--orange-primary); color: white; }
+        /* 强制日历在 static 模式下的定位 */
+        .flatpickr-calendar.static {
+            top: 100% !important;
+            left: auto !important;
+            right: 0 !important; /* 让日历向左展开，避免超出屏幕右侧 */
+            margin-top: 15px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1) !important;
+        }
 
         @media (max-width: 991px) { .main-content { margin-left: 0; padding: 15px; } }
     </style>
@@ -412,10 +420,17 @@ if ($admin_id) {
         });
     }
 
+    // 找到 script 标签中的 flatpickr 初始化部分
     const fp = flatpickr("#weekPicker", {
         maxDate: "today",
         defaultDate: "today",
-        onChange: function(selectedDates) { renderChart(selectedDates[0]); }
+        // 关键修改点：
+        appendTo: document.getElementById('calendarBtn'), // 挂载到按钮本身
+        static: true,                                    // 开启静态定位模式
+        position: "below right",                         // 强制在下方，并对齐右侧
+        onChange: function(selectedDates) { 
+            renderChart(selectedDates[0]); 
+        }
     });
 
     document.getElementById('calendarBtn').addEventListener('click', () => fp.open());
