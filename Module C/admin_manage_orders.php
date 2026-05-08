@@ -140,12 +140,31 @@ $result = mysqli_query($conn, $sql);
             margin-bottom: 25px;
         }
         
-        /* 状态标签样式 */
-        .badge-status { padding: 6px 12px; border-radius: 8px; font-size: 11px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; }
-        .bg-pending { background: #fef3c7; color: #92400e; }
-        .bg-processing { background: #e0e7ff; color: #3730a3; }
-        .bg-shipped { background: #dbeafe; color: #1e40af; }
-        .bg-delivered { background: #dcfce7; color: #166534; }
+        .badge-status { 
+            width: 100px; /* 固定宽度确保格子长度相同 */
+            height: 32px;
+            justify-content: center; /* 文字居中 */
+            padding: 0; 
+            border-radius: 8px; 
+            font-size: 11px; 
+            font-weight: 700; 
+            cursor: pointer; 
+            display: inline-flex; 
+            align-items: center;
+            border: none;
+            transition: all 0.3s ease;
+        }
+
+        /* 状态对应颜色方案 */
+        .bg-pending { background-color: #FFF4E5; color: #FF8C00; border: 1px solid #FFE0B2; }    /* 橙色/警告 */
+        .bg-processing { background-color: #E8EAF6; color: #3F51B5; border: 1px solid #C5CAE9; } /* 紫色/处理 */
+        .bg-shipped { background-color: #E3F2FD; color: #1976D2; border: 1px solid #BBDEFB; }    /* 蓝色/运输 */
+        .bg-delivered { background-color: #E8F5E9; color: #2E7D32; border: 1px solid #C8E6C9; }  /* 绿色/完成 */
+
+        /* 移除下拉箭头的默认边距 */
+        .dropdown-toggle::after {
+            margin-left: 8px;
+        }
 
         .stat-icon { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 24px; }
         .icon-pending { background: #fff7ed; color: #f59e0b; }
@@ -156,6 +175,7 @@ $result = mysqli_query($conn, $sql);
         .btn-orange-outline { border: 1px solid var(--orange-primary); color: var(--orange-primary); transition: 0.3s; }
         .btn-orange-outline:hover { background: var(--orange-primary); color: white; }
 
+        
         @media (max-width: 991px) { .main-content { margin-left: 0; padding: 15px; } }
     </style>
 </head>
@@ -222,31 +242,56 @@ $result = mysqli_query($conn, $sql);
                             <tr>
                                 <th>ORDER ID</th>
                                 <th>CUSTOMER</th>
-                                <th>PRODUCTS</th>
-                                <th>STATUS</th>
+                                <th>TRANSACTION DATE</th> <th>TRANSACTION TIME</th> <th>STATUS</th>
                                 <th>AMOUNT</th>
                                 <th class="text-end">ACTION</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <?php while($row = mysqli_fetch_assoc($result)): ?>
+                            <?php 
+                            // 定义严格的状态流转顺序
+                            $status_flow = ['Pending', 'Processing', 'Shipped', 'Delivered'];
+
+                            while($row = mysqli_fetch_assoc($result)): 
+                                // 拆分日期与时间
+                                $order_timestamp = strtotime($row['Order_Date']);
+                                $display_date = date('d M Y', $order_timestamp);
+                                $display_time = date('h:i A', $order_timestamp);
+                                
+                                // 计算当前状态在流转链条中的位置
+                                $current_status = $row['Order_Status'];
+                                $current_index = array_search($current_status, $status_flow);
+                            ?>
                             <tr>
                                 <td class="fw-bold">#ORD-<?php echo $row['Order_Id']; ?></td>
-                                <td><?php echo htmlspecialchars($row['User_Name']); ?></td>
-                                <td class="small text-truncate" style="max-width: 200px;"><?php echo htmlspecialchars($row['products']); ?></td>
                                 <td>
+                                    <div class="fw-bold"><?php echo htmlspecialchars($row['User_Name']); ?></div>
+                                    <div class="small text-muted"><?php echo $row['User_Email']; ?></div>
+                                </td>
+                                <td><?php echo $display_date; ?></td> <td><?php echo $display_time; ?></td> <td>
                                     <div class="dropdown">
-                                        <span class="badge-status bg-<?php echo strtolower($row['Order_Status']); ?> dropdown-toggle" 
-                                              data-bs-toggle="dropdown" aria-expanded="false">
-                                            <?php echo $row['Order_Status']; ?>
-                                        </span>
-                                        <ul class="dropdown-menu border-0 shadow-sm">
-                                            <li><a class="dropdown-item" href="javascript:void(0)" onclick="updateStatus(<?php echo $row['Order_Id']; ?>, 'Pending')">Pending</a></li>
-                                            <li><a class="dropdown-item" href="javascript:void(0)" onclick="updateStatus(<?php echo $row['Order_Id']; ?>, 'Processing')">Processing</a></li>
-                                            <li><a class="dropdown-item" href="javascript:void(0)" onclick="updateStatus(<?php echo $row['Order_Id']; ?>, 'Shipped')">Shipped</a></li>
-                                            <li><a class="dropdown-item" href="javascript:void(0)" onclick="updateStatus(<?php echo $row['Order_Id']; ?>, 'Delivered')">Delivered</a></li>
-                                        </ul>
-                                    </div>
+    <span class="badge-status bg-<?php echo strtolower($current_status); ?> dropdown-toggle" 
+          data-bs-toggle="dropdown" aria-expanded="false">
+        <?php echo $current_status; ?>
+    </span>
+    <ul class="dropdown-menu border-0 shadow-lg p-2" style="border-radius: 12px;">
+        <li class="dropdown-header small text-uppercase fw-bold pb-2">Change Progress</li>
+        <?php 
+        foreach ($status_flow as $index => $step) {
+            if ($index === $current_index - 1 || $index === $current_index + 1) {
+                // 根据步骤类型显示不同的图标前缀
+                $icon = ($index > $current_index) ? 'bi-arrow-right-circle' : 'bi-arrow-left-circle';
+                $color_class = ($index > $current_index) ? 'text-primary' : 'text-muted';
+                
+                echo '<li><a class="dropdown-item d-flex align-items-center rounded-3 py-2" href="javascript:void(0)" 
+                      onclick="updateStatus('.$row['Order_Id'].', \''.$step.'\')">
+                      <i class="bi '.$icon.' '.$color_class.' me-2"></i>
+                      <span>Move to '.$step.'</span></a></li>';
+            }
+        }
+        ?>
+    </ul>
+</div>
                                 </td>
                                 <td class="fw-bold text-dark">RM <?php echo number_format($row['Order_Amount'], 2); ?></td>
                                 <td class="text-end">
