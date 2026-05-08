@@ -1,6 +1,8 @@
 <?php
 // admin_sidebar.php - Used in all admin pages for consistent navigation
+include_once 'db_connection.php';
 $current_page = basename($_SERVER['PHP_SELF']);
+$admin_role = $_SESSION['role'] ?? ''; // 获取当前登录的角色
 ?>
 
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
@@ -17,9 +19,8 @@ $current_page = basename($_SERVER['PHP_SELF']);
         </div>
     </div>
 
-    <div class="sidebar-content">
+<div class="sidebar-content">
         <small class="menu-label">MAIN MENU</small>
-        
         <ul class="nav-menu">
             <li class="nav-item">
                 <a href="admin_dashboard.php" class="nav-link <?php echo ($current_page == 'admin_dashboard.php') ? 'active' : ''; ?>">
@@ -35,32 +36,37 @@ $current_page = basename($_SERVER['PHP_SELF']);
 
             <li class="nav-item">
                 <a href="admin_manage_orders.php" class="nav-link <?php echo ($current_page == 'admin_manage_orders.php') ? 'active' : ''; ?>">
-                    <i class="bi bi-cart"></i> Orders
+                    <i class="bi bi-cart-check"></i> Orders
                 </a>
             </li>
 
             <li class="nav-item">
                 <a href="admin_manage_promos.php" class="nav-link <?php echo ($current_page == 'admin_manage_promos.php') ? 'active' : ''; ?>">
-                    <i class="bi bi-ticket-perforated"></i> Promo
+                    <i class="bi bi-megaphone"></i> Promo
                 </a>
             </li>
 
             <li class="nav-item">
-                <a href="admin_manage_users.php" class="nav-link <?php echo ($current_page == 'admin_manage_users.php') ? 'active' : ''; ?>">
-                    <i class="bi bi-people"></i> Users
+                <a href="admin_notifications.php" class="nav-link <?php echo ($current_page == 'admin_notifications.php') ? 'active' : ''; ?>">
+                    <i class="bi bi-bell"></i> Notifications
                 </a>
             </li>
 
-            <?php if (isset($_SESSION['role']) && $_SESSION['role'] == 1): ?>
-            <li class="nav-item">
-                <a href="admin_manage_admins.php" class="nav-link <?php echo ($current_page == 'admin_manage_admins.php') ? 'active' : ''; ?>">
-                    <i class="bi bi-shield-check"></i> Admins
-                </a>
-            </li>
+            <?php if ($admin_role === '1' || $admin_role === '2'): ?>
+                            <li class="nav-item">
+                                <a href="admin_manage_users.php" class="nav-link <?php echo ($current_page == 'admin_manage_users.php') ? 'active' : ''; ?>">
+                                    <i class="bi bi-people"></i> Customers
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="admin_manage_admins.php" class="nav-link <?php echo ($current_page == 'admin_manage_admins.php') ? 'active' : ''; ?>">
+                                    <i class="bi bi-shield-lock"></i> Admins
+                                </a>
+                            </li>
             <?php endif; ?>
 
             <li class="nav-item">
-                <a href="admin_profile.php" class="nav-link <?php echo ($current_page == 'admin_profile.php') ? 'active' : ''; ?>">
+                <a href="admin_settings.php" class="nav-link <?php echo ($current_page == 'admin_settings.php') ? 'active' : ''; ?>">
                     <i class="bi bi-gear"></i> Settings
                 </a>
             </li>

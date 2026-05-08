@@ -1,116 +1,167 @@
 <?php
 // admin/admin_dashboard.php
 session_start();
-echo "Debug: Role is " . ($_SESSION['role'] ?? 'NULL') . "<br>";
-echo "Debug: Brand is " . ($_SESSION['admin_brand'] ?? 'NULL') . "<br>";
 require_once '../includes/db_connection.php'; 
 
-// 1. 安全检查[cite: 2]
+// 1. 安全检查
 if (!isset($_SESSION['role'])) {
     header("Location: admin_login.php");
     exit();
 }
 
-$_SESSION['role'] = $row['Admin_Level']; // 登录时
-$admin_brand = $_SESSION['admin_brand'] ?? 'ALL';
+$admin_role = $_SESSION['role'];
 $username = $_SESSION['username'] ?? 'Admin';
-// 确保头像来源：优先使用 DB 中的图片，其次使用 session，最后回退到默认图
-$admin_image = 'default_admin.png';
-$admin_id = $_SESSION['admin_id'] ?? null;
-if ($admin_id) {
-    $img_res = $conn->query("SELECT Admin_Image FROM admin WHERE Admin_Id = $admin_id");
-    if ($img_res && $img_row = $img_res->fetch_assoc()) {
-        $admin_image = !empty($img_row['Admin_Image']) ? $img_row['Admin_Image'] : ($_SESSION['admin_image'] ?? 'default_admin.png');
-    } else {
-        $admin_image = $_SESSION['admin_image'] ?? 'default_admin.png';
-    }
-} else {
-    $admin_image = $_SESSION['admin_image'] ?? 'default_admin.png';
-}
+$admin_id = $_SESSION['admin_id'];
 
-// --- 2. 品牌过滤逻辑[cite: 2] ---
-$brand_filter = "";
-$brand_join = "";
-if ($admin_role != 1) {
-    $brand_join = " LEFT JOIN order_detail od_filter ON o.Order_Id = od_filter.Order_Id 
-                    LEFT JOIN product p_filter ON od_filter.Pro_Id = p_filter.Pro_Id";
-    $brand_filter = " AND p_filter.Product_Brand = '$admin_brand'";
-}
-
-// --- 3. 统计数据查询 (带周对比功能)[cite: 2] ---
-$this_week_start = date('Y-m-d', strtotime('monday this week'));
-$last_week_start = date('Y-m-d', strtotime('monday last week'));
-$last_week_end   = date('Y-m-d', strtotime('sunday last week'));
-
-function getStats($conn, $start_date, $end_date, $brand_join, $brand_filter) {
-    $date_condition = " AND o.Order_Date BETWEEN '$start_date' AND '$end_date'";
-    
-    $res_count = $conn->query("SELECT COUNT(DISTINCT o.Order_Id) as total FROM `order` o $brand_join WHERE 1=1 $brand_filter $date_condition");
-    $orders = $res_count->fetch_assoc()['total'] ?? 0;
-
-    $res_revenue = $conn->query("SELECT SUM(o.Order_Amount) as revenue FROM `order` o $brand_join WHERE o.Order_Status != 'Cancelled' $brand_filter $date_condition");
-    $revenue = $res_revenue->fetch_assoc()['revenue'] ?? 0;
-
-    $res_pending = $conn->query("SELECT COUNT(DISTINCT o.Order_Id) as pending FROM `order` o $brand_join WHERE o.Order_Status = 'Pending' $brand_filter $date_condition");
-    $pending = $res_pending->fetch_assoc()['pending'] ?? 0;
-
-    return ['orders' => $orders, 'revenue' => $revenue, 'pending' => $pending];
-}
-
-$current_stats = getStats($conn, $this_week_start, date('Y-m-d'), $brand_join, $brand_filter);
-$previous_stats = getStats($conn, $last_week_start, $last_week_end, $brand_join, $brand_filter);
-
-$res_total_all = $conn->query("SELECT COUNT(DISTINCT o.Order_Id) as total, SUM(o.Order_Amount) as revenue FROM `order` o $brand_join WHERE 1=1 $brand_filter");
-$row_all = $res_total_all->fetch_assoc();
-$total_orders = $row_all['total'] ?? 0;
-$total_revenue = $row_all['revenue'] ?? 0;
-
-$res_pending_all = $conn->query("SELECT COUNT(DISTINCT o.Order_Id) as pending FROM `order` o $brand_join WHERE o.Order_Status = 'Pending' $brand_filter");
-$pending_orders = $res_pending_all->fetch_assoc()['pending'] ?? 0;
-
+// --- 辅助函数：计算并渲染增长率 UI ---
 function calculateGrowth($current, $previous) {
     if ($previous == 0) return $current > 0 ? 100 : 0;
     return (($current - $previous) / $previous) * 100;
 }
 
-$order_growth = calculateGrowth($current_stats['orders'], $previous_stats['orders']);
-$revenue_growth = calculateGrowth($current_stats['revenue'], $previous_stats['revenue']);
-$pending_growth = calculateGrowth($current_stats['pending'], $previous_stats['pending']);
-
-function renderGrowthUI($val, $reverse = false) {
-    $abs_val = number_format(abs($val), 1);
-    if ($val == 0) {
-        return '<div class="growth-text text-muted"><i class="bi bi-dash"></i> 0.0% <span class="fw-normal ms-1">vs last week</span></div>';
-    }
-    $is_positive = $val > 0;
-    $is_good = $reverse ? !$is_positive : $is_positive;
-    $color_class = $is_good ? 'text-success-custom' : 'text-danger-custom';
-    $icon_class = $is_positive ? 'bi-arrow-up-right' : 'bi-arrow-down-right';
-    return '<div class="growth-text ' . $color_class . '"><i class="bi ' . $icon_class . '"></i> ' . $abs_val . '% <span class="text-muted fw-normal ms-1">vs last week</span></div>';
+function renderGrowthUI($growth, $inverse = false) {
+    // 如果 inverse 为 true，则增长表示负面（如 Pending Orders 增加是坏事）
+    $isPositive = $growth >= 0;
+    $colorClass = $isPositive ? ($inverse ? 'text-danger-custom' : 'text-success-custom') : ($inverse ? 'text-success-custom' : 'text-danger-custom');
+    $icon = $isPositive ? 'bi-arrow-up-right' : 'bi-arrow-down-right';
+    $sign = $isPositive ? '+' : '';
+    return "<div class='growth-text {$colorClass}'><i class='bi {$icon}'></i> {$sign}" . number_format($growth, 1) . "% from last month</div>";
 }
 
-// --- 4. 最近订单 & 5. 图表数据[cite: 2] ---
-$sql_recent = "SELECT DISTINCT o.Order_Id, o.Order_Date, o.Order_Amount, o.Order_Status, u.User_Name 
-               FROM `order` o 
-               LEFT JOIN user u ON o.User_Id = u.User_Id 
-               $brand_join
+// --- 2. 品牌过滤逻辑 ---
+$brand_filter = "";
+$display_brand_name = "All Brands"; // 默认显示（Level 1 & 2）
+
+if ($admin_role == '3') {
+    $my_brand_id = 0;
+    $brand_query = "SELECT Brand_Id, Brand_Name FROM brand WHERE Admin_Id = '$admin_id' LIMIT 1";
+    $brand_res = $conn->query($brand_query);
+    
+    if ($brand_res && $brand_row = $brand_res->fetch_assoc()) {
+        $my_brand_id = $brand_row['Brand_Id'];
+        $display_brand_name = $brand_row['Brand_Name'];
+    }
+    
+    $brand_filter = " AND p.Brand_Id = '$my_brand_id' ";
+}
+    
+// --- 3. 统计查询 (修复了Order_Subtotal的重复乘法，并加入了本月/上月数据做对比) ---
+$sql_stats = "SELECT 
+    -- 总用户数
+    (SELECT COUNT(*) FROM user) as total_users,
+    
+    -- 商品总数
+    (SELECT COUNT(*) FROM product p WHERE 1=1 $brand_filter) as total_products,
+    
+    -- 已售出商品件数
+    (SELECT IFNULL(SUM(Order_Qty), 0) FROM order_detail od 
+     JOIN product p ON od.Pro_Id = p.Pro_Id 
+     WHERE 1=1 $brand_filter) as total_sold,
+     
+    -- 总营业额 (修复：Order_Subtotal 本身已经是单品总价，不需要再乘 Order_Qty)
+    (SELECT IFNULL(SUM(Order_Subtotal), 0) FROM order_detail od 
+     JOIN product p ON od.Pro_Id = p.Pro_Id 
+     WHERE 1=1 $brand_filter) as total_revenue,
+     
+    -- 历史总订单数
+    (SELECT COUNT(DISTINCT o.Order_Id) FROM `order` o
+     JOIN order_detail od ON o.Order_Id = od.Order_Id
+     JOIN product p ON od.Pro_Id = p.Pro_Id
+     WHERE 1=1 $brand_filter) as total_orders,
+     
+    -- 待处理订单数
+    (SELECT COUNT(DISTINCT o.Order_Id) FROM `order` o
+     JOIN order_detail od ON o.Order_Id = od.Order_Id
+     JOIN product p ON od.Pro_Id = p.Pro_Id
+     WHERE o.Order_Status = 'Pending' $brand_filter) as pending_orders,
+
+    -- 当前月数据 (用于增长率对比)
+    (SELECT COUNT(DISTINCT o.Order_Id) FROM `order` o
+     JOIN order_detail od ON o.Order_Id = od.Order_Id
+     JOIN product p ON od.Pro_Id = p.Pro_Id
+     WHERE MONTH(o.Order_Date) = MONTH(CURRENT_DATE()) AND YEAR(o.Order_Date) = YEAR(CURRENT_DATE()) $brand_filter) as current_month_orders,
+     
+    (SELECT IFNULL(SUM(Order_Subtotal), 0) FROM order_detail od
+     JOIN product p ON od.Pro_Id = p.Pro_Id
+     JOIN `order` o ON od.Order_Id = o.Order_Id
+     WHERE MONTH(o.Order_Date) = MONTH(CURRENT_DATE()) AND YEAR(o.Order_Date) = YEAR(CURRENT_DATE()) $brand_filter) as current_month_revenue,
+     
+    (SELECT COUNT(DISTINCT o.Order_Id) FROM `order` o
+     JOIN order_detail od ON o.Order_Id = od.Order_Id
+     JOIN product p ON od.Pro_Id = p.Pro_Id
+     WHERE o.Order_Status = 'Pending' 
+     AND MONTH(o.Order_Date) = MONTH(CURRENT_DATE()) AND YEAR(o.Order_Date) = YEAR(CURRENT_DATE()) $brand_filter) as current_month_pending,
+
+    -- 上个月数据 (用于计算 Growth)
+    (SELECT COUNT(DISTINCT o.Order_Id) FROM `order` o
+     JOIN order_detail od ON o.Order_Id = od.Order_Id
+     JOIN product p ON od.Pro_Id = p.Pro_Id
+     WHERE MONTH(o.Order_Date) = MONTH(CURRENT_DATE() - INTERVAL 1 MONTH) AND YEAR(o.Order_Date) = YEAR(CURRENT_DATE() - INTERVAL 1 MONTH) $brand_filter) as prev_month_orders,
+     
+    (SELECT IFNULL(SUM(Order_Subtotal), 0) FROM order_detail od 
+     JOIN product p ON od.Pro_Id = p.Pro_Id
+     JOIN `order` o ON od.Order_Id = o.Order_Id
+     WHERE MONTH(o.Order_Date) = MONTH(CURRENT_DATE() - INTERVAL 1 MONTH) AND YEAR(o.Order_Date) = YEAR(CURRENT_DATE() - INTERVAL 1 MONTH) $brand_filter) as prev_month_revenue,
+     
+    (SELECT COUNT(DISTINCT o.Order_Id) FROM `order` o
+     JOIN order_detail od ON o.Order_Id = od.Order_Id
+     JOIN product p ON od.Pro_Id = p.Pro_Id
+     WHERE o.Order_Status = 'Pending' 
+     AND MONTH(o.Order_Date) = MONTH(CURRENT_DATE() - INTERVAL 1 MONTH) AND YEAR(o.Order_Date) = YEAR(CURRENT_DATE() - INTERVAL 1 MONTH) $brand_filter) as prev_month_pending
+";
+
+$result_stats = $conn->query($sql_stats);
+$stats = ($result_stats) ? $result_stats->fetch_assoc() : [];
+
+// 提取数据
+$total_orders = $stats['total_orders'] ?? 0;
+$total_revenue = $stats['total_revenue'] ?? 0;
+$pending_orders = $stats['pending_orders'] ?? 0;
+
+// 计算增长率
+$order_growth = calculateGrowth($stats['current_month_orders'] ?? 0, $stats['prev_month_orders'] ?? 0);
+$revenue_growth = calculateGrowth($stats['current_month_revenue'] ?? 0, $stats['prev_month_revenue'] ?? 0);
+$pending_growth = calculateGrowth($stats['current_month_pending'] ?? 0, $stats['prev_month_pending'] ?? 0);
+
+// --- 4. 获取图表销售数据 ---
+$sql_chart = "SELECT DATE(o.Order_Date) as Order_Date, SUM(od.Order_Qty) as brand_qty 
+              FROM `order` o
+              JOIN order_detail od ON o.Order_Id = od.Order_Id
+              JOIN product p ON od.Pro_Id = p.Pro_Id
+              WHERE 1=1 $brand_filter
+              GROUP BY DATE(o.Order_Date)";
+$chart_res = $conn->query($sql_chart);
+$chart_data = [];
+if ($chart_res) {
+    while ($row = $chart_res->fetch_assoc()) {
+        $chart_data[] = $row;
+    }
+}
+$json_sales_data = json_encode($chart_data);
+
+// --- 5. 获取最近的订单 ---
+// 为了保证给供应商看时，金额只显示他们自己商品的总金额，加入 IFNULL(SUM(od.Order_Subtotal), ...)
+$sql_recent = "SELECT o.Order_Id, u.User_Name, 
+               IFNULL(SUM(od.Order_Subtotal), o.Order_Amount) as Display_Order_Amount, 
+               o.Order_Status, o.Order_Date 
+               FROM `order` o
+               LEFT JOIN user u ON o.User_Id = u.User_Id
+               JOIN order_detail od ON o.Order_Id = od.Order_Id
+               JOIN product p ON od.Pro_Id = p.Pro_Id
                WHERE 1=1 $brand_filter
-               ORDER BY o.Order_Id DESC LIMIT 5";
+               GROUP BY o.Order_Id, u.User_Name, o.Order_Status, o.Order_Date, o.Order_Amount
+               ORDER BY o.Order_Date DESC 
+               LIMIT 5";
 $recent_orders = $conn->query($sql_recent);
 
-$all_sales_data = [];
-$sql_chart = "SELECT o.Order_Date, b.Brand_Name, SUM(od.Order_Qty) as brand_qty
-              FROM `order` o 
-              JOIN order_detail od ON o.Order_Id = od.Order_Id 
-              JOIN product p ON od.Pro_Id = p.Pro_Id
-              JOIN brand b ON p.Brand_Id = b.Brand_Id
-              WHERE 1=1 $brand_filter 
-              GROUP BY o.Order_Date, b.Brand_Name";
-$res_chart = $conn->query($sql_chart);
-if ($res_chart) {
-    while($row = $res_chart->fetch_assoc()) { $all_sales_data[] = $row; }
+// --- 6. 处理头像逻辑 ---
+$admin_image = 'default_admin.png';
+if ($admin_id) {
+    $img_res = $conn->query("SELECT Admin_Image FROM admin WHERE Admin_Id = $admin_id");
+    if ($img_res && $img_row = $img_res->fetch_assoc()) {
+        $admin_image = !empty($img_row['Admin_Image']) ? $img_row['Admin_Image'] : 'default_admin.png';
+    }
 }
-$json_sales_data = json_encode($all_sales_data);
 ?>
 
 <!DOCTYPE html>
@@ -128,7 +179,6 @@ $json_sales_data = json_encode($all_sales_data);
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     
     <style>
-        /* 完全复刻自 admin_manage_promos.php 的全局样式[cite: 1] */
         :root { 
             --orange-primary: #FF8C00; 
             --sidebar-width: 260px; 
@@ -140,7 +190,6 @@ $json_sales_data = json_encode($all_sales_data);
         }
         .wrapper { display: flex; }
 
-        /* 统一内容区域布局[cite: 1] */
         .main-content { 
             flex-grow: 1; 
             margin-left: var(--sidebar-width); 
@@ -148,7 +197,6 @@ $json_sales_data = json_encode($all_sales_data);
             min-height: 100vh; 
         }
 
-        /* 统一 Header 的大小、内边距和投影[cite: 1] */
         .admin-header { 
             background: white; 
             padding: 15px 30px; 
@@ -157,7 +205,6 @@ $json_sales_data = json_encode($all_sales_data);
             box-shadow: 0 4px 10px rgba(0,0,0,0.02); 
         }
 
-        /* 统一头像边框与大小[cite: 1] */
         .admin-profile-img { 
             width: 42px; 
             height: 42px; 
@@ -166,7 +213,6 @@ $json_sales_data = json_encode($all_sales_data);
             object-fit: cover; 
         }
 
-        /* Dashboard 特有卡片样式同步 Promo 页面的圆角和投影[cite: 1, 2] */
         .stat-card, .content-container-chart { 
             background: white; 
             border-radius: 15px; 
@@ -206,7 +252,6 @@ $json_sales_data = json_encode($all_sales_data);
     <?php include_once '../includes/admin_sidebar.php'; ?>
 
     <div class="main-content">
-        <!-- 完美的 Header 布局同步[cite: 1] -->
         <header class="admin-header d-flex justify-content-between align-items-center">
             <div>
                 <nav aria-label="breadcrumb">
@@ -226,18 +271,16 @@ $json_sales_data = json_encode($all_sales_data);
         </header>
 
         <div class="container-fluid p-0">
-            <!-- 标题栏[cite: 2] -->
             <div class="d-flex justify-content-between align-items-center mb-4">
                 <div>
                     <h5 class="fw-bold text-dark mb-1">Analytics Overview</h5>
-                    <p class="text-muted small mb-0">Managing <strong><?php echo $admin_brand; ?></strong> Store</p>
+                    <p class="text-muted small mb-0">Managing <strong><?php echo $display_brand_name; ?></strong> Store</p>
                 </div>
                 <a href="export_pdf_report.php" class="btn btn-orange shadow-sm" target="_blank">
                     <i class="bi bi-file-earmark-pdf"></i> Export PDF
                 </a>
             </div>
 
-            <!-- 统计卡片区域[cite: 2] -->
             <div class="row g-4 mb-4">
                 <div class="col-md-4">
                     <div class="stat-card">
@@ -260,12 +303,11 @@ $json_sales_data = json_encode($all_sales_data);
                         <div class="icon-box bg-light-orange"><i class="bi bi-clock-history"></i></div>
                         <div class="text-muted small fw-bold text-uppercase">Pending Orders</div>
                         <h3 class="fw-bold mt-1"><?php echo $pending_orders; ?></h3>
-                        <?php echo renderGrowthUI($pending_growth, true); ?>
+                        <?php echo renderGrowthUI($pending_growth, true); // true 表示 pending 订单增长是负面信息 ?>
                     </div>
                 </div>
             </div>
 
-            <!-- 图表与最近订单[cite: 2] -->
             <div class="row g-4">
                 <div class="col-lg-8">
                     <div class="content-container-chart">
@@ -292,10 +334,10 @@ $json_sales_data = json_encode($all_sales_data);
                                         <tr style="cursor: pointer;" onclick="window.location='admin_order_details.php?id=<?php echo $row['Order_Id']; ?>'">
                                             <td class="ps-0 border-0">
                                                 <div class="fw-bold text-dark" style="font-size: 14px;">#<?php echo $row['Order_Id']; ?></div>
-                                                <small class="text-muted"><?php echo $row['User_Name'] ?: 'Guest'; ?></small>
+                                                <small class="text-muted"><?php echo htmlspecialchars($row['User_Name'] ?: 'Guest'); ?></small>
                                             </td>
                                             <td class="text-end pe-0 border-0">
-                                                <div class="fw-bold text-dark" style="font-size: 14px;">RM <?php echo number_format($row['Order_Amount'], 2); ?></div>
+                                                <div class="fw-bold text-dark" style="font-size: 14px;">RM <?php echo number_format($row['Display_Order_Amount'], 2); ?></div>
                                                 <span class="badge <?php echo ($row['Order_Status'] == 'Completed') ? 'bg-success' : 'bg-warning text-dark'; ?>" style="font-size: 9px;"><?php echo $row['Order_Status']; ?></span>
                                             </td>
                                         </tr>
@@ -314,7 +356,6 @@ $json_sales_data = json_encode($all_sales_data);
 </div>
 
 <script>
-    // 图表 JS 逻辑[cite: 2]
     const rawData = <?php echo $json_sales_data; ?>;
     const ctx = document.getElementById('weeklyChart').getContext('2d');
     let myChart;
