@@ -1,6 +1,8 @@
 <?php
 // admin/admin_dashboard.php
 session_start();
+echo "Debug: Role is " . ($_SESSION['role'] ?? 'NULL') . "<br>";
+echo "Debug: Brand is " . ($_SESSION['admin_brand'] ?? 'NULL') . "<br>";
 require_once '../includes/db_connection.php'; 
 
 // 1. 安全检查[cite: 2]
@@ -9,7 +11,7 @@ if (!isset($_SESSION['role'])) {
     exit();
 }
 
-$admin_role = $_SESSION['role'];
+$_SESSION['role'] = $row['Admin_Level']; // 登录时
 $admin_brand = $_SESSION['admin_brand'] ?? 'ALL';
 $username = $_SESSION['username'] ?? 'Admin';
 // 确保头像来源：优先使用 DB 中的图片，其次使用 session，最后回退到默认图

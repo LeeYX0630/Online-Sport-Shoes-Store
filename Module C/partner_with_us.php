@@ -27,20 +27,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // 银行账号长度映射（用于服务器端与前端验证）
     $bank_lengths = [
-        'Affin Bank' => 12,
-        'Alliance Bank' => 15,
-        'AmBank' => 13,
-        'CIMB' => 14,
-        'Bank Rakyat' => 12,
-        'Hong Leong Bank' => 11,
-        'Maybank' => 10,
-        'Public Bank' => 10,
-        'RHB' => 14,
-        'Citibank' => 10,
-        'OCBC' => 12,
-        'HSBC' => 12,
-        'Standard Chartered Bank' => 12,
-        'BSN' => 12,
+        'Maybank (MB)' => 12,
+        'CIMB (CIMB)' => 14,
+        'Public Bank (PB)' => 10,
+        'RHB Bank (RHB)' => 14,
+        'AmBank (AB)' => 13,
+        'AFFIN Bank (AF)' => 12,
+        'Alliance Bank (AB)' => 15,
+        'Boost (MY)' => 12,
+        'UOB (UOB)' => 11,
+        'OCBC Bank (OCBC)' => 10,
+        'HSBC (HB)' => 12,
+        'Standard Chartered (SCB)' => 12,
+        'DBS (DB)' => 10,
+        'Bank Islam (BI)' => 14,
+        'Islamic Bank Mal (IM)' => 14,
+        'Bank Muamalat (MB)' => 14,
     ];
 
     // ── Validation ─────────────────────────────────────────
@@ -779,15 +781,17 @@ function bc(array $errors, string $field): string {
                             </svg>
                             Bank Name <span class="req">*</span>
                         </label>
-                            <select class="form-control <?= isset($errors['bank_name']) ? 'is-invalid' : '' ?>"
+                        <select class="form-control <?= isset($errors['bank_name']) ? 'is-invalid' : '' ?>"
                                 id="bank_name" name="bank_name">
                             <option value="">-- Select Bank --</option>
                             <?php
-                            $bank_list = array_keys($bank_lengths);
-                            foreach ($bank_list as $b):
+                            $banks = ['Maybank (MB)', 'CIMB (CIMB)', 'Public Bank (PB)', 'RHB Bank (RHB)', 'AmBank (AB)', 'AFFIN Bank (AF)', 'Alliance Bank (AB)', 'Boost (MY)', 'UOB (UOB)', 'OCBC Bank (OCBC)', 'HSBC (HB)', 'Standard Chartered (SCB)', 'DBS (DB)', 'Bank Islam (BI)', 'Islamic Bank Mal (IM)', 'Bank Muamalat (MB)'];
+                            // 对应的显示名字
+                            $bankLabels = $banks;
+                            foreach ($banks as $i => $b):
                                 $sel = (($old['bank_name'] ?? '') === $b) ? 'selected' : '';
                             ?>
-                                <option value="<?= htmlspecialchars($b) ?>" <?= $sel ?>><?= htmlspecialchars($b) ?></option>
+                                <option value="<?= $b ?>" <?= $sel ?>><?= $bankLabels[$i] ?></option>
                             <?php endforeach; ?>
                         </select>
                         <?= err($errors, 'bank_name') ?>
@@ -956,41 +960,6 @@ function bc(array $errors, string $field): string {
         fileManagers[field] = new DataTransfer();
     });
 
-    // 银行账号位数映射（用于前端验证）
-    const bankLengths = <?= json_encode($bank_lengths, JSON_UNESCAPED_UNICODE) ?>;
-
-    // 当选择银行时，更新账号输入的 maxlength 与 placeholder
-    const bankSelectEl = document.getElementById('bank_name');
-    if (bankSelectEl) {
-        bankSelectEl.addEventListener('change', function () {
-            const len = bankLengths[this.value] || null;
-            const accEl = document.getElementById('bank_acc_no');
-            if (!accEl) return;
-            if (len) {
-                accEl.maxLength = len;
-                accEl.placeholder = 'Enter ' + len + ' digits';
-                // 若当前已输入超过长度则截断
-                const cur = accEl.value.replace(/\D/g, '');
-                if (cur.length > len) accEl.value = cur.slice(0, len);
-            } else {
-                accEl.removeAttribute('maxLength');
-                accEl.placeholder = 'e.g., 5123xxxxxxxx';
-            }
-        });
-    }
-
-    // 实时限制 bank_acc_no：只留数字并截断到所需长度（防止粘贴超长）
-    const accInput = document.getElementById('bank_acc_no');
-    if (accInput) {
-        accInput.addEventListener('input', function (e) {
-            let digits = this.value.replace(/\D/g, '');
-            const bank = bankSelectEl ? bankSelectEl.value : '';
-            const req = bankLengths[bank] || null;
-            if (req && digits.length > req) digits = digits.slice(0, req);
-            this.value = digits;
-        });
-    }
-
     let currentLightboxIndex = 0;
     let currentLightboxField = '';
     let currentLightboxImages = [];
@@ -1117,6 +1086,52 @@ function bc(array $errors, string $field): string {
         e.target.value = formattedValue;
     });
 
+    // --- 银行账号长度自动限制脚本 ---
+    const bankLengths = {
+        'Maybank (MB)': 12,
+        'CIMB (CIMB)': 14,
+        'Public Bank (PB)': 10,
+        'RHB Bank (RHB)': 14,
+        'AmBank (AB)': 13,
+        'AFFIN Bank (AF)': 12,
+        'Alliance Bank (AB)': 15,
+        'Boost (MY)': 12,
+        'UOB (UOB)': 11,
+        'OCBC Bank (OCBC)': 10,
+        'HSBC (HB)': 12,
+        'Standard Chartered (SCB)': 12,
+        'DBS (DB)': 10,
+        'Bank Islam (BI)': 14,
+        'Islamic Bank Mal (IM)': 14,
+        'Bank Muamalat (MB)': 14
+    };
+
+    const bankSelect = document.getElementById('bank_name');
+    const accInput = document.getElementById('bank_acc_no');
+
+    // 监听银行选择变化
+    bankSelect.addEventListener('change', function() {
+        const selectedBank = this.value;
+        if (bankLengths[selectedBank]) {
+            const len = bankLengths[selectedBank];
+            accInput.maxLength = len; // 设置最大长度限制
+            accInput.placeholder = `Enter ${len} digits`;
+            
+            // 如果当前输入的长度超过了新银行的限制，截断它
+            if (accInput.value.length > len) {
+                accInput.value = accInput.value.slice(0, len);
+            }
+        } else {
+            accInput.removeAttribute('maxLength');
+            accInput.placeholder = "e.g., 5123xxxxxxxx";
+        }
+    });
+
+    // 限制只能输入数字
+    accInput.addEventListener('input', function(e) {
+        this.value = this.value.replace(/\D/g, ''); // 强制删除非数字字符
+    });
+
     document.getElementById('vendorForm').addEventListener('submit', function(e) {
         let valid = true;
         const checks = [
@@ -1125,12 +1140,12 @@ function bc(array $errors, string $field): string {
             { id: 'phone',         test: v => v.trim() !== '',   msg: 'Please enter your contact number.' },
             { id: 'reg_number',    test: v => v.trim() !== '',   msg: 'Please enter your registration number.' },
             { id: 'bank_name',     test: v => v !== '',          msg: 'Please select a bank.' },
-            { id: 'bank_acc_no',   test: v => {
-                    const trimmed = v.trim().replace(/\D/g, '');
-                    const bank = document.getElementById('bank_name').value;
-                    const req = bankLengths[bank] || 0;
-                    return trimmed !== '' && /^\d+$/.test(trimmed) && (req === 0 || trimmed.length === req);
-                }, msg: 'Please enter a valid account number.' },
+            { id: 'bank_acc_no',   test: v => {const bank = document.getElementById('bank_name').value; const cleanV = v.trim();
+            if (!bank || !bankLengths[bank]) return cleanV !== ''; // 如果没选银行，只检查非空
+            return cleanV.length === bankLengths[bank]; // 检查长度是否完全匹配
+            }, 
+            msg: 'Please enter the correct account number length for the selected bank.' 
+            },
             { id: 'address',       test: v => v.trim() !== '',   msg: 'Please enter your warehouse address.' },
         ];
 
@@ -1185,8 +1200,6 @@ function bc(array $errors, string $field): string {
 
     window.addEventListener('DOMContentLoaded', () => {
         syncSubmitBtn();
-        // 初始化 bank_acc_no 的 maxlength / placeholder
-        if (bankSelectEl) bankSelectEl.dispatchEvent(new Event('change'));
     });
 </script>
 </body>
