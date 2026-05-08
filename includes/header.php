@@ -107,6 +107,9 @@ if (isset($_SESSION['cart']) && !empty($_SESSION['cart'])) {
             <li class="nav-item">
               <a class="nav-link <?php echo ($current_page == 'about_us.php') ? 'active' : ''; ?>" href="<?php echo $path_mod_a; ?>about_us.php">About Us</a>
             </li>
+            <li class="nav-item">
+              <a class="nav-link <?php echo ($current_page == 'partner_with_us.php') ? 'active' : ''; ?>" href="<?php echo $path_mod_c; ?>partner_with_us.php">Partner With Us</a>
+            </li>
           </ul>
 
           <form class="d-flex mx-auto search-form mb-3 mb-lg-0" action="<?php echo $path_mod_b; ?>catalogue.php" method="GET">

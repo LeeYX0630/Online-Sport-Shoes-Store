@@ -25,6 +25,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'agreed_terms'  => isset($_POST['agreed_terms']),
     ];
 
+    // 银行账号长度映射（用于服务器端与前端验证）
+    $bank_lengths = [
+        'Affin Bank' => 12,
+        'Alliance Bank' => 15,
+        'AmBank' => 13,
+        'CIMB' => 14,
+        'Bank Rakyat' => 12,
+        'Hong Leong Bank' => 11,
+        'Maybank' => 10,
+        'Public Bank' => 10,
+        'RHB' => 14,
+        'Citibank' => 10,
+        'OCBC' => 12,
+        'HSBC' => 12,
+        'Standard Chartered Bank' => 12,
+        'BSN' => 12,
+    ];
+
     // ── Validation ─────────────────────────────────────────
     if ($old['business_name'] === '')
         $errors['business_name'] = 'Please enter your business name.';
@@ -44,8 +62,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($old['bank_name'] === '')
         $errors['bank_name'] = 'Please select a bank.';
 
-    if ($old['bank_acc_no'] === '' || !ctype_digit($old['bank_acc_no']))
+    // Validate bank account number: digits only + required length per bank
+    $clean_acc = preg_replace('/\D/', '', $old['bank_acc_no']);
+    if ($clean_acc === '' || !ctype_digit($clean_acc)) {
         $errors['bank_acc_no'] = 'Please enter a valid account number (digits only).';
+    } else if (!empty($old['bank_name']) && isset($bank_lengths[$old['bank_name']])) {
+        $reqLen = $bank_lengths[$old['bank_name']];
+        if (strlen($clean_acc) !== $reqLen) {
+            $errors['bank_acc_no'] = "Please enter a valid account number ({$reqLen} digits) for {$old['bank_name']}.";
+        }
+    }
 
     if (empty($_FILES['bank_statement']['name']))
         $errors['bank_statement'] = 'Please upload your bank statement.';
@@ -72,21 +98,65 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    // ── If valid → process (save / email / DB insert here) ─
+    // 在验证逻辑之前，把 phone 里的 - 和空格去掉，转回纯数字
+    $clean_phone = str_replace(['-', ' '], '', $old['phone']);
+
+    // 如果你之后需要验证是否全是数字，用 $clean_phone
+    if ($clean_phone === '' || !ctype_digit($clean_phone)) {
+        $errors['phone'] = 'Please enter a valid contact number.';
+    }
+
+// ── If valid → process (save / DB insert here) ─
     if (empty($errors)) {
-        /*
-         * TODO: Replace this block with your real server logic, e.g.:
-         *   - Move uploaded files to a secure directory
-         *   - Insert a record into your database
-         *   - Send a confirmation email via mail() or PHPMailer
-         *
-         * Example (move files):
-         *   $upload_dir = __DIR__ . '/uploads/';
-         *   move_uploaded_file($_FILES['auth_doc']['tmp_name'],
-         *       $upload_dir . basename($_FILES['auth_doc']['name']));
-         */
-        $success = true;
-        $old     = []; // clear form after success
+        // 1. 设置上传目录
+        $upload_dir = '../uploads/vendors/';
+        if (!is_dir($upload_dir)) {
+            mkdir($upload_dir, 0777, true);
+        }
+
+        // 2. 处理文件重命名与移动 (避免文件名重复)
+        $auth_doc_ext  = pathinfo($_FILES['auth_doc']['name'], PATHINFO_EXTENSION);
+        $auth_doc_name = "auth_" . uniqid() . "." . $auth_doc_ext;
+        move_uploaded_file($_FILES['auth_doc']['tmp_name'], $upload_dir . $auth_doc_name);
+
+        $bank_stmt_ext  = pathinfo($_FILES['bank_statement']['name'], PATHINFO_EXTENSION);
+        $bank_stmt_name = "bank_" . uniqid() . "." . $bank_stmt_ext;
+        move_uploaded_file($_FILES['bank_statement']['tmp_name'], $upload_dir . $bank_stmt_name);
+
+        // 3. 插入数据库
+        try {
+            $sql = "INSERT INTO vendors (
+                        business_name, email, phone, reg_number, 
+                        auth_doc_path, bank_name, bank_acc_no, 
+                        bank_statement_path, warehouse_address, status
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')";
+            
+            $stmt = $conn->prepare($sql);
+            
+            // "sssssssss" 代表 9 个字符串参数
+            $stmt->bind_param("sssssssss", 
+                $old['business_name'], 
+                $old['email'], 
+                $old['phone'], 
+                $old['reg_number'], 
+                $auth_doc_name, 
+                $old['bank_name'], 
+                $old['bank_acc_no'], 
+                $bank_stmt_name, 
+                $old['address']
+            );
+
+            if ($stmt->execute()) {
+                $success = true;
+                $old = []; // 成功后清空表单数据
+            } else {
+                $errors['db'] = "Database Error: " . $conn->error;
+            }
+            
+            $stmt->close();
+        } catch (Exception $e) {
+            $errors['db'] = "System Error: " . $e->getMessage();
+        }
     }
 }
 
@@ -118,6 +188,7 @@ function bc(array $errors, string $field): string {
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Become Our Partner – Online Sports Shoes Store</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <style>
         /* ── Reset & base ──────────────────────────────── */
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -295,8 +366,7 @@ function bc(array $errors, string $field): string {
         }
         .preview-item {
             position: relative;
-            width: 100px;
-            height: 100px;
+            width: 100px; height: 100px;
             border-radius: 8px;
             overflow: hidden;
             border: 2px solid #ddd;
@@ -308,20 +378,17 @@ function bc(array $errors, string $field): string {
             box-shadow: 0 4px 10px rgba(0,0,0,0.1);
         }
         .preview-item img {
-            width: 100%;
-            height: 100%;
+            width: 100%; height: 100%;
             object-fit: cover;
         }
         .remove-img {
             position: absolute;
-            top: 2px;
-            right: 2px;
+            top: 2px; right: 2px;
             background: rgba(255, 0, 0, 0.8);
             color: white;
             border: none;
             border-radius: 50%;
-            width: 20px;
-            height: 20px;
+            width: 20px; height: 20px;
             font-size: 12px;
             cursor: pointer;
             display: flex;
@@ -336,10 +403,8 @@ function bc(array $errors, string $field): string {
             position: fixed;
             z-index: 2000;
             padding-top: 50px;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
+            left: 0; top: 0;
+            width: 100%; height: 100%;
             overflow: auto;
             background-color: rgba(0, 0, 0, 0.9);
             backdrop-filter: blur(5px);
@@ -360,8 +425,7 @@ function bc(array $errors, string $field): string {
 
         .lightbox-close {
             position: absolute;
-            top: 15px;
-            right: 35px;
+            top: 15px; right: 35px;
             color: #f1f1f1;
             font-size: 40px;
             font-weight: bold;
@@ -417,8 +481,7 @@ function bc(array $errors, string $field): string {
         }
 
         .lightbox-dot {
-            height: 10px;
-            width: 10px;
+            height: 10px; width: 10px;
             background-color: #bbb;
             border-radius: 50%;
             display: inline-block;
@@ -436,8 +499,7 @@ function bc(array $errors, string $field): string {
             border-radius: .5rem;
         }
         .terms-check-row input[type="checkbox"] {
-            width: 1.2rem;
-            height: 1.2rem;
+            width: 1.2rem; height: 1.2rem;
             margin-top: .15rem;
             cursor: pointer;
             accent-color: #FF6B00;
@@ -449,8 +511,7 @@ function bc(array $errors, string $field): string {
             cursor: pointer;
         }
         .terms-toggle {
-            background: none;
-            border: none;
+            background: none; border: none;
             color: #FF6B00;
             font-weight: 600;
             text-decoration: underline;
@@ -488,8 +549,7 @@ function bc(array $errors, string $field): string {
         }
         .terms-panel-header h4 svg { color: #FF6B00; }
         .terms-close {
-            background: none;
-            border: none;
+            background: none; border: none;
             color: #6b7280;
             font-size: .8rem;
             font-weight: 500;
@@ -560,70 +620,34 @@ function bc(array $errors, string $field): string {
             font-size: .875rem;
             color: #6b7280;
         }
+        
+        /* SweetAlert2 自定义按钮颜色 */
+        .swal2-confirm {
+            background-color: #FF6B00 !important;
+        }
     </style>
 </head>
 
-<?php
-include '../includes/header.php';
-?>
+<?php include '../includes/header.php'; ?>
+
 <body>
 
-<!-- ═══════════════════════ NAVBAR ═══════════════════════ -->
-
-<!-- ═══════════════════════ MAIN ═════════════════════════ -->
 <main class="main-wrap">
     <div class="card">
 
-        <!-- Card header -->
         <div class="card-header">
             <h2>Become Our Partner</h2>
             <p>Join our marketplace and grow your business</p>
         </div>
 
-        <!-- Form body -->
         <div class="form-body">
 
-            <?php if ($success): ?>
-            <!-- ── Success banner ── -->
-            <div class="success-banner">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
-                     fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                     stroke-linejoin="round">
-                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-                    <polyline points="22 4 12 14.01 9 11.01"/>
-                </svg>
-                <div>
-                    <h3>Application Submitted Successfully!</h3>
-                    <p>Thank you for applying. We will review your application within 2–3 business days and notify you via email.</p>
-                </div>
-            </div>
-            <?php endif; ?>
 
-            <?php if (!empty($errors) && !$success): ?>
-            <!-- ── Error summary ── -->
-            <div class="error-summary">
-                <strong>Please fix the following errors before submitting:</strong>
-                <ul style="padding-left:1.2rem;margin:0">
-                    <?php foreach ($errors as $msg): ?>
-                        <li><?= htmlspecialchars($msg) ?></li>
-                    <?php endforeach; ?>
-                </ul>
-            </div>
-            <?php endif; ?>
 
-            <!-- ════════════════════════════════════════
-                 FORM
-            ════════════════════════════════════════ -->
-            <form id="vendorForm"
-                  method="POST"
-                  action=""
-                  enctype="multipart/form-data"
-                  novalidate>
+            <form id="vendorForm" method="POST" action="" enctype="multipart/form-data" novalidate>
 
-                <!-- ── Business name ── -->
                 <div class="form-group">
                     <label class="field-label" for="business_name">
-                        <!-- Building icon -->
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
                              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                              stroke-linejoin="round">
@@ -641,11 +665,9 @@ include '../includes/header.php';
                     <?= err($errors, 'business_name') ?>
                 </div>
 
-                <!-- ── Email & Phone ── -->
                 <div class="form-row">
                     <div class="form-group">
                         <label class="field-label" for="email">
-                            <!-- Mail icon -->
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
                                  fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                                  stroke-linejoin="round">
@@ -665,7 +687,6 @@ include '../includes/header.php';
 
                     <div class="form-group">
                         <label class="field-label" for="phone">
-                            <!-- Phone icon -->
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
                                  fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                                  stroke-linejoin="round">
@@ -677,16 +698,16 @@ include '../includes/header.php';
                             class="form-control <?= isset($errors['phone']) ? 'is-invalid' : '' ?>"
                             type="tel" id="phone" name="phone"
                             value="<?= htmlspecialchars($old['phone'] ?? '') ?>"
-                            placeholder="012-3456789"
+                            placeholder="012-345 6789"
+                            inputmode="numeric"
+                            maxlength="13" 
                         />
                         <?= err($errors, 'phone') ?>
                     </div>
                 </div>
 
-                <!-- ── Registration number ── -->
                 <div class="form-group">
                     <label class="field-label" for="reg_number">
-                        <!-- FileText icon -->
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
                              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                              stroke-linejoin="round">
@@ -703,14 +724,14 @@ include '../includes/header.php';
                         type="text" id="reg_number" name="reg_number"
                         value="<?= htmlspecialchars($old['reg_number'] ?? '') ?>"
                         placeholder="e.g., 202401xxxxxx"
+                        maxlength="12"
+                        inputmode="numeric"
                     />
                     <?= err($errors, 'reg_number') ?>
                 </div>
 
-                <!-- ── Auth document ── -->
                 <div class="form-group">
                     <label class="field-label">
-                        <!-- Upload icon -->
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
                              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                              stroke-linejoin="round">
@@ -735,12 +756,10 @@ include '../includes/header.php';
                         <p class="file-label" id="auth_doc_label">Click to upload or drag &amp; drop</p>
                         <p class="file-hint">Supported formats: PDF, JPG, PNG (Max 2 MB)</p>
                     </div>
-                    <!-- Preview container -->
                     <div class="preview-container" id="preview_auth_doc"></div>
                     <?= err($errors, 'auth_doc') ?>
                 </div>
 
-                <!-- ══ Bank Details section ══════════════════ -->
                 <div class="section-divider" style="margin-top:1.5rem;">
                     <div class="bar"></div>
                     <h3>Bank Account Details</h3>
@@ -749,11 +768,9 @@ include '../includes/header.php';
                     <strong>Important:</strong> The bank account holder name must match your Business / Company Name exactly, otherwise the application will be rejected.
                 </div>
 
-                <!-- ── Bank name & account no ── -->
                 <div class="form-row">
                     <div class="form-group">
                         <label class="field-label" for="bank_name">
-                            <!-- Building2 icon -->
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
                                  fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                                  stroke-linejoin="round">
@@ -762,16 +779,15 @@ include '../includes/header.php';
                             </svg>
                             Bank Name <span class="req">*</span>
                         </label>
-                        <select class="form-control <?= isset($errors['bank_name']) ? 'is-invalid' : '' ?>"
+                            <select class="form-control <?= isset($errors['bank_name']) ? 'is-invalid' : '' ?>"
                                 id="bank_name" name="bank_name">
                             <option value="">-- Select Bank --</option>
                             <?php
-                            $banks = ['Maybank','CIMB','Public Bank','RHB','Hong Leong','AmBank','UOB'];
-                            $bankLabels = ['Maybank','CIMB Bank','Public Bank','RHB Bank','Hong Leong Bank','AmBank','UOB Bank'];
-                            foreach ($banks as $i => $b):
+                            $bank_list = array_keys($bank_lengths);
+                            foreach ($bank_list as $b):
                                 $sel = (($old['bank_name'] ?? '') === $b) ? 'selected' : '';
                             ?>
-                                <option value="<?= $b ?>" <?= $sel ?>><?= $bankLabels[$i] ?></option>
+                                <option value="<?= htmlspecialchars($b) ?>" <?= $sel ?>><?= htmlspecialchars($b) ?></option>
                             <?php endforeach; ?>
                         </select>
                         <?= err($errors, 'bank_name') ?>
@@ -779,7 +795,6 @@ include '../includes/header.php';
 
                     <div class="form-group">
                         <label class="field-label" for="bank_acc_no">
-                            <!-- CreditCard icon -->
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
                                  fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                                  stroke-linejoin="round">
@@ -799,10 +814,8 @@ include '../includes/header.php';
                     </div>
                 </div>
 
-                <!-- ── Bank statement ── -->
                 <div class="form-group">
                     <label class="field-label">
-                        <!-- FileText icon -->
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
                              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                              stroke-linejoin="round">
@@ -827,17 +840,14 @@ include '../includes/header.php';
                             <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/>
                         </svg>
                         <p class="file-label" id="bank_statement_label">Click to upload or drag &amp; drop</p>
-                        <p class="file-hint">Upload statement showing company name &amp; account number (transactions can be masked)</p>
+                        <p class="file-hint">Upload statement showing company name &amp; account number</p>
                     </div>
-                    <!-- Preview container -->
                     <div class="preview-container" id="preview_bank_statement"></div>
                     <?= err($errors, 'bank_statement') ?>
                 </div>
 
-                <!-- ── Warehouse address ── -->
                 <div class="form-group">
                     <label class="field-label" for="address">
-                        <!-- MapPin icon -->
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
                              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                              stroke-linejoin="round">
@@ -854,7 +864,6 @@ include '../includes/header.php';
                     <?= err($errors, 'address') ?>
                 </div>
 
-                <!-- ── Terms & Conditions ── -->
                 <div class="terms-wrap">
                     <div class="terms-check-row">
                         <input type="checkbox" id="agreed_terms" name="agreed_terms"
@@ -869,11 +878,9 @@ include '../includes/header.php';
                     </div>
                     <?= err($errors, 'agreed_terms') ?>
 
-                    <!-- Terms content panel -->
                     <div class="terms-panel" id="termsPanel">
                         <div class="terms-panel-header">
                             <h4>
-                                <!-- FileCheck icon -->
                                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
                                      fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                                      stroke-linejoin="round">
@@ -897,9 +904,7 @@ include '../includes/header.php';
                     </div>
                 </div>
 
-                <!-- ── Submit button ── -->
                 <button type="submit" class="btn-submit" id="submitBtn">
-                    <!-- CheckCircle2 icon -->
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
                          fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                          stroke-linejoin="round">
@@ -909,16 +914,15 @@ include '../includes/header.php';
                     Submit Application
                 </button>
 
-            </form><!-- /form -->
-        </div><!-- /form-body -->
-    </div><!-- /card -->
+            </form>
+        </div>
+    </div>
 
     <p class="footer-note">
         After submission, we will review your application within 2–3 business days and notify you via email.
     </p>
 </main>
 
-<!-- ═══════════════════════ LIGHTBOX ═════════════════════ -->
 <div id="lightboxModal" class="lightbox-modal">
     <span class="lightbox-close" onclick="closeLightbox()">&times;</span>
     <div style="position:relative; display:flex; align-items:center; justify-content:center; min-height:85vh;">
@@ -932,33 +936,72 @@ include '../includes/header.php';
     </div>
 </div>
 
-<!-- ═══════════════════════ JAVASCRIPT ══════════════════ -->
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
 <script>
-    // ── File Manager for each upload field ────────────────
+    // 如果 PHP 处理成功，弹出 SweetAlert2 成功提示
+    <?php if ($success): ?>
+        window.addEventListener('DOMContentLoaded', () => {
+            Swal.fire({
+                title: 'Submitted Successfully!',
+                text: 'Thank you for applying. We will review your application within 2–3 business days and notify you via email.',
+                icon: 'success',
+                confirmButtonText: 'Ok'
+            });
+        });
+    <?php endif; ?>
+
     const fileManagers = {};
     ['auth_doc', 'bank_statement'].forEach(field => {
         fileManagers[field] = new DataTransfer();
     });
 
-    // ── Lightbox globals ──────────────────────────────────
+    // 银行账号位数映射（用于前端验证）
+    const bankLengths = <?= json_encode($bank_lengths, JSON_UNESCAPED_UNICODE) ?>;
+
+    // 当选择银行时，更新账号输入的 maxlength 与 placeholder
+    const bankSelectEl = document.getElementById('bank_name');
+    if (bankSelectEl) {
+        bankSelectEl.addEventListener('change', function () {
+            const len = bankLengths[this.value] || null;
+            const accEl = document.getElementById('bank_acc_no');
+            if (!accEl) return;
+            if (len) {
+                accEl.maxLength = len;
+                accEl.placeholder = 'Enter ' + len + ' digits';
+                // 若当前已输入超过长度则截断
+                const cur = accEl.value.replace(/\D/g, '');
+                if (cur.length > len) accEl.value = cur.slice(0, len);
+            } else {
+                accEl.removeAttribute('maxLength');
+                accEl.placeholder = 'e.g., 5123xxxxxxxx';
+            }
+        });
+    }
+
+    // 实时限制 bank_acc_no：只留数字并截断到所需长度（防止粘贴超长）
+    const accInput = document.getElementById('bank_acc_no');
+    if (accInput) {
+        accInput.addEventListener('input', function (e) {
+            let digits = this.value.replace(/\D/g, '');
+            const bank = bankSelectEl ? bankSelectEl.value : '';
+            const req = bankLengths[bank] || null;
+            if (req && digits.length > req) digits = digits.slice(0, req);
+            this.value = digits;
+        });
+    }
+
     let currentLightboxIndex = 0;
     let currentLightboxField = '';
     let currentLightboxImages = [];
 
-    // ── Handle file selection with preview ────────────────
     function handleFileSelect(input, field) {
         const files = input.files;
         const previewContainer = document.getElementById(`preview_${field}`);
-        const finalInput = document.getElementById(field);
-        
-        if (fileManagers[field].items.length === 0) {
-            previewContainer.innerHTML = '';
-        }
-
+        if (files.length === 0) return;
+        previewContainer.innerHTML = '';
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
-            fileManagers[field].items.add(file);
-            
             const reader = new FileReader();
             reader.onload = function(e) {
                 const previewItem = document.createElement('div');
@@ -971,12 +1014,8 @@ include '../includes/header.php';
             };
             reader.readAsDataURL(file);
         }
-        
-        finalInput.files = fileManagers[field].files;
-        input.value = '';
     }
 
-    // ── Remove file from preview ──────────────────────────
     function removeFile(field, btn) {
         const previewContainer = document.getElementById(`preview_${field}`);
         const finalInput = document.getElementById(field);
@@ -984,50 +1023,40 @@ include '../includes/header.php';
         const currentIndex = items.indexOf(btn.parentNode);
         const dt = new DataTransfer();
         const { files } = fileManagers[field];
-        
         for (let i = 0; i < files.length; i++) {
             if (i !== currentIndex) dt.items.add(files[i]);
         }
-        
         fileManagers[field] = dt;
         finalInput.files = dt.files;
         btn.parentNode.remove();
     }
 
-    // ── Open lightbox ────────────────────────────────────
     function openLightbox(field, clickedElement) {
         const previewContainer = document.getElementById(`preview_${field}`);
         const allPreviewItems = Array.from(previewContainer.querySelectorAll('.preview-item'));
         currentLightboxIndex = allPreviewItems.indexOf(clickedElement);
         currentLightboxField = field;
         currentLightboxImages = allPreviewItems.map(item => item.querySelector('img').src);
-        
         if (currentLightboxImages.length === 0) return;
-        
         document.getElementById('lightboxModal').style.display = "block";
         document.body.style.overflow = 'hidden';
         updateLightboxDOM();
     }
 
-    // ── Close lightbox ───────────────────────────────────
     function closeLightbox() {
         document.getElementById('lightboxModal').style.display = "none";
         document.body.style.overflow = 'auto';
     }
 
-    // ── Update lightbox DOM ──────────────────────────────
     function updateLightboxDOM() {
         const imgElement = document.getElementById('lightboxImage');
         const captionElement = document.getElementById('lightboxCaption');
         const dotsContainer = document.getElementById('lightboxDots');
-        
         imgElement.src = currentLightboxImages[currentLightboxIndex];
         captionElement.innerText = `${currentLightboxField.toUpperCase()} (${currentLightboxIndex + 1} / ${currentLightboxImages.length})`;
-        
         const prevBtn = document.querySelector('.lightbox-prev');
         const nextBtn = document.querySelector('.lightbox-next');
         prevBtn.style.display = nextBtn.style.display = (currentLightboxImages.length <= 1) ? 'none' : 'block';
-        
         dotsContainer.innerHTML = '';
         currentLightboxImages.forEach((_, i) => {
             const dot = document.createElement('span');
@@ -1037,7 +1066,6 @@ include '../includes/header.php';
         });
     }
 
-    // ── Change lightbox slide ────────────────────────────
     function changeLightboxSlide(n) {
         currentLightboxIndex += n;
         if (currentLightboxIndex >= currentLightboxImages.length) currentLightboxIndex = 0;
@@ -1045,13 +1073,11 @@ include '../includes/header.php';
         updateLightboxDOM();
     }
 
-    // ── Set lightbox slide directly ──────────────────────
     function setLightboxSlide(n) {
         currentLightboxIndex = n;
         updateLightboxDOM();
     }
 
-    // ── Keyboard controls for lightbox ───────────────────
     document.addEventListener('keydown', function(e) {
         if (document.getElementById('lightboxModal').style.display === 'block') {
             if (e.key === 'ArrowLeft') changeLightboxSlide(-1);
@@ -1060,13 +1086,11 @@ include '../includes/header.php';
         }
     });
 
-    // ── Toggle Terms panel ────────────────────────────────
     function toggleTerms() {
         const panel = document.getElementById('termsPanel');
         panel.classList.toggle('open');
     }
 
-    // ── Sync submit button state ──────────────────────────
     function syncSubmitBtn() {
         const checked = document.getElementById('agreed_terms').checked;
         const btn = document.getElementById('submitBtn');
@@ -1074,21 +1098,42 @@ include '../includes/header.php';
         btn.classList.toggle('active', checked);
     }
 
-    // ── Client-side validation (progressive enhancement) ──
+    document.getElementById('phone').addEventListener('input', function (e) {
+        let value = e.target.value.replace(/\D/g, '');
+        // 011 numbers can be 11 digits (3-4-4). Other 01x numbers should be 10 digits (3-3-4).
+        const is011 = value.startsWith('011');
+        const maxLen = is011 ? 11 : 10;
+        if (value.length > maxLen) value = value.slice(0, maxLen);
+        let formattedValue = '';
+        if (is011) {
+            if (value.length > 3) formattedValue = value.slice(0, 3) + '-' + value.slice(3, 7);
+            else formattedValue = value;
+            if (value.length > 7) formattedValue += ' ' + value.slice(7);
+        } else {
+            if (value.length > 3) formattedValue = value.slice(0, 3) + '-' + value.slice(3, 6);
+            else formattedValue = value;
+            if (value.length > 6) formattedValue += ' ' + value.slice(6);
+        }
+        e.target.value = formattedValue;
+    });
+
     document.getElementById('vendorForm').addEventListener('submit', function(e) {
         let valid = true;
-
         const checks = [
             { id: 'business_name', test: v => v.trim() !== '',   msg: 'Please enter your business name.' },
             { id: 'email',         test: v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v), msg: 'Please enter a valid email address.' },
             { id: 'phone',         test: v => v.trim() !== '',   msg: 'Please enter your contact number.' },
             { id: 'reg_number',    test: v => v.trim() !== '',   msg: 'Please enter your registration number.' },
             { id: 'bank_name',     test: v => v !== '',          msg: 'Please select a bank.' },
-            { id: 'bank_acc_no',   test: v => v.trim() !== '' && /^\d+$/.test(v.trim()), msg: 'Please enter a valid account number (digits only).' },
+            { id: 'bank_acc_no',   test: v => {
+                    const trimmed = v.trim().replace(/\D/g, '');
+                    const bank = document.getElementById('bank_name').value;
+                    const req = bankLengths[bank] || 0;
+                    return trimmed !== '' && /^\d+$/.test(trimmed) && (req === 0 || trimmed.length === req);
+                }, msg: 'Please enter a valid account number.' },
             { id: 'address',       test: v => v.trim() !== '',   msg: 'Please enter your warehouse address.' },
         ];
 
-        // Clear previous inline errors
         document.querySelectorAll('.js-err').forEach(el => el.remove());
         document.querySelectorAll('.form-control').forEach(el => el.classList.remove('is-invalid'));
 
@@ -1107,13 +1152,12 @@ include '../includes/header.php';
             }
         });
 
-        // File checks
         ['auth_doc', 'bank_statement'].forEach(id => {
             const el = document.getElementById(id);
             const zone = el.closest('.file-zone');
             if (!el.files || el.files.length === 0) {
                 zone.classList.add('is-invalid');
-                const msgs = { auth_doc: 'Please upload a verification document.', bank_statement: 'Please upload your bank statement.' };
+                const msgs = { auth_doc: 'Please upload verification document.', bank_statement: 'Please upload bank statement.' };
                 const err = document.createElement('div');
                 err.className = 'error-msg js-err';
                 err.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
@@ -1127,19 +1171,24 @@ include '../includes/header.php';
 
         if (!document.getElementById('agreed_terms').checked) {
             valid = false;
-            alert('Please agree to the Terms & Conditions before submitting.');
+            // 替换 alert 为 SweetAlert2
+            Swal.fire({
+                title: 'Notice',
+                text: 'Please agree to the Terms & Conditions before submitting.',
+                icon: 'warning',
+                confirmButtonColor: '#FF6B00'
+            });
         }
 
         if (!valid) e.preventDefault();
     });
 
-    // ── Init on page load ────────────────────────────────
     window.addEventListener('DOMContentLoaded', () => {
         syncSubmitBtn();
+        // 初始化 bank_acc_no 的 maxlength / placeholder
+        if (bankSelectEl) bankSelectEl.dispatchEvent(new Event('change'));
     });
 </script>
 </body>
 </html>
-<?php
-require '../includes/footer.php';
-?>
+<?php require '../includes/footer.php'; ?>
