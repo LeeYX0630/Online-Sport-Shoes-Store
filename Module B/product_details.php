@@ -123,6 +123,18 @@ if ($res_pro->num_rows == 0) {
 $product = $res_pro->fetch_assoc();
 $stmt_pro->close();
 
+$is_in_wishlist = false;
+if ($is_logged_in) {
+    $stmt_wish_check = $conn->prepare("SELECT Wishlist_Id FROM wishlist WHERE User_Id = ? AND Pro_Id = ?");
+    $stmt_wish_check->bind_param("ii", $uid, $pro_id);
+    $stmt_wish_check->execute();
+    $res_wish_check = $stmt_wish_check->get_result();
+    if ($res_wish_check->num_rows > 0) {
+        $is_in_wishlist = true;
+    }
+    $stmt_wish_check->close();
+}
+
 $raw_colors_str = $product['Pro_Colour'];
 $raw_colors = preg_split('/[,\/]/', $raw_colors_str);
 $colors = [];
@@ -607,7 +619,10 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
             <div class="product-gallery-grid" id="mainGalleryGrid"></div>
             
             <div class="product-info">
-                <button class="btn-wishlist-main" onclick="toggleWishlist(event, this)"><i class="bi bi-heart"></i></button>
+                <button class="btn-wishlist-main" onclick="toggleWishlist(event, this)">
+                    <i class="bi <?php echo $is_in_wishlist ? 'bi-heart-fill' : 'bi-heart'; ?>" 
+                    style="<?php echo $is_in_wishlist ? 'color: #e74c3c;' : ''; ?>"></i>
+                </button>
                 <div class="brand-name"><?php echo $product['Brand_Name']; ?></div>
                 <h1 class="product-title"><?php echo $product['Pro_Name']; ?></h1>
                 <span class="current-price">RM <?php echo number_format($product['Pro_Price'], 2); ?></span>
@@ -696,25 +711,9 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
                 </form>
             </div>
         </div>
-        
-    </div>
-    <div class="ai-assistant-container">
-    <div class="assistant-header">
-        <i class="bi bi-robot"></i>
-        <span>SS AI Size Assistant</span>
-    </div>
-    <div class="ai-chat-box">
-        <div class="chat-messages" id="chatMessages">
-            <div class="msg ai">
-                Hello! I'm your SS Assistant. Not sure about your size? Just tell me your <strong>foot length in centimeters (cm)</strong>, and I'll find your perfect fit!
-            </div>
-        </div>
-        <div class="chat-input-area">
-            <input type="text" id="aiInput" placeholder="Enter height (cm) or ask a question..." onkeypress="if(event.key==='Enter') askAI()">
-            <button id="aiSendBtn" onclick="askAI()">Ask Assistant</button>
-        </div>
     </div>
 </div>
+
 <div class="detail-container" style="margin-top: 40px; border-top: 1px solid #eee; padding-top: 40px; position: relative;">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px;">
         <h3 style="font-weight: 800; margin: 0; letter-spacing: -0.5px;">Inspired by your browsing</h3>
@@ -765,6 +764,7 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
 </div>
 <?php endif; ?>
 
+<?php include '../includes/footer.php'; ?>
 
 <script>
     const isLoggedIn = <?php echo $is_logged_in ? 'true' : 'false'; ?>;
@@ -1178,15 +1178,15 @@ function triggerFlashEffect() {
     }
 }
 
-async function processMeasurement() {
-    // 这里的分析过程可以配合 TensorFlow.js 进行真实的边缘像素点计算
+// 替换第 1177 行附近的 processMeasurement 函数
+async function processMeasurement(imagePath) {
     Swal.fire({
-        title: 'AI Neural Scanning...',
+        title: 'AI Neural Analysis...',
         html: `
             <div style="padding: 20px;">
                 <div class="spinner-border text-success" role="status"></div>
-                <p style="margin-top: 15px; font-weight: bold;">Detecting Edge Contours...</p>
-                <div style="font-size: 11px; color: #888;">Optimizing UK Sizing standard...</div>
+                <p style="margin-top: 15px; font-weight: bold;">Detecting foot contours & A4 reference...</p>
+                <div style="font-size: 11px; color: #888;">Gemini Vision is measuring your foot...</div>
             </div>
         `,
         allowOutsideClick: false,
@@ -1194,53 +1194,90 @@ async function processMeasurement() {
         didOpen: () => { Swal.showLoading(); }
     });
 
-    // 模拟 2.5 秒的“深度计算”过程[cite: 30]
-    setTimeout(() => {
-        const mockFootLength = 26.8; 
-        const recommendedUK = calculateUKSize(mockFootLength); // 调用你原有的尺码算法[cite: 30]
+    try {
+        const response = await fetch('gemini_handler.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                mode: 'sizer',
+                image_path: imagePath 
+            })
+        });
+
+        const data = await response.json();
+        const aiReply = data.reply ? data.reply.trim() : "";
+
+        // --- 核心修复：增加准确度校验逻辑 ---
+        if (aiReply === "ERROR" || isNaN(parseFloat(aiReply))) {
+            throw new Error("No foot or A4 paper detected. Please ensure your foot is centered on the paper.");
+        }
+
+        const realFootLength = parseFloat(aiReply);
+        const recommendedUK = calculateUKSize(realFootLength); // 调用尺码计算算法
         
         Swal.fire({
             icon: 'success',
             title: 'Scan Successful!',
             html: `
-                <div style="background: #f8f9fa; padding: 15px; border-radius: 10px;">
-                    <p style="margin: 0; color: #666;">Measured Length:</p>
-                    <h2 style="color: #008060; margin: 5px 0;">${mockFootLength} cm</h2>
-                    <hr>
-                    <p style="font-weight: bold; margin-bottom: 0;">Perfect Fit: UK ${recommendedUK}</p>
+                <div style="background: #f8f9fa; padding: 15px; border-radius: 10px; text-align: center;">
+                    <p style="margin: 0; color: #666; font-size: 14px;">AI Measured Length:</p>
+                    <h2 style="color: #008060; margin: 5px 0; font-weight: 800;">${realFootLength} cm</h2>
+                    <hr style="border: none; border-top: 1px solid #eee; margin: 10px 0;">
+                    <p style="font-weight: bold; margin-bottom: 10px; font-size: 16px;">Perfect Fit: UK ${recommendedUK}</p>
+                    
+                    <div style="font-size: 11px; color: #999; line-height: 1.5; margin-top: 15px; padding-top: 10px; border-top: 1px dashed #ddd; text-align: left;">
+                        <i class="bi bi-exclamation-triangle-fill" style="color: #e67e22;"></i> 
+                        <strong>Disclaimer:</strong> AI Measured Length may have some inaccuracies and the response may not be completely accurate.
+                    </div>
                 </div>
             `,
             confirmButtonText: 'Apply to My Order',
             confirmButtonColor: '#008060'
-        }).then(() => {
-            autoSelectSize(recommendedUK); // 自动在页面上勾选尺码[cite: 30]
+        }).then((result) => {
+            if (result.isConfirmed) {
+                autoSelectSize(recommendedUK);
+            }
         });
-    }, 2500);
-}
 
-async function processMeasurement() {
-    // 模拟 AI 处理过程（实际生产中可对接 TensorFlow.js 模型）
-    Swal.fire({
-        title: 'AI Analyzing...',
-        html: 'Detecting foot edges and A4 reference...',
-        allowOutsideClick: false,
-        didOpen: () => { Swal.showLoading(); }
-    });
-
-    // 模拟延迟并给出建议
-    setTimeout(() => {
-        const mockFootLength = 26.5; // 假设识别结果是 26.5cm
-        const recommendedUK = calculateUKSize(mockFootLength); // 使用你现有的算法
-        
+    } catch (error) {
+        console.error(error);
         Swal.fire({
-            icon: 'success',
-            title: 'Scan Complete!',
-            text: `Measured Length: ${mockFootLength}cm. Your recommended size is UK ${recommendedUK}.`,
-            confirmButtonText: 'Apply Size'
-        }).then(() => {
-            autoSelectSize(recommendedUK); // 核心联动：直接勾选尺码
+            icon: 'error',
+            title: 'Measurement Failed',
+            text: error.message || 'AI could not analyze the photo. Please try again.'
         });
-    }, 2000);
+    }
+}
+function toggleWishlist(event, btn) {
+    event.preventDefault();
+    // 1. 登录检查
+    if (!isLoggedIn) {
+        promptLogin('add items to your wishlist');
+        return;
+    }
+
+    // 2. 发送异步请求给后端处理程序
+    fetch('wishlist_handler.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pro_id: currentProId })
+    })
+    .then(res => res.json())
+    .then(data => {
+        const icon = btn.querySelector('i');
+        if (data.status === 'added') {
+            // 切换为实心爱心
+            icon.classList.replace('bi-heart', 'bi-heart-fill');
+            icon.style.color = '#e74c3c';
+            Swal.fire({ icon: 'success', title: 'Added to Wishlist', showConfirmButton: false, timer: 1000 });
+        } else if (data.status === 'removed') {
+            // 切换为空心爱心
+            icon.classList.replace('bi-heart-fill', 'bi-heart');
+            icon.style.color = '';
+            Swal.fire({ icon: 'info', title: 'Removed from Wishlist', showConfirmButton: false, timer: 1000 });
+        }
+    })
+    .catch(err => console.error('Wishlist Error:', err));
 }
 </script>
 

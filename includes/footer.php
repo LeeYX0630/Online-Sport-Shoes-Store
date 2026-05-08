@@ -1,7 +1,8 @@
 <footer class="mt-auto py-5 bg-dark text-white">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    
     <div class="container-fluid px-5">
         <div class="row gx-5">
-            
             <div class="col-lg-3 col-md-6 mb-4">
                 <h5 class="fw-bold text-warning mb-3">
                     <i class="bi bi-lightning-charge me-2"></i>Sport Shoes Store
@@ -63,11 +64,7 @@
                         referrerpolicy="no-referrer-when-downgrade">
                     </iframe>
                 </div>
-                <small class="text-muted mt-1 d-block text-end fst-italic" style="font-size: 0.75rem;">
-                    <i class="bi bi-map me-1"></i> View on Google Maps
-                </small>
             </div>
-
         </div>
 
         <hr class="border-secondary my-4" style="opacity: 0.3;">
@@ -95,8 +92,7 @@
             <i class="bi bi-x-lg" onclick="toggleChatbot()" style="cursor:pointer;" title="Close"></i>
         </div>
     </div>
-    <div class="chatbot-body" id="chatBody">
-        </div>
+    <div class="chatbot-body" id="chatBody"></div>
     <div class="chatbot-footer">
         <input type="text" id="chatInput" placeholder="Type a message..." onkeypress="handleEnter(event)">
         <button onclick="sendMessage()"><i class="bi bi-send-fill"></i></button>
@@ -104,88 +100,68 @@
 </div>
 
 <style>
+    /* 你原本的 CSS 样式保持不变 */
     .hover-white:hover { color: #fff !important; text-decoration: underline !important; transition: all 0.3s; }
     .map-container { transition: transform 0.3s ease; }
     .map-container:hover { transform: scale(1.05); border-color: #FF6B00 !important; }
     body { display: flex; flex-direction: column; min-height: 100vh; }
-
-    /* ================= Chatbot CSS ================= */
-    .chatbot-toggler {
-        position: fixed;
-        bottom: 30px;
-        right: 30px;
-        width: 60px;
-        height: 60px;
-        background-color: #FF6B00; 
-        color: white;
-        border-radius: 50%;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        font-size: 26px;
-        cursor: pointer;
-        box-shadow: 0 5px 15px rgba(255,107,0,0.4);
-        z-index: 9999;
-        transition: 0.3s;
-    }
+    .chatbot-toggler { position: fixed; bottom: 30px; right: 30px; width: 60px; height: 60px; background-color: #FF6B00; color: white; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 26px; cursor: pointer; box-shadow: 0 5px 15px rgba(255,107,0,0.4); z-index: 9999; transition: 0.3s; }
     .chatbot-toggler:hover { transform: scale(1.1); }
-
-    .chatbot-window {
-        position: fixed;
-        bottom: 100px;
-        right: 30px;
-        width: 350px;
-        background: #fff;
-        border-radius: 10px;
-        box-shadow: 0 10px 25px rgba(0,0,0,0.15);
-        display: none; 
-        flex-direction: column;
-        overflow: hidden;
-        z-index: 9999;
-        border: 1px solid #eee;
-    }
-
+    .chatbot-window { position: fixed; bottom: 100px; right: 30px; width: 350px; background: #fff; border-radius: 10px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); display: none; flex-direction: column; overflow: hidden; z-index: 9999; border: 1px solid #eee; }
     .chatbot-header { background: #333333; color: white; padding: 15px; display: flex; justify-content: space-between; align-items: center; font-weight: bold; }
     .chatbot-body { padding: 15px; height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; background: #f4f6f9; font-family: 'Segoe UI', sans-serif;}
     .chatbot-footer { display: flex; padding: 12px; border-top: 1px solid #eee; background: #fff;}
     .chatbot-footer input { flex: 1; border: none; outline: none; padding: 10px 15px; background: #f4f4f4; border-radius: 20px; margin-right: 10px; color: #333; font-size: 14px;}
     .chatbot-footer button { background: #FF6B00; color: white; border: none; width: 40px; height: 40px; border-radius: 50%; cursor: pointer; transition: 0.2s; display: flex; align-items: center; justify-content: center;}
-    .chatbot-footer button:hover { background: #E56000; }
-
-    .message { max-width: 85%; padding: 12px 16px; border-radius: 15px; font-size: 14px; line-height: 1.4; word-wrap: break-word; }
+    .message { 
+        max-width: 85%; 
+        padding: 12px 16px; 
+        border-radius: 15px; 
+        font-size: 14px; 
+        line-height: 1.6; /* 稍微增加行高，提升阅读舒适度 */
+        word-wrap: break-word; 
+        white-space: pre-wrap; /* 关键：保留 AI 返回的换行符 */
+    }
     .bot-message { background: #e9ecef; color: #333; align-self: flex-start; border-bottom-left-radius: 4px; }
     .user-message { background: #FF6B00; color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
-    /* ================= Chatbot CSS 结束 ================= */
 </style>
-
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
     const chatBody = document.getElementById('chatBody');
     const defaultWelcomeMsg = `<div class="message bot-message">Hi there! 👋 I'm your AI Assistant. How can I help you find the perfect pair of sport shoes today?</div>`;
 
-    // 页面加载完毕时：从 sessionStorage 中恢复聊天记录
     window.addEventListener('DOMContentLoaded', () => {
         const savedHistory = sessionStorage.getItem('geminiChatHistory');
-        if (savedHistory) {
-            chatBody.innerHTML = savedHistory;
-        } else {
-            chatBody.innerHTML = defaultWelcomeMsg;
-        }
+        chatBody.innerHTML = savedHistory ? savedHistory : defaultWelcomeMsg;
         chatBody.scrollTop = chatBody.scrollHeight;
     });
 
-    // 保存当前的 HTML 到浏览器记忆中
     function saveChatHistory() {
         sessionStorage.setItem('geminiChatHistory', chatBody.innerHTML);
     }
 
-    // 清空记忆功能
+    // --- 【统一后的 SweetAlert 清空逻辑】 ---
     function clearChat() {
-        if(confirm("Are you sure you want to clear the chat history?")) {
-            sessionStorage.removeItem('geminiChatHistory');
-            chatBody.innerHTML = defaultWelcomeMsg;
-        }
+        Swal.fire({
+            title: 'Clear Chat History?',
+            text: "All your conversations with the AI will be permanently deleted.",
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#FF6B00',
+            cancelButtonColor: '#333',
+            confirmButtonText: 'Yes, clear it!'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                sessionStorage.removeItem('geminiChatHistory');
+                chatBody.innerHTML = defaultWelcomeMsg;
+                Swal.fire({
+                    title: 'Cleared!',
+                    icon: 'success',
+                    timer: 1500,
+                    showConfirmButton: false
+                });
+            }
+        });
     }
 
     function toggleChatbot() {
@@ -193,47 +169,48 @@
         chatWindow.style.display = chatWindow.style.display === 'flex' ? 'none' : 'flex';
     }
 
-    function handleEnter(e) {
-        if (e.key === 'Enter') sendMessage();
-    }
+    function handleEnter(e) { if (e.key === 'Enter') sendMessage(); }
 
     async function sendMessage() {
         const input = document.getElementById('chatInput');
         const msg = input.value.trim();
         if (!msg) return;
 
-        // 1. 显示并保存用户输入
         chatBody.innerHTML += `<div class="message user-message">${msg}</div>`;
         input.value = '';
         chatBody.scrollTop = chatBody.scrollHeight;
         saveChatHistory();
 
-        // 2. 显示等待动画并保存
         const loadingId = 'loading-' + Date.now();
         chatBody.innerHTML += `<div id="${loadingId}" class="message bot-message"><i class="bi bi-three-dots"></i> AI is thinking...</div>`;
         chatBody.scrollTop = chatBody.scrollHeight;
-        saveChatHistory();
 
         try {
-            const apiPath = "<?php echo isset($path_mod_b) ? $path_mod_b : '../Module B/'; ?>gemini_handler.php";
-            
-            const response = await fetch(apiPath, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: msg })
-            });
-            
+            const response = await fetch(apiPath, { ... });
             const data = await response.json();
             
-            // 3. 将等待动画替换为真实结果，并保存最终状态
-            document.getElementById(loadingId).innerHTML = data.reply || "I'm sorry, I encountered an error connecting to the brain.";
+            let reply = data.reply || "I'm sorry, I encountered an error.";
+
+            reply = reply.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+            reply = reply.replace(/^\* /gm, '<br>• ');
+
+            const sizeTagRegex = /\[RECOMMENDED_SIZE:(\d+)\]/g;
+            reply = reply.replace(sizeTagRegex, (match, size) => {
+                return `<br><button class="apply-size-btn" onclick="autoSelectSize('${size}')">Apply UK ${size} to order</button>`;
+            });
+
+            document.getElementById(loadingId).innerHTML = reply;
         } catch (error) {
-            document.getElementById(loadingId).innerText = "Error: Could not connect to the AI assistant.";
+            // --- 【统一后的 SweetAlert 错误提示】 ---
+            document.getElementById(loadingId).remove();
+            Swal.fire({
+                icon: 'error',
+                title: 'Connection Failed',
+                text: 'Could not connect to the AI assistant. Please check your network.',
+                confirmButtonColor: '#FF6B00'
+            });
         }
-        
         chatBody.scrollTop = chatBody.scrollHeight;
-        saveChatHistory(); // 保存完整的对话
+        saveChatHistory();
     }
 </script>
-</body>
-</html>
