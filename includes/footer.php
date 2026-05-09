@@ -166,51 +166,62 @@
 
     function toggleChatbot() {
         const chatWindow = document.getElementById('chatbotWindow');
-        chatWindow.style.display = chatWindow.style.display === 'flex' ? 'none' : 'flex';
+        if (chatWindow.style.display === 'none' || chatWindow.style.display === '') {
+            chatWindow.style.display = 'flex';
+        } else {
+            chatWindow.style.display = 'none';
+        }
     }
 
     function handleEnter(e) { if (e.key === 'Enter') sendMessage(); }
 
     async function sendMessage() {
-        const input = document.getElementById('chatInput');
-        const msg = input.value.trim();
-        if (!msg) return;
+    const input = document.getElementById('chatInput');
+    const msg = input.value.trim();
+    if (!msg) return;
 
-        chatBody.innerHTML += `<div class="message user-message">${msg}</div>`;
-        input.value = '';
-        chatBody.scrollTop = chatBody.scrollHeight;
-        saveChatHistory();
+    // 定义 API 路径 (确保路径指向你的 gemini_handler.php)
+    const apiPath = "<?php echo isset($path_mod_b) ? $path_mod_b : '../Module B/'; ?>gemini_handler.php";
 
-        const loadingId = 'loading-' + Date.now();
-        chatBody.innerHTML += `<div id="${loadingId}" class="message bot-message"><i class="bi bi-three-dots"></i> AI is thinking...</div>`;
-        chatBody.scrollTop = chatBody.scrollHeight;
+    chatBody.innerHTML += `<div class="message user-message">${msg}</div>`;
+    input.value = '';
+    chatBody.scrollTop = chatBody.scrollHeight;
+    saveChatHistory();
 
-        try {
-            const response = await fetch(apiPath, { ... });
-            const data = await response.json();
-            
-            let reply = data.reply || "I'm sorry, I encountered an error.";
+    const loadingId = 'loading-' + Date.now();
+    chatBody.innerHTML += `<div id="${loadingId}" class="message bot-message"><i class="bi bi-three-dots"></i> AI is thinking...</div>`;
+    chatBody.scrollTop = chatBody.scrollHeight;
 
-            reply = reply.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
-            reply = reply.replace(/^\* /gm, '<br>• ');
+    try {
+        // 关键修复：修复 fetch 语法
+        const response = await fetch(apiPath, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: msg })
+        });
+        
+        const data = await response.json();
+        let reply = data.reply || "I'm sorry, I encountered an error.";
 
-            const sizeTagRegex = /\[RECOMMENDED_SIZE:(\d+)\]/g;
-            reply = reply.replace(sizeTagRegex, (match, size) => {
-                return `<br><button class="apply-size-btn" onclick="autoSelectSize('${size}')">Apply UK ${size} to order</button>`;
-            });
+        reply = reply.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+        reply = reply.replace(/^\* /gm, '<br>• ');
 
-            document.getElementById(loadingId).innerHTML = reply;
-        } catch (error) {
-            // --- 【统一后的 SweetAlert 错误提示】 ---
-            document.getElementById(loadingId).remove();
-            Swal.fire({
-                icon: 'error',
-                title: 'Connection Failed',
-                text: 'Could not connect to the AI assistant. Please check your network.',
-                confirmButtonColor: '#FF6B00'
-            });
-        }
-        chatBody.scrollTop = chatBody.scrollHeight;
-        saveChatHistory();
+        const sizeTagRegex = /\[RECOMMENDED_SIZE:(\d+)\]/g;
+        reply = reply.replace(sizeTagRegex, (match, size) => {
+            return `<br><button class="apply-size-btn" onclick="autoSelectSize('${size}')">Apply UK ${size} to order</button>`;
+        });
+
+        document.getElementById(loadingId).innerHTML = reply;
+    } catch (error) {
+        document.getElementById(loadingId).remove();
+        Swal.fire({
+            icon: 'error',
+            title: 'Connection Failed',
+            text: 'Could not connect to the AI assistant. Please check your network.',
+            confirmButtonColor: '#FF6B00'
+        });
     }
+    chatBody.scrollTop = chatBody.scrollHeight;
+    saveChatHistory();
+}
 </script>

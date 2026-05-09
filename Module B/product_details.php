@@ -7,10 +7,8 @@ $is_logged_in = isset($_SESSION['user_id']);
 $uid = $is_logged_in ? $_SESSION['user_id'] : null;
 
 include '../includes/db_connection.php';
+require_once '../includes/material_configs.php';
 
-// ==========================================
-// 核心逻辑：处理加入购物车 (Add to Cart / Checkout)
-// ==========================================
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_to_cart'])) {
     $add_pro_id = intval($_POST['pro_id']);
     $add_size = $_POST['selected_size'];
@@ -62,13 +60,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_to_cart'])) {
         }
 
         if ($design_data) {
-            // 情况 A: 添加自定义设计
+            $final_price = calculateCustomDesignPrice($design_data['design_details']);
+            
             $cart_key = 'custom_' . $design_id . '_' . $add_size;
             $_SESSION['cart'][$cart_key] = [
                 'pro_id' => $add_pro_id,
                 'size' => $add_size,
                 'qty' => $add_qty,
                 'color' => 'Custom Design',
+                'price' => $final_price, // 【关键】：存入计算后的价格
                 'design_details' => $design_data['design_details'],
                 'custom_preview' => $design_data['custom_preview']
             ];
@@ -289,6 +289,9 @@ if (!empty($_SESSION['cart'])) {
         $c_res = $stmt_mini->get_result();
         if ($c_res && $c_res->num_rows > 0) {
             $c_row = $c_res->fetch_assoc();
+            if (isset($c_item['price'])) {
+                $c_row['Pro_Price'] = $c_item['price'];
+            }
             $c_row['qty'] = (int)$c_item['qty'];
             $c_row['subtotal'] = $c_row['qty'] * (float)$c_row['Pro_Price'];
             $c_row['custom_preview'] = $c_item['custom_preview'] ?? '';

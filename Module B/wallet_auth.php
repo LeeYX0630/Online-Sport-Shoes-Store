@@ -12,6 +12,15 @@ if (!isset($_SESSION['wallet_temp_data'])) {
     exit();
 }
 
+        // wallet_auth.php 顶部
+function generateTrackingNum($conn) {
+    do {
+        $track_num = str_pad(mt_rand(1, 999999), 6, '0', STR_PAD_LEFT);
+        $check = $conn->query("SELECT Order_Id FROM `ORDER` WHERE Order_Tracking_Num = '$track_num'");
+    } while ($check->num_rows > 0);
+    return $track_num;
+}
+
 $uid = $_SESSION['user_id'];
 $error = '';
 $success = '';
@@ -56,9 +65,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['wallet_pin'])) {
             $order_date = date('Y-m-d H:i:s');
             $grand_total = floatval($walletData['grand_total']);
 
+            $tracking_no = generateTrackingNum($conn);
+            $pay_method_display = "Store Wallet";
+            $promo_id_to_save = isset($_SESSION['applied_user_promo_id']) ? intval($_SESSION['applied_user_promo_id']) : "NULL";
+
             $conn->begin_transaction();
             try {
-                $sql_order = "INSERT INTO `ORDER` (User_Id, Order_Amount, Order_Shipping_Addr, Order_Status, Order_Date, Payment_Status) VALUES ('$uid', '$grand_total', '$final_addr', 'Processing', '$order_date', 'Paid')";
+                // 【核心修复】：增加 Order_Tracking_Num, Promo_Id, Payment_Method 三个字段
+                $sql_order = "INSERT INTO `ORDER` (User_Id, Order_Amount, Order_Shipping_Addr, Order_Status, Order_Date, Payment_Status, Order_Tracking_Num, Promo_Id, Payment_Method) 
+                              VALUES ('$uid', '$grand_total', '$final_addr', 'Processing', '$order_date', 'Paid', '$tracking_no', $promo_id_to_save, '$pay_method_display')";
+                
                 $conn->query($sql_order);
                 $order_id = $conn->insert_id;
 
@@ -196,6 +212,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['wallet_pin'])) {
             button.disabled = true;
             button.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Authorizing...';
         });
+
     </script>
 </body>
 </html>

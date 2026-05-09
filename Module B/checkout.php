@@ -88,10 +88,13 @@ foreach ($_SESSION['cart'] as $cart_key => $item) {
                 $p_data['display_image'] = "../images/placeholder.png"; // 没搜到则显示占位图
             }
         }
-
-        $p_data['item_total'] = $p_data['Pro_Price'] * $item['qty'];
-        $subtotal += $p_data['item_total'];
-        $checkout_items[] = $p_data;
+        if (isset($item['price'])) {
+                $p_data['Pro_Price'] = $item['price'];
+            }
+            
+            $p_data['item_total'] = $p_data['Pro_Price'] * $item['qty'];
+            $subtotal += $p_data['item_total'];
+            $checkout_items[] = $p_data;
     }
 }
 
@@ -385,42 +388,68 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
         }
         $order_date = date('Y-m-d H:i:s');
         
-        $conn->begin_transaction();
+$conn->begin_transaction();
         try {
-            $sql_order = "INSERT INTO `ORDER` (User_Id, Order_Amount, Order_Shipping_Addr, Order_Status, Order_Date, Payment_Status) 
-                          VALUES ('$uid', '$grand_total', '$final_addr', 'Processing', '$order_date', 'Paid')";
+            $promo_id_to_save = "NULL";
+            if (isset($_SESSION['applied_promo_code'])) {
+                $code_temp = $_SESSION['applied_promo_code'];
+                $p_res = $conn->query("SELECT Promo_Id FROM promo WHERE Promo_Code = '$code_temp'");
+                if ($p_row = $p_res->fetch_assoc()) {
+                    $promo_id_to_save = $p_row['Promo_Id'];
+                }
+            }
+
+            function generateTrackingNum($conn) {
+                do {
+                    $track_num = str_pad(mt_rand(1, 999999), 6, '0', STR_PAD_LEFT);
+                    $check = $conn->query("SELECT Order_Id FROM `ORDER` WHERE Order_Tracking_Num = '$track_num'");
+                } while ($check->num_rows > 0);
+                return $track_num;
+            }
+            $tracking_no = generateTrackingNum($conn);
+
+            $pay_method_display = "Unknown";
+            if ($_POST['pay_type'] === 'wallet') {
+                $pay_method_display = "Store Wallet";
+            } elseif ($_POST['pay_type'] === 'card') {
+                $pay_method_display = "Credit / Debit Card";
+            } elseif ($_POST['pay_type'] === 'fpx') {
+                $pay_method_display = "FPX Online Banking (" . ($_POST['fpx_bank'] ?? 'Standard') . ")";
+            }
+
+            // 1. 插入主订单
+            $sql_order = "INSERT INTO `ORDER` (User_Id, Order_Amount, Order_Shipping_Addr, Order_Date, Order_Tracking_Num, Promo_Id, Payment_Status, Payment_Method) 
+                          VALUES ('$uid', '$grand_total', '$final_addr', '$order_date', '$tracking_no', $promo_id_to_save, 'Paid', '$pay_method_display')";
             $conn->query($sql_order);
             $order_id = $conn->insert_id;
 
-            // B. 【关键逻辑】执行钱包扣款与记录
-            $pay_type = $_POST['pay_type'];
-            if ($pay_type === 'wallet') {
-                // 扣除余额
-                $conn->query("UPDATE `USER` SET User_Balance = User_Balance - $grand_total WHERE User_Id = '$uid'");
-                
-                // 插入一条负数的交易流水记录
-                $trans_desc = "Purchased Order #$order_id";
-                $conn->query("INSERT INTO WALLET_TRANSACTION (User_Id, Amount, Type, Description) VALUES ('$uid', '-$grand_total', 'Payment', '$trans_desc')");
-            }
-
+            // 2. 直接遍历购物车，插入订单详情并更新库存
             foreach ($_SESSION['cart'] as $item) {
-                $item_pid = $item['pro_id'];
-                $item_qty = $item['qty'];
-                $item_size = $item['size'];
-                $item_color = $item['color'] ?? 'Default'; 
+                $p_id = $item['pro_id'];
+                $qty = $item['qty'];
+                $size = $conn->real_escape_string($item['size']);
+                $color = $conn->real_escape_string($item['color'] ?? 'Default');
+                
+                // 获取单价计算小计
+                $v_res = $conn->query("SELECT Pro_Price FROM product WHERE Pro_Id = '$p_id'");
+                $p_info = $v_res->fetch_assoc();
+                $unit_price = isset($item['price']) ? $item['price'] : $p_info['Pro_Price'];
+                $subtotal_item = $unit_price * $qty;
 
-                $res_p = $conn->query("SELECT Pro_Price FROM product WHERE Pro_Id = '$item_pid'");
-                $row_p = $res_p->fetch_assoc();
-                $item_sub = $row_p['Pro_Price'] * $item_qty;
-                $conn->query("INSERT INTO ORDER_DETAIL (Order_Id, Pro_Id, Order_Qty, Order_Subtotal) VALUES ('$order_id', '$item_pid', '$item_qty', '$item_sub')");
-                $db_color_key = ($item_pid == 16 || $item_pid == 17) ? 'Default' : $item_color;
-                $conn->query("UPDATE PRODUCT_STOCK SET Quantity = Quantity - $item_qty WHERE Pro_Id = '$item_pid' AND Pro_Size = '$item_size' AND Pro_Colour = '$db_color_key'");
+                // 核心：直接关联 Order_Id，Sub_Order_Id 设为 0
+                $conn->query("INSERT INTO ORDER_DETAIL (Order_Id, Sub_Order_Id, Pro_Id, Order_Qty, Order_Subtotal, Pro_Size, Pro_Colour, Custom_Preview) 
+                              VALUES ('$order_id', 0, '$p_id', '$qty', '$subtotal_item', '$size', '$color', '" . ($item['custom_preview'] ?? '') . "')");
+                
+                // 更新库存
+                $db_color_key = ($p_id == 16 || $p_id == 17) ? 'Default' : $color;
+                $conn->query("UPDATE PRODUCT_STOCK SET Quantity = Quantity - $qty 
+                              WHERE Pro_Id = '$p_id' AND Pro_Size = '$size' AND Pro_Colour = '$db_color_key'");
             }
             
-            // 【核心修复】：标记使用过的优惠券为已使用（核销）
+            // 核销优惠券
             if (isset($_SESSION['applied_user_promo_id']) && !empty($_SESSION['applied_user_promo_id'])) {
                 $user_promo_id = intval($_SESSION['applied_user_promo_id']);
-                $conn->query("UPDATE user_promo SET Is_Used = 'Yes', Used_Date = NOW() WHERE User_Promo_Id = '$user_promo_id'");
+                $conn->query("UPDATE user_promo SET Is_Used = 'Yes' WHERE User_Promo_Id = '$user_promo_id'");
             }
             
             $conn->commit();
@@ -429,10 +458,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
             sendOrderReceiptEmail($order_id, $conn);
         
             unset($_SESSION['cart']);
-            
             header("Location: payment_success.php?order_id=" . $order_id);
             exit();
-        } catch (Exception $e) { $conn->rollback(); $error = "Order Failed: " . $e->getMessage(); }
+        } catch (Exception $e) { 
+            $conn->rollback(); 
+            $error = "Order Failed: " . $e->getMessage(); 
+        }
     }
 }
 
@@ -482,6 +513,9 @@ include '../includes/header.php';
     
     .btn-apply { height: 46px; align-self: center; border-radius: 12px; font-weight: 700; transition: 0.3s; }
     .btn-pay-now { width: 100%; background: #17735b; color: #fff; border: none; padding: 18px; border-radius: 5px; font-weight: 600; font-size: 1.1rem; cursor: pointer; margin-top: 25px; transition: background 0.3s; }
+    
+    
+    
 </style>
 
 <div class="checkout-container">
@@ -1195,6 +1229,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     <?php endif; ?>
 });
+
 </script>
 
 <?php include '../includes/footer.php'; ?>

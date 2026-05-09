@@ -55,7 +55,15 @@ if ($mode === 'sizer' && $image_path) {
 // 模式 2: 3D 定制设计师 (Designer)
 // ==========================================
 elseif ($mode === 'designer') {
-    $systemPrompt = "You are a world-class sneaker designer. Provide a JSON color scheme for: Outupper, Style, Laces, Tongue, Midsole, Outsole. Return ONLY JSON.";
+    $systemPrompt = "You are a world-class sneaker designer. 
+    Provide a JSON color scheme for exactly these keys: 'Outupper', 'Style', 'Laces', 'Tongue', 'Midsole', 'Outsole'.
+    
+    RULES:
+    1. Keys must be CASE-SENSITIVE (e.g., 'Outupper', not 'outupper').
+    2. Colors must be in HEX format (e.g., '#FF0000').
+    3. Roughness must be a float between 0.0 and 1.0.
+    4. Return ONLY the raw JSON object. No markdown, no explanation.";
+
     $payload = [
         "contents" => [["parts" => [["text" => $systemPrompt . "\n\nUser Style: " . $userMessage]]]]
     ];

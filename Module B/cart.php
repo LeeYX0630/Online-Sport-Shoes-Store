@@ -137,6 +137,9 @@ $free_shipping_threshold = 250.00;
                                 $product = $res->fetch_assoc();
                                 $current_stock = intval($product['DB_Stock'] ?? 0);
                                 
+                                if (isset($item['price'])) {
+                                    $product['Pro_Price'] = $item['price'];
+                                }
                                 if (!empty($item['custom_preview'])) {
                                     $display_img = $item['custom_preview'];
                                 } else {
