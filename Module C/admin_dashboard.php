@@ -4,14 +4,14 @@ session_start();
 require_once '../includes/db_connection.php'; 
 
 // 1. 安全检查
-if (!isset($_SESSION['role'])) {
+if (!isset($_SESSION['admin_id']) && !isset($_SESSION['is_admin'])) {
     header("Location: admin_login.php");
     exit();
 }
 
-$admin_role = $_SESSION['role'];
+$admin_role = $_SESSION['role'] ?? '1';
 $username = $_SESSION['username'] ?? 'Admin';
-$admin_id = $_SESSION['admin_id'];
+$admin_id = $_SESSION['admin_id'] ?? $_SESSION['user_id'] ?? 0;
 
 // --- 辅助函数：计算并渲染增长率 UI ---
 function calculateGrowth($current, $previous) {

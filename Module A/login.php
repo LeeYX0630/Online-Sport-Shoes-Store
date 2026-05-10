@@ -19,7 +19,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     if ($result && $result->num_rows > 0) {
         $user = $result->fetch_assoc();
 
-        if (password_verify($password, $user['User_Password'])) {
+        // Try both password_verify (hashed) and plain text comparison
+        if (password_verify($password, $user['User_Password']) || $password === trim($user['User_Password'])) {
             // Set basic session data
             $_SESSION['user_id'] = $user['User_Id'];
             $_SESSION['user_name'] = $user['User_Name'];
@@ -27,8 +28,24 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             // --- NEW REDIRECTION LOGIC ---
             // Check if the email contains '@sport' to identify admin status
             if (strpos($email, '@sport') !== false) {
-                $_SESSION['role'] = 'Admin';
-                header("Location: ../Module A/admin_dashboard.php"); // Path to your admin page
+                // Admin login - fetch admin details
+                $admin_sql = "SELECT * FROM `admin` WHERE Admin_Email = '$email' LIMIT 1";
+                $admin_result = $conn->query($admin_sql);
+                
+                if ($admin_result && $admin_result->num_rows > 0) {
+                    $admin_user = $admin_result->fetch_assoc();
+                    $_SESSION['admin_id'] = $admin_user['Admin_Id'];
+                    $_SESSION['username'] = $admin_user['Admin_Name'];
+                    $_SESSION['role'] = $admin_user['Role_Id'] ?? '1';
+                } else {
+                    // If no admin record found, create one or set default
+                    $_SESSION['admin_id'] = $user['User_Id'];
+                    $_SESSION['username'] = $user['User_Name'];
+                    $_SESSION['role'] = '1'; // Default to Level 1
+                }
+                
+                $_SESSION['is_admin'] = true;
+                header("Location: ../Module C/admin_dashboard.php");
                 exit();
             } else {
                 $_SESSION['role'] = 'Customer';
@@ -211,7 +228,7 @@ include_once '../includes/header.php';
                 <div class="mb-3">
                     <div class="d-flex justify-content-between">
                         <label class="form-label">Security Key</label>
-                        <a href="forgot_password.php" class="text-decoration-none extra-small fw-bold" style="color: var(--brand-orange); font-size: 0.7rem;">FORGOT?</a>
+                        <a href="forgot_password.php" class="text-decoration-none extra-small fw-bold" style="color: var(--brand-orange); font-size: 0.7rem;">FORGOT PASSWORD?</a>
                     </div>
                     <input type="password" name="password" class="form-control" placeholder="••••••••" required>
                 </div>
