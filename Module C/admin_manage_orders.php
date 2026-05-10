@@ -24,6 +24,34 @@ if ($admin_id) {
     $admin_image = $_SESSION['admin_image'] ?? 'default_admin.png';
 }
 
+// 获取当前登录管理员 ID (假设你存放在 session 中)
+$current_admin_id = $_SESSION['admin_id']; 
+$admin_level = $_SESSION['role']; // 或者是 $_SESSION['role']，取决于你的命名
+
+
+
+// 1. 先定义基础 SQL（注意：这里不要加分号结束，我们要根据条件拼接）
+$sql = "SELECT o.*, u.User_Name 
+        FROM `order` o 
+        JOIN `user` u ON o.User_Id = u.User_Id";
+
+// 2. 判断是否为 Level 3 品牌管理员
+if ($_SESSION['role'] == 3) {
+    $current_admin_id = $_SESSION['admin_id']; 
+    // 增加过滤条件：该订单必须包含属于该 Admin 管理的品牌的商品
+    $sql .= " WHERE EXISTS (
+        SELECT 1 FROM order_detail od
+        JOIN product p ON od.Pro_Id = p.Pro_Id
+        JOIN brand b ON p.Brand_Id = b.Brand_Id
+        WHERE od.Order_Id = o.Order_Id 
+        AND b.Admin_Id = '$current_admin_id'
+    )";
+}
+
+// 3. 最后才加上排序，并执行查询（全页面只能有一个 $result = mysqli_query...）
+$sql .= " ORDER BY o.Order_Date DESC";
+$result = mysqli_query($conn, $sql);
+
 // --- 处理 AJAX 请求：更新状态 ---
 if (isset($_POST['update_status'])) {
     $order_id = mysqli_real_escape_string($conn, $_POST['order_id']);
@@ -38,45 +66,124 @@ if (isset($_POST['update_status'])) {
     exit();
 }
 
-// 处理获取详情 (保持 SweetAlert 弹窗)
-if (isset($_GET['ajax_order_id'])) {
-    $order_id = mysqli_real_escape_string($conn, $_GET['ajax_order_id']);
-    $sql = "SELECT o.*, u.User_Name, u.User_Email FROM `order` o JOIN `user` u ON o.User_Id = u.User_Id WHERE o.Order_Id = '$order_id'";
-    $res = mysqli_query($conn, $sql);
-    $order = mysqli_fetch_assoc($res);
-    if ($order) {
-        $items_sql = "SELECT od.*, p.Pro_Name FROM order_detail od JOIN product p ON od.Pro_Id = p.Pro_Id WHERE od.Order_Id = '$order_id'";
-        $items_res = mysqli_query($conn, $items_sql);
-        $items_html = '<table class="table table-sm text-start" style="font-size:13px;"><thead><tr><th>Product</th><th>Qty</th><th>Subtotal</th></tr></thead><tbody>';
-        while ($item = mysqli_fetch_assoc($items_res)) {
-            $items_html .= "<tr><td>{$item['Pro_Name']}</td><td>{$item['Order_Qty']}</td><td>RM {$item['Order_Subtotal']}</td></tr>";
-        }
-        $items_html .= '</tbody></table>';
-        echo '<div class="text-start small"><p><strong>Customer:</strong> '.$order['User_Name'].'</p><p><strong>Address:</strong> '.$order['Order_Shipping_Addr'].'</p>'.$items_html.'<h5 class="text-end fw-bold mt-2" style="color:#FF8C00">Total: RM '.number_format($order['Order_Amount'], 2).'</h5></div>';
-    }
-    exit();
-}
 
-// 2. 获取统计数据
+
+// --- 修改后的逻辑 ---
+
+// 1. 获取统计数据 (第 103 行左右的统计逻辑也建议加上过滤，否则 Level 3 看到的总数会是全站的)
+$stats_where = "";
+if ($_SESSION['role'] == 3) {
+    $stats_where = " WHERE EXISTS (
+        SELECT 1 FROM order_detail od 
+        JOIN product p ON od.Pro_Id = p.Pro_Id 
+        JOIN brand b ON p.Brand_Id = b.Brand_Id 
+        WHERE od.Order_Id = `order`.Order_Id AND b.Admin_Id = '".$_SESSION['admin_id']."'
+    )";
+}
 $stats_query = "SELECT 
     COUNT(CASE WHEN Order_Status = 'Pending' THEN 1 END) as pending,
     COUNT(CASE WHEN Order_Status = 'Processing' THEN 1 END) as processing,
     COUNT(CASE WHEN Order_Status = 'Shipped' THEN 1 END) as shipped,
     COUNT(CASE WHEN Order_Status = 'Delivered' THEN 1 END) as delivered,
-    COUNT(*) as total FROM `order` ";
+    COUNT(*) as total FROM `order` $stats_where";
 $stats_result = mysqli_query($conn, $stats_query);
 $stats = mysqli_fetch_assoc($stats_result);
 
-$filter = $_GET['status'] ?? 'All';
-$where_clause = ($filter != 'All') ? "WHERE o.Order_Status = '$filter'" : "";
 
+// 2. 修改主表格查询 (第 115 行左右)
+$filter = $_GET['status'] ?? 'All';
+
+// 基础条件：如果是 Level 3，必须只看自己品牌
+if ($_SESSION['role'] == 3) {
+    $base_condition = "EXISTS (
+        SELECT 1 FROM order_detail od2 
+        JOIN product p2 ON od2.Pro_Id = p2.Pro_Id 
+        JOIN brand b2 ON p2.Brand_Id = b2.Brand_Id 
+        WHERE od2.Order_Id = o.Order_Id AND b2.Admin_Id = '".$_SESSION['admin_id']."'
+    )";
+    
+    // 如果有状态筛选，则用 AND 连接
+    $where_clause = ($filter != 'All') ? "WHERE ($base_condition) AND o.Order_Status = '$filter'" : "WHERE $base_condition";
+} else {
+    // Level 1 或 2 的原有逻辑
+    $where_clause = ($filter != 'All') ? "WHERE o.Order_Status = '$filter'" : "";
+}
+
+// 最终执行的 SQL
 $sql = "SELECT o.*, u.User_Name, u.User_Email, GROUP_CONCAT(p.Pro_Name SEPARATOR ', ') as products, SUM(od.Order_Qty) as total_qty
         FROM `order` o
         JOIN `user` u ON o.User_Id = u.User_Id
         JOIN `order_detail` od ON o.Order_Id = od.Order_Id
         JOIN `product` p ON od.Pro_Id = p.Pro_Id
-        $where_clause GROUP BY o.Order_Id ORDER BY o.Order_Date DESC";
+        $where_clause 
+        GROUP BY o.Order_Id 
+        ORDER BY o.Order_Date DESC";
+        
 $result = mysqli_query($conn, $sql);
+
+// --- 处理 AJAX 请求：获取订单内的商品列表 (整合颜色图片逻辑) ---
+if (isset($_GET['ajax_get_items'])) {
+    $order_id = mysqli_real_escape_string($conn, $_GET['ajax_get_items']);
+    
+    // 增加查询 Pro_Colour (订单时的颜色)
+    $sql = "SELECT od.*, p.Pro_Name, p.Pro_Image, b.Brand_Name, p.Pro_Id
+            FROM order_detail od 
+            JOIN product p ON od.Pro_Id = p.Pro_Id 
+            JOIN brand b ON p.Brand_Id = b.Brand_Id 
+            WHERE od.Order_Id = '$order_id'";
+
+    if ($_SESSION['role'] == 3) {
+        $current_admin_id = $_SESSION['admin_id'];
+        $sql .= " AND b.Admin_Id = '$current_admin_id'";
+    }
+
+    $result = mysqli_query($conn, $sql);
+    
+    echo '<div class="list-group">';
+    while ($item = mysqli_fetch_assoc($result)) {
+        // --- 核心整合：拿颜色的 Code ---
+        $item_color = trim($item['Order_Colour'] ?? ''); // 订单里记录的颜色
+        $base_img = $item['Pro_Image'];
+        $display_img = "../uploads/" . $base_img; // 默认图片路径
+
+        if (!empty($item_color)) {
+            // 这里的逻辑参考自 admin_manage_products.php
+            $base_name = preg_replace('/_\d+$/', '', pathinfo($base_img, PATHINFO_FILENAME));
+            $slug = strtolower(str_replace(' ', '_', $item_color));
+            
+            // 搜索匹配该颜色的物理文件
+            $files = glob("../uploads/{$base_name}*{$slug}*.*");
+            if (!empty($files)) {
+                $display_img = "../uploads/" . basename($files[0]); // 取该颜色第一张
+            }
+        }
+        // ----------------------------
+
+        $detail_link = "admin_order_details.php?id=$order_id&pro_id=" . $item['Pro_Id'];
+        
+        echo '
+        <a href="'.$detail_link.'" class="list-group-item list-group-item-action d-flex align-items-center p-3 mb-2" style="border-radius:10px; border:1px solid #eee;">
+            <img src="'.$display_img.'" class="rounded me-3" style="width:50px; height:50px; object-fit:cover;" onerror="this.src=\'../assets/no-image.png\'">
+            <div class="flex-grow-1 text-start">
+                <div class="d-flex justify-content-between">
+                    <h6 class="mb-0 fw-bold">'.$item['Pro_Name'].'</h6>
+                    <span class="badge bg-light text-dark border">'.$item['Brand_Name'].'</span>
+                </div>
+                <small class="text-muted">Color: <b>'.$item_color.'</b> | Size: '.$item['Pro_Size'].'</small>
+                <div class="d-flex justify-content-between align-items-center mt-1">
+                    <small class="text-muted">RM '.number_format($item['Order_Subtotal'], 2).' x '.$item['Order_Qty'].'</small>
+                    <div class="fw-bold text-orange">Subtotal: RM '.number_format($item['Order_Subtotal'] * $item['Order_Qty'], 2).'</div>
+                </div>
+            </div>
+            <i class="bi bi-chevron-right ms-2 text-muted"></i>
+        </a>';
+    }
+    echo '</div>';
+    exit();
+}
+
+
+
 ?>
 
 <!DOCTYPE html>
@@ -180,9 +287,9 @@ $result = mysqli_query($conn, $sql);
     </style>
 </head>
 <body>
-
+<?php include_once '../includes/admin_sidebar.php'; ?>
 <div class="wrapper">
-    <?php include_once '../includes/admin_sidebar.php'; ?>
+    
 
     <div class="main-content">
         <!-- 完美的 Header 布局同步[cite: 1] -->
@@ -295,7 +402,7 @@ $result = mysqli_query($conn, $sql);
                                 </td>
                                 <td class="fw-bold text-dark">RM <?php echo number_format($row['Order_Amount'], 2); ?></td>
                                 <td class="text-end">
-                                    <button onclick="showDetail(<?php echo $row['Order_Id']; ?>)" class="btn btn-sm btn-orange-outline rounded-pill px-3 fw-bold">Details</button>
+                                    <button onclick="showItemPopup('<?php echo $row['Order_Id']; ?>')" class="btn btn-sm btn-outline-dark rounded-pill px-3">Details    </button>
                                 </td>
                             </tr>
                             <?php endwhile; ?>
@@ -339,20 +446,26 @@ function updateStatus(orderId, newStatus) {
     });
 }
 
-// 详情使用 SweetAlert 弹窗
-function showDetail(orderId) {
-    Swal.fire({ title: 'Loading...', didOpen: () => { Swal.showLoading() } });
-    fetch('admin_manage_orders.php?ajax_order_id=' + orderId)
-        .then(res => res.text())
-        .then(html => {
-            Swal.fire({
-                title: 'Order Details #ORD-' + orderId,
-                html: html,
-                width: '600px',
-                confirmButtonColor: '#FF8C00'
-            });
-        });
+function showItemPopup(orderId) {
+    Swal.fire({
+        title: 'Order Items (ID: #ORD-' + orderId + ')',
+        html: '<div id="popup-loading" class="py-4"><div class="spinner-border text-primary"></div><p>Loading items...</p></div>',
+        showConfirmButton: false,
+        showCloseButton: true,
+        width: '500px',
+        didOpen: () => {
+            // 通过 AJAX 获取商品列表 HTML
+            fetch('admin_manage_orders.php?ajax_get_items=' + orderId)
+                .then(response => response.text())
+                .then(html => {
+                    Swal.update({
+                        html: html
+                    });
+                });
+        }
+    });
 }
+
 </script>
 </body>
 </html>
