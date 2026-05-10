@@ -20,33 +20,50 @@ $msg_type = "";
 // ===============================
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     
-    // --- HANDLE PASSWORD UPDATE ---
-    if (isset($_POST['update_password'])) {
-        $current_pass = mysqli_real_escape_string($conn, $_POST['current_pass']);
-        $new_pass = mysqli_real_escape_string($conn, $_POST['new_pass']);
-        $confirm_pass = mysqli_real_escape_string($conn, $_POST['confirm_pass']);
+   // --- HANDLE PASSWORD UPDATE ---
+if (isset($_POST['update_password'])) {
+    $current_pass = trim($_POST['current_pass']); 
+    $new_pass = trim($_POST['new_pass']);
+    $confirm_pass = trim($_POST['confirm_pass']);
 
-        // Fetch current password to verify
-        $verify_sql = $conn->query("SELECT User_Password FROM `user` WHERE User_Id='$user_id'");
-        $user_data = $verify_sql->fetch_assoc();
+    // Fetch current password
+    $verify_sql = $conn->query("SELECT User_Password FROM `user` WHERE User_Id='$user_id'");
+    $user_data = $verify_sql->fetch_assoc();
 
-        if ($current_pass !== $user_data['User_Password']) {
-            $msg = "Current password is incorrect!";
-            $msg_type = "danger";
-        } elseif ($new_pass !== $confirm_pass) {
-            $msg = "New passwords do not match!";
-            $msg_type = "danger";
-        } elseif (strlen($new_pass) < 6) {
-            $msg = "New password must be at least 6 characters!";
-            $msg_type = "danger";
-        } else {
-            $conn->query("UPDATE `user` SET User_Password='$new_pass' WHERE User_Id='$user_id'");
+    // 1. First check: Do the new passwords match?
+    if ($new_pass !== $confirm_pass) {
+        $msg = "New passwords do not match!";
+        $msg_type = "danger";
+    } 
+    // 2. Second check: Is the new password long enough?
+    elseif (strlen($new_pass) < 6) {
+        $msg = "New password must be at least 6 characters!";
+        $msg_type = "danger";
+    }
+    // 3. Third check: Verify user exists
+    elseif (!$user_data || empty($user_data['User_Password'])) {
+        $msg = "Error: Unable to retrieve password information!";
+        $msg_type = "danger";
+    }
+    // 4. Check password - try both hashed and plain text (case-sensitive)
+    elseif (password_verify($current_pass, $user_data['User_Password']) || $current_pass === trim($user_data['User_Password'])) {
+        // Password is correct - update with hash
+        $hashed_new_pass = password_hash($new_pass, PASSWORD_DEFAULT);
+        $stmt = $conn->prepare("UPDATE `user` SET User_Password=? WHERE User_Id=?");
+        $stmt->bind_param("si", $hashed_new_pass, $user_id);
+        if ($stmt->execute()) {
             $msg = "Password updated successfully!";
             $msg_type = "success";
         }
     } 
-    // --- HANDLE PROFILE UPDATE ---
+    // 5. If password doesn't match
     else {
+        $msg = "Current password is incorrect!";
+        $msg_type = "danger";
+    }
+}
+    // --- HANDLE PROFILE UPDATE ---
+    else if (isset($_POST['full_name'])) {
         // Sanitize and validate Name (No numbers)
         $new_name = preg_replace('/[0-9]/', '', trim($_POST['full_name']));
         $new_name = substr($new_name, 0, 100);
@@ -103,11 +120,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 $user_res = $conn->query("SELECT * FROM `user` WHERE User_Id='$user_id'");
 $user = $user_res->fetch_assoc();
 
-$purchases = $conn->query("SELECT * FROM `order` WHERE User_Id = '$user_id' ORDER BY Order_Id DESC");
-
 $available_promos = $conn->query("
-    SELECT p.* 
-    FROM user_promo up
+    SELECT p.* FROM user_promo up
     JOIN promo p ON up.Promo_Id = p.Promo_Id 
     WHERE up.User_Id = '$user_id' 
     AND up.Is_Used = 'No' 
@@ -159,7 +173,6 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
     </div>
 
     <div class="row">
-        <!-- Profile Sidebar -->
         <div class="col-md-4 mb-4">
             <div class="card p-4 text-center">
                 <img src="<?php echo $profile_pic; ?>" class="profile-img-large mb-3">
@@ -185,7 +198,6 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
             </div>
         </div>
 
-        <!-- Main Content -->
         <div class="col-md-8">
             <div class="card p-4 mb-4">
                 <?php if($msg): ?>
@@ -205,7 +217,6 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
                 </ul>
 
                 <div class="tab-content">
-                    <!-- IDENTITY TAB -->
                     <div class="tab-pane fade show active" id="identity">
                         <form method="POST" enctype="multipart/form-data">
                             <div class="row">
@@ -235,7 +246,6 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
                         </form>
                     </div>
 
-                    <!-- PURCHASED TAB -->
                     <div class="tab-pane fade" id="purchased">
                         <?php
                         $today = date('Y-m-d');
@@ -243,7 +253,12 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
                         $f_date = isset($_GET['filter_date']) ? mysqli_real_escape_string($conn, $_GET['filter_date']) : '';
                         $f_status = isset($_GET['status']) ? mysqli_real_escape_string($conn, $_GET['status']) : '';
 
-                        $query_str = "SELECT * FROM `order` WHERE User_Id = '$user_id' AND DATE(Order_Date) <= '$today'";
+                        $query_str = "SELECT o.*, p.Pro_Image, p.Pro_Name 
+                                      FROM `order` o 
+                                      LEFT JOIN order_detail od ON o.Order_Id = od.Order_Id 
+                                      LEFT JOIN product p ON od.Pro_Id = p.Pro_Id 
+                                      WHERE o.User_Id = '$user_id' AND DATE(o.Order_Date) <= '$today' 
+                                      GROUP BY o.Order_Id";
 
                         if ($f_id != '') {
                             $clean_id = str_replace('ORD#', '', $f_id);
@@ -263,6 +278,14 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
 
                         <form method="GET" action="user_dashboard.php">
                             <div class="row g-2 mb-4 align-items-end">
+                                <div class="col-md-2">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="showOrderId" onchange="toggleOrderIdColumn()">
+                                        <label class="form-check-label small fw-bold text-muted" for="showOrderId">
+                                            Show Order ID
+                                        </label>
+                                    </div>
+                                </div>
                                 <div class="col-md-3">
                                     <label class="form-label small fw-bold text-muted text-uppercase">Search Order ID</label>
                                     <div class="input-group input-group-sm border-0 shadow-sm rounded-3 overflow-hidden">
@@ -298,7 +321,9 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
                             <table class="table align-middle table-hover mb-0">
                                 <thead>
                                     <tr class="text-muted small">
-                                        <th class="border-0 pb-3">ORDER ID</th>
+                                        <th class="border-0 pb-3 order-id-column" style="display: none;">ORDER ID</th>
+                                        <th class="border-0 pb-3">PRODUCT IMAGE</th>
+                                        <th class="border-0 pb-3">PRODUCT NAME</th>
                                         <th class="border-0 pb-3">TRANS. DATE</th>
                                         <th class="border-0 pb-3">ORDER AMOUNT</th>
                                         <th class="border-0 pb-3">STATUS</th>
@@ -309,11 +334,28 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
                                         <?php while($row = $purchased_data->fetch_assoc()): 
                                             $status = $row['Order_Status'] ?? 'Complete';
                                             $badge_color = ($status == 'Processing') ? "bg-warning-subtle text-warning" : (($status == 'Shipping') ? "bg-info-subtle text-info" : "bg-success-subtle text-success");
+                                            $product_image = "../images/brands/placeholder.png"; 
+                                            
+                                            if (!empty($row['Pro_Image'])) {
+                                                $path_parts = pathinfo($row['Pro_Image']);
+                                                $filename = $path_parts['filename'];
+                                                $extension = isset($path_parts['extension']) ? "." . $path_parts['extension'] : "";
+                                                
+                                                // 查找任何相关图片
+                                                $found_images = glob("../uploads/{$filename}*.*");
+                                                if (!empty($found_images)) {
+                                                    $product_image = $found_images[0];
+                                                }
+                                            }
                                         ?>
                                             <tr>
-                                                <td class="py-3"><span class="text-dark">ORD#<?php echo sprintf("%06d", $row['Order_Id']); ?></span></td>
+                                                <td class="py-3 order-id-column" style="display: none;"><span class="text-dark">ORD#<?php echo sprintf("%06d", $row['Order_Id']); ?></span></td>
+                                                <td class="py-3">
+                                                    <img src="<?php echo $product_image; ?>" alt="Product" class="rounded" style="width: 60px; height: 60px; object-fit: cover;">
+                                                </td>
+                                                <td class="py-3"><?php echo htmlspecialchars($row['Pro_Name'] ?? 'N/A'); ?></td>
                                                 <td><?php echo date("Y-m-d", strtotime($row['Order_Date'])); ?></td>
-                                                <td>RM <?php echo number_format($row['Total_Amount'] ?? 0, 2); ?></td>
+                                                <td>RM <?php echo number_format($row['Order_Amount'] ?? 0, 2); ?></td>
                                                 <td>
                                                     <span class="badge rounded-pill <?php echo $badge_color; ?> px-3 py-2">
                                                         <?php echo $status; ?>
@@ -322,14 +364,13 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
                                             </tr>
                                         <?php endwhile; ?>
                                     <?php else: ?>
-                                        <tr><td colspan="4" class="text-center py-4 text-muted">No purchases found.</td></tr>
+                                        <tr><td colspan="6" class="text-center py-4 text-muted">No purchases found.</td></tr>
                                     <?php endif; ?>
                                 </tbody>
                             </table>
                         </div>
                     </div>
 
-                    <!-- SECURITY TAB (NEW) -->
                     <div class="tab-pane fade" id="security">
                         <form method="POST">
                             <div class="row g-3">
@@ -353,11 +394,12 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
                             </div>
                         </form>
                     </div>
-                </div> <!-- End tab-content -->
-            </div> <!-- End Main card -->
+                </div>
+            </div>
+        </div>
+    </div>
 
-            <!-- VOUCHERS SECTION -->
-            <div class="card p-4">
+    <div class="card p-4">
                 <h5 class="fw-800 mb-4"><i class="bi bi-tag-fill text-warning me-2"></i>Available Promo Codes</h5>
                 <div class="row">
                     <?php if ($available_promos && $available_promos->num_rows > 0): ?>
@@ -481,6 +523,15 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
             } else if (result.value) {
                 Swal.fire('Failed', result.value.message, 'error');
             }
+        });
+    }
+
+    function toggleOrderIdColumn() {
+        const checkbox = document.getElementById('showOrderId');
+        const columns = document.querySelectorAll('.order-id-column');
+        const display = checkbox.checked ? 'table-cell' : 'none';
+        columns.forEach(col => {
+            col.style.display = display;
         });
     }
 </script>
