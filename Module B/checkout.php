@@ -341,32 +341,36 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
             }
         }
     } elseif ($_POST['pay_type'] === 'card') {
-        $card_no = trim($_POST['card_no'] ?? '');
-        $card_name = trim($_POST['cardholder_name'] ?? '');
-        $expiry = trim($_POST['expiry'] ?? '');
-        $cvv = trim($_POST['cvv'] ?? '');
+        $_SESSION['card_temp_data'] = $_POST;
+        $_SESSION['card_temp_data']['grand_total'] = $grand_total;
+        $_SESSION['card_temp_data']['shipping'] = $shipping;
+        $_SESSION['card_temp_data']['discount'] = $discount;
+        $_SESSION['card_temp_data']['subtotal'] = $subtotal;
         
-        if (empty($card_no) || strlen($card_no) !== 16 || !ctype_digit($card_no)) {
-            $error = "Card Number must be exactly 16 digits.";
-        } elseif (empty($card_name) || !preg_match("/^[a-zA-Z\s]+$/", $card_name)) {
-            $error = "Invalid Cardholder Name. Only letters are allowed.";
-        } elseif (empty($expiry) || !preg_match("/^(0[1-9]|1[0-2])\/([0-9]{2})$/", $expiry)) {
-            $error = "Invalid Expiry format. Use MM/YY format.";
-        } elseif (empty($cvv) || strlen($cvv) !== 3 || !ctype_digit($cvv)) {
-            $error = "CVV must be exactly 3 digits.";
-        } else {
-            // Validate expiry date is not in the past
-            list($month, $year) = explode('/', $expiry);
-            $currentYear = intval(date('y'));
-            $currentMonth = intval(date('m'));
-            $expiryYear = intval($year);
-            $expiryMonth = intval($month);
-            
-            if ($expiryYear < $currentYear || ($expiryYear == $currentYear && $expiryMonth < $currentMonth)) {
-                $error = "Card has expired.";
+        // 解析当前生效的优惠券对应的真实主键
+        $real_promo_id = "NULL";
+        $real_user_promo_id = "NULL";
+        if (!empty($applied_code)) {
+            $p_res = $conn->query("SELECT p.Promo_Id, up.User_Promo_Id 
+                                   FROM user_promo up 
+                                   JOIN promo p ON up.Promo_Id = p.Promo_Id 
+                                   WHERE p.Promo_Code = '$applied_code' 
+                                   AND up.User_Id = '$uid' 
+                                   AND up.Is_Used = 'No' 
+                                   LIMIT 1");
+            if ($p_res && $p_row = $p_res->fetch_assoc()) {
+                $real_promo_id = intval($p_row['Promo_Id']);
+                $real_user_promo_id = intval($p_row['User_Promo_Id']);
             }
         }
+        // 将正确洗净的 ID 存入独立的 Session 变量
+        $_SESSION['final_applied_promo_id'] = $real_promo_id;
+        $_SESSION['final_applied_user_promo_id'] = $real_user_promo_id;
+        
+        header("Location: card_auth.php");
+        exit();
     }
+    
     
     if (empty($error)) {
         $email = $conn->real_escape_string($_POST['contact_email']);
@@ -437,8 +441,8 @@ $conn->begin_transaction();
                 $subtotal_item = $unit_price * $qty;
 
                 // 核心：直接关联 Order_Id，Sub_Order_Id 设为 0
-                $conn->query("INSERT INTO ORDER_DETAIL (Order_Id, Sub_Order_Id, Pro_Id, Order_Qty, Order_Subtotal, Pro_Size, Pro_Colour, Custom_Preview) 
-                              VALUES ('$order_id', 0, '$p_id', '$qty', '$subtotal_item', '$size', '$color', '" . ($item['custom_preview'] ?? '') . "')");
+                $conn->query("INSERT INTO ORDER_DETAIL (Order_Id, Pro_Id, Order_Qty, Order_Subtotal, Pro_Size, Pro_Colour, Custom_Preview) 
+                              VALUES ('$order_id', '$p_id', '$qty', '$subtotal_item', '$size', '$color', '" . ($item['custom_preview'] ?? '') . "')");
                 
                 // 更新库存
                 $db_color_key = ($p_id == 16 || $p_id == 17) ? 'Default' : $color;
@@ -599,30 +603,7 @@ include '../includes/header.php';
                         <input type="radio" name="pay_type" value="card" checked>
                         <div><div class="fw-bold">Credit / Debit Card</div><div class="small text-muted">Visa, Mastercard</div></div>
                     </div>
-                    <div id="cardFieldsDiv" style="display:none; margin-left: 15px; padding: 15px; background: #f9f9f9; border-radius: 5px;">
-                        <div>
-                            <div class="col-12">
-                                <label class="small fw-bold">Card Number</label>
-                                <input type="text" name="card_no" class="input-field" placeholder="16-digit card number" maxlength="16" oninput="this.value = this.value.replace(/[^0-9]/g, '')">
-                            </div>
-                        </div>
-                        <div>
-                            <div class="col-12">
-                                <label class="small fw-bold">Cardholder Name</label>
-                                <input type="text" name="cardholder_name" class="input-field" placeholder="JOHN DOE" oninput="this.value = this.value.replace(/[^a-zA-Z\s]/g, '')">
-                            </div>
-                        </div>
-                        <div style="display: block; gap: 15px;">
-                            <div style="block: 1;">
-                                <label class="small fw-bold">Expiry Date</label>
-                                <input type="text" name="expiry" id="expiry" class="input-field" placeholder="MM/YY" maxlength="5" oninput="formatExpiry(this)">
-                            </div>
-                            <div style="block: 1;">
-                                <label class="small fw-bold">CVV</label>
-                                <input type="password" name="cvv" class="input-field" placeholder="123" maxlength="3" oninput="this.value = this.value.replace(/[^0-9]/g, '')">
-                            </div>
-                        </div>
-                    </div>
+                    
                     <div class="payment-option" onclick="selectPay(this)">
                         <input type="radio" name="pay_type" value="fpx">
                         <div><div class="fw-bold">FPX</div><div class="small text-muted">Online Banking</div></div>
@@ -1013,22 +994,18 @@ async function startPaymentProcess() {
     }
 
     else if (payType === 'card') {
-        const cardNo = document.querySelector('input[name="card_no"]').value;
-        if (cardNo.length < 16) {
-            Swal.fire('Invalid Card', 'Please enter a valid 16-digit card number.', 'error');
-            return;
-        }
         submitCheckoutForm();
-    } else if (payType === 'fpx') {
+    }
+    else if (payType === 'fpx') {
         const fpxBank = document.querySelector('select[name="fpx_bank"]').value;
         if (!fpxBank) {
             Swal.fire('Bank Required', 'Please select a bank for FPX payment.', 'warning');
             return;
         }
-        submitCheckoutForm();
     } else {
         submitCheckoutForm();
     }
+    submitCheckoutForm();
 }
 
 // 统一提交函数

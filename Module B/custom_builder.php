@@ -196,6 +196,100 @@ $color_names = [
 
 
 .tutorial-skip-fixed:hover { background: #ff6b81; transform: scale(1.05); }
+
+/* --- 右上角场景预览全新高端样式 --- */
+.preview-controls-container {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    z-index: 999;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+}
+
+.btn-preview-trigger {
+    background: #111;
+    color: #fff;
+    border: none;
+    padding: 10px 22px;
+    border-radius: 30px;
+    font-weight: 800;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.btn-preview-trigger:hover {
+    background: var(--primary-green);
+    transform: translateY(-2px);
+    box-shadow: 0 12px 30px rgba(0, 128, 96, 0.3);
+}
+
+.preview-menu {
+    display: none;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid #eee;
+    border-radius: 14px;
+    padding: 6px;
+    box-shadow: 0 15px 35px rgba(0,0,0,0.12);
+    flex-direction: column;
+    gap: 4px;
+    min-width: 150px;
+    animation: previewPop 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+@keyframes previewPop {
+    from { transform: scale(0.9) translateY(-10px); opacity: 0; }
+    to { transform: scale(1) translateY(0); opacity: 1; }
+}
+
+.preview-menu-btn {
+    background: transparent;
+    border: none;
+    padding: 10px 14px;
+    text-align: left;
+    font-size: 13px;
+    font-weight: 700;
+    color: #333;
+    cursor: pointer;
+    border-radius: 8px;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.preview-menu-btn:hover {
+    background: #f5f5f5;
+    color: var(--primary-green);
+}
+
+.preview-menu-btn.active {
+    background: #000;
+    color: #fff;
+}
+
+.preview-menu-btn.exit-btn {
+    border-top: 1px solid #eee;
+    margin-top: 4px;
+    color: #ff4757;
+    border-radius: 8px;
+}
+
+.preview-menu-btn.exit-btn:hover {
+    background: #ffe8e8;
+    color: #ff4757;
+}
 </style>
 
 <div id="tutorial-overlay"></div>
@@ -216,6 +310,17 @@ $color_names = [
             <model-viewer id="shoe-viewer" class="is-loading" src="../includes/models/pair_spread_shoe1.glb" 
                 camera-controls touch-action="pan-y" shadow-intensity="2" environment-image="neutral" exposure="1" camera-orbit="45deg 75deg 105%">
             </model-viewer>
+            <div class="preview-controls-container">
+                <button type="button" class="btn-preview-trigger" onclick="togglePreviewMenu(event)">
+                    <i class="bi bi-bezier2"></i> Live Preview
+                </button>
+                <div class="preview-menu" id="previewSceneMenu">
+                    <button type="button" class="preview-menu-btn" onclick="applyScene('park', this)">🌳 Park Scene</button>
+                    <button type="button" class="preview-menu-btn" onclick="applyScene('gym', this)">🏋️ Gym Room</button>
+                    <button type="button" class="preview-menu-btn" onclick="applyScene('city', this)">🏙️ City Street</button>
+                    <button type="button" class="preview-menu-btn exit-btn" onclick="exitScenePreview(this)">❌ Exit Preview</button>
+                </div>
+            </div>
         </div>
 
         <div class="bottom-config-area">
@@ -475,22 +580,38 @@ function updateTotalPriceUI() {
     }, { once: true });
 
     // ... 你原有的 JavaScript 函数保持不变 (applySavedColors, changeStep, etc.) ...
-    async function applySavedColors() {
-        if (!viewer.model) return;
-        const promises = [];
-        Object.keys(currentSelections).forEach(part => {
-            const set = currentSelections[part];
-            const mats = viewer.model.materials.filter(m => m.name.includes(part));
-            mats.forEach(mat => {
-                mat.pbrMetallicRoughness.setBaseColorFactor(set.color);
-                mat.pbrMetallicRoughness.setRoughnessFactor(set.roughness);
-                if (set.texture) {
-                    promises.push(viewer.createTexture(set.texture).then(t => { if(mat.normalTexture) mat.normalTexture.setTexture(t); }));
-                }
-            });
+async function applySavedColors() {
+    if (!viewer.model) return;
+    const promises = [];
+    
+    Object.keys(currentSelections).forEach(part => {
+        const set = currentSelections[part];
+        
+        // 【核心修复 1】：必须加上 m.name 存在性校验！过滤掉无名材质，防止 toLowerCase() 报致命错误导致页面锁死变白
+        const mats = viewer.model.materials.filter(m => 
+            m.name && m.name.toLowerCase().includes(part.toLowerCase())
+        );
+        
+        mats.forEach(mat => {
+            if (mat.pbrMetallicRoughness.baseColorTexture) {
+                mat.pbrMetallicRoughness.baseColorTexture.setTexture(null);
+            }
+            if (mat.normalTexture) {
+                mat.normalTexture.setTexture(null);
+            }
+
+            mat.pbrMetallicRoughness.setBaseColorFactor(set.color);
+            mat.pbrMetallicRoughness.setRoughnessFactor(set.roughness);
+            
+            if (set.texture) {
+                promises.push(viewer.createTexture(set.texture).then(t => { 
+                    if(mat.normalTexture) mat.normalTexture.setTexture(t); 
+                }));
+            }
         });
-        await Promise.all(promises);
-    }
+    });
+    await Promise.all(promises);
+}
 
     function updateFixedUI(el) {
         if (!el) return;
@@ -857,5 +978,158 @@ function endTutorial() {
 // 自动启动：检测模型加载状态
 window.addEventListener('load', () => {
     setTimeout(startTutorial, 1000); 
+});
+
+// --- 独立封装：全新 3D 模特动作场景快显引擎 ---
+let backupModelSrc = "";
+let isScenePreviewing = false;
+
+function togglePreviewMenu(event) {
+    event.stopPropagation();
+    const menu = document.getElementById('previewSceneMenu');
+    if (!menu) return;
+    menu.style.display = (menu.style.display === 'flex') ? 'none' : 'flex';
+}
+
+// ==========================================
+// 新增：专用于控制人体模型原地自转的全局变量
+// ==========================================
+let isDraggingModel = false;
+let previousMouseX = 0;
+let modelRotationY = 0; // 记录模型 Y 轴的自转角度
+
+// --- 升级后修复消失死锁的场景切换函数 ---
+async function applyScene(sceneType, el) {
+    const modelViewer = document.querySelector('#shoe-viewer');
+    if (!modelViewer) return;
+
+    // 1. 切换按钮活跃高亮状态
+    document.querySelectorAll('.preview-menu-btn').forEach(btn => btn.classList.remove('active'));
+    if (el) el.classList.add('active');
+
+    const envMapPath = `../includes/models/environments/${sceneType}.jpg`;
+
+    // 【核心修复】：如果当前已经在预览模式（模型已经加载过），直接无缝更换场景贴图并退出
+    // 这样可以避免重复设置相同的 src，防止不触发 load 事件造成的全黑/消失死锁
+    if (isScenePreviewing) {
+        modelViewer.setAttribute('skybox-image', envMapPath);
+        modelViewer.setAttribute('environment-image', envMapPath);
+        
+        // 瞬间移除加载中样式，防止因没有 load 事件触发导致鞋子蒸发
+        modelViewer.classList.remove('is-loading');
+        return; 
+    }
+
+    // 2. 首次切入预览模式时的初始化
+    modelViewer.classList.add('is-loading');
+    backupModelSrc = modelViewer.src;
+    isScenePreviewing = true;
+
+    modelViewer.src = "../includes/models/running.glb";
+    modelViewer.autoplay = true;
+    modelViewer.animationName = 'run'; 
+
+    // 剥离摄影棚原生镜头控制，改用鼠标捕捉控制人体 Y 轴原地自转
+    modelViewer.removeAttribute('camera-controls'); 
+    modelRotationY = 0;
+    modelViewer.setAttribute('orientation', `0deg 0deg ${modelRotationY}deg`); // 垂直 z 轴水平自转
+    modelViewer.cameraTarget = 'auto';
+
+    modelViewer.setAttribute('skybox-image', envMapPath);
+    modelViewer.setAttribute('environment-image', envMapPath);
+    modelViewer.cameraOrbit = '45deg 75deg 150%'; 
+
+    // 3. 首次加载模型的监听器
+    modelViewer.addEventListener('load', async () => {
+        setTimeout(async () => {
+            if (typeof applySavedColors === 'function') {
+                await applySavedColors(); 
+            }
+            modelViewer.play(); 
+        }, 60);
+        
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                modelViewer.classList.remove('is-loading');
+            });
+        });
+    }, { once: true });
+}
+
+// --- 升级后的退出预览函数 ---
+function exitScenePreview(el) {
+    const modelViewer = document.querySelector('#shoe-viewer');
+    if (!modelViewer) return;
+
+    document.getElementById('previewSceneMenu').style.display = 'none';
+    document.querySelectorAll('.preview-menu-btn').forEach(btn => btn.classList.remove('active'));
+
+    if (!isScenePreviewing) return;
+    modelViewer.classList.add('is-loading');
+
+    modelViewer.removeAttribute('skybox-image');
+    modelViewer.setAttribute('environment-image', 'neutral');
+    modelViewer.cameraOrbit = '45deg 75deg 105%';
+    modelViewer.autoplay = false;
+    modelViewer.removeAttribute('animation-name');
+
+    // 【核心修复 2】：退出预览时，清除自转角度并重新启动原生的 3D 鞋子展台摄像机旋转控制
+    modelViewer.removeAttribute('orientation'); 
+    modelViewer.setAttribute('camera-controls', ''); 
+    modelViewer.cameraTarget = 'auto';
+
+    modelViewer.src = backupModelSrc || "../includes/models/pair_spread_shoe1.glb";
+    isScenePreviewing = false;
+
+    modelViewer.addEventListener('load', async () => {
+        if (typeof applySavedColors === 'function') {
+            await applySavedColors();
+        }
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                modelViewer.classList.remove('is-loading');
+            });
+        });
+    }, { once: true });
+}
+
+// ==========================================
+// 【核心修复 3】：全兼容手势捕捉驱动引擎（支持鼠标与手机触屏）
+// ==========================================
+const modelViewerEl = document.querySelector('#shoe-viewer');
+
+// 鼠标/手指点下时激活捕捉
+modelViewerEl.addEventListener('pointerdown', (e) => {
+    if (!isScenePreviewing) return; // 只有在场景预览模式下才干预
+    isDraggingModel = true;
+    previousMouseX = e.clientX;
+    modelViewerEl.style.cursor = 'grabbing';
+});
+
+// 鼠标/手指滑动时实时转换并计算 3D 偏航角自转数值
+window.addEventListener('pointermove', (e) => {
+    if (!isScenePreviewing || !isDraggingModel) return;
+    
+    const deltaX = e.clientX - previousMouseX;
+    previousMouseX = e.clientX;
+
+    // 0.6 为旋转灵敏度系数，可根据个人滑行手感微调
+    modelRotationY += deltaX * 0.6; 
+
+    // 【核心修复】：将变量移动到第三个槽位（Z轴），确保鼠标左右拖拽时，人体只做水平原地的陀螺式自转
+    modelViewerEl.setAttribute('orientation', `0deg 0deg ${modelRotationY}deg`);
+});
+// 鼠标/手指松开或移出屏幕时注销追踪
+window.addEventListener('pointerup', () => {
+    if (isScenePreviewing) {
+        isDraggingModel = false;
+        modelViewerEl.style.cursor = 'grab';
+    }
+});
+
+// 辅助：点击空白处自动收起下拉菜单
+document.addEventListener('click', () => {
+    const menu = document.getElementById('previewSceneMenu');
+    if (menu) menu.style.display = 'none';
 });
 </script>
