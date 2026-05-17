@@ -12,7 +12,7 @@ if (!isset($_SESSION['role'])) {
     exit();
 }
 
-// --- 1. 安全与权限检查[cite: 2, 6] ---
+// --- 1. 安全与权限检查（已彻底移除反斜杠 \） ---
 if (!isset($_SESSION['role']) || $_SESSION['role'] != 1) {
     echo "<script>
         alert('Permission Denied: Only Super Admins can access this page.');
@@ -24,7 +24,7 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] != 1) {
 $admin_role = $_SESSION['role'];
 $username = $_SESSION['username'] ?? 'Admin';
 
-// 确保头像来源：优先使用 DB 中的图片，其次使用 session，最后回退到默认图
+// 确保头像来源
 $admin_image = 'default_admin.png';
 $admin_id = $_SESSION['admin_id'] ?? null;
 if ($admin_id) {
@@ -38,14 +38,51 @@ if ($admin_id) {
     $admin_image = $_SESSION['admin_image'] ?? 'default_admin.png';
 }
 
-// --- 2. 获取管理员列表[cite: 6] ---
+// --- 2. 获取已激活或禁用的管理员列表 (主卡片渲染) ---
 $sql = "SELECT a.*, IFNULL(b.Brand_Name, 'Super Admin') AS Display_Brand 
         FROM admin a 
         LEFT JOIN brand b ON a.Admin_Id = b.Admin_Id 
+        WHERE a.Admin_Status != 'Pending'
         ORDER BY a.Admin_Level ASC";
 $result = $conn->query($sql);
 
-// 定义图片根路径[cite: 6]
+$admins_active_banned = [];
+if ($result && $result->num_rows > 0) {
+    while ($row = $result->fetch_assoc()) {
+        $admins_active_banned[] = $row;
+    }
+}
+
+// --- 3. 从 vendors 表中读取所有字段资料，完美映射 ---
+$admins_pending = [];
+
+// 自动侦测并兼容 vendors 表中的状态字段名
+$check_col = $conn->query("SHOW COLUMNS FROM `vendors` LIKE 'Vendor_Status'");
+$status_field = ($check_col && $check_col->num_rows > 0) ? 'Vendor_Status' : 'Status';
+
+$vendor_sql = "SELECT * FROM `vendors` WHERE `$status_field` = 'Pending'";
+$vendor_res = $conn->query($vendor_sql);
+
+if ($vendor_res && $vendor_res->num_rows > 0) {
+    while ($v_row = $vendor_res->fetch_assoc()) {
+        $admins_pending[] = [
+            'Id'               => $v_row['Vendor_Id'] ?? $v_row['id'] ?? 0,
+            'Name'             => $v_row['Vendor_Name'] ?? $v_row['name'] ?? 'Unknown Partner',
+            'Brand'            => $v_row['business_name'] ?? 'No Brand', 
+            'Email'            => $v_row['email'] ?? 'N/A',
+            'Phone'            => $v_row['phone'] ?? 'N/A',
+            'SSM'              => $v_row['reg_number'] ?? 'N/A', 
+            'VerificationDoc'  => $v_row['auth_doc_path'] ?? '', 
+            'BankName'         => $v_row['bank_name'] ?? 'N/A',
+            'BankAccNo'        => $v_row['bank_acc_no'] ?? 'N/A', 
+            'BankStatement'    => $v_row['bank_statement_path'] ?? '', 
+            'WarehouseAddress' => $v_row['warehouse_address'] ?? 'N/A',
+            'Image'            => $v_row['Vendor_Image'] ?? $v_row['image'] ?? ''
+        ];
+    }
+}
+
+$pending_count = count($admins_pending);
 $admin_img_path = "../uploads/admin/";
 ?>
 
@@ -62,7 +99,6 @@ $admin_img_path = "../uploads/admin/";
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     
     <style>
-        /* 统一全局 CSS 变量 (同步自 source 1 & 2)[cite: 1, 2] */
         :root { 
             --orange-primary: #FF8C00; 
             --sidebar-width: 260px; 
@@ -73,34 +109,10 @@ $admin_img_path = "../uploads/admin/";
             margin: 0;
         }
         .wrapper { display: flex; }
+        .main-content { flex-grow: 1; margin-left: var(--sidebar-width); padding: 25px; min-height: 100vh; }
+        .admin-header { background: white; padding: 15px 30px; border-radius: 15px; margin-bottom: 25px; box-shadow: 0 4px 10px rgba(0,0,0,0.02); }
+        .admin-profile-img { width: 42px; height: 42px; border-radius: 50%; border: 2px solid var(--orange-primary); object-fit: cover; }
 
-        /* 统一内容区域布局[cite: 1] */
-        .main-content { 
-            flex-grow: 1; 
-            margin-left: var(--sidebar-width); 
-            padding: 25px; 
-            min-height: 100vh; 
-        }
-
-        /* 统一 Header 样式[cite: 1, 2] */
-        .admin-header { 
-            background: white; 
-            padding: 15px 30px; 
-            border-radius: 15px; 
-            margin-bottom: 25px; 
-            box-shadow: 0 4px 10px rgba(0,0,0,0.02); 
-        }
-
-        /* 统一头像边框[cite: 1] */
-        .admin-profile-img { 
-            width: 42px; 
-            height: 42px; 
-            border-radius: 50%; 
-            border: 2px solid var(--orange-primary); 
-            object-fit: cover; 
-        }
-
-        /* 管理员列表特有样式[cite: 6] */
         .action-bar { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin-bottom: 30px; }
         .search-wrapper { position: relative; flex: 1; max-width: 400px; }
         .search-wrapper i.bi-search { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: #64748b; }
@@ -132,37 +144,22 @@ $admin_img_path = "../uploads/admin/";
         .strength-medium { background-color: #f59e0b; }
         .strength-strong { background-color: #10b981; }
 
-        /* 选项卡容器样式 */
-        .status-tabs {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-            background: #eee;
-            padding: 5px;
-            border-radius: 12px;
-            width: fit-content;
-        }
+        .status-tabs { display: flex; gap: 10px; background: #eee; padding: 5px; border-radius: 12px; width: fit-content; }
+        .tab-btn { padding: 8px 25px; border-radius: 10px; border: none; background: transparent; font-weight: 600; color: #64748b; transition: all 0.3s ease; cursor: pointer; }
+        .tab-btn.active { background: white; color: var(--orange-primary); box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+        .tab-btn:hover:not(.active) { background: rgba(255, 255, 255, 0.5); }
 
-        .tab-btn {
-            padding: 8px 25px;
-            border-radius: 10px;
-            border: none;
-            background: transparent;
-            font-weight: 600;
-            color: #64748b;
-            transition: all 0.3s ease;
-            cursor: pointer;
+        .partner-request-btn {
+            background: white; color: var(--orange-primary); border: 1px solid #e2e8f0;
+            width: 44px; height: 44px; border-radius: 12px; display: flex;
+            align-items: center; justify-content: center; font-size: 1.25rem;
+            transition: all 0.3s ease; cursor: pointer; position: relative; padding: 0;
         }
-
-        .tab-btn.active {
-            background: white;
-            color: var(--orange-primary);
-            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+        .partner-request-btn:hover {
+            background: var(--orange-primary); color: white; border-color: var(--orange-primary);
+            transform: translateY(-2px); box-shadow: 0 4px 12px rgba(255, 140, 0, 0.2);
         }
-
-        .tab-btn:hover:not(.active) {
-            background: rgba(255, 255, 255, 0.5);
-        }
+        .partner-badge-dot { position: absolute; top: -2px; right: -2px; width: 10px; height: 10px; background-color: #ef4444; border-radius: 50%; border: 2px solid white; }
 
         @media (max-width: 991px) { .main-content { margin-left: 0; padding: 15px; } }
     </style>
@@ -173,14 +170,11 @@ $admin_img_path = "../uploads/admin/";
     <?php include_once '../includes/admin_sidebar.php'; ?>
 
     <div class="main-content">
-        <!-- 统一 Header 布局[cite: 1, 2] -->
         <header class="admin-header d-flex justify-content-between align-items-center">
             <div>
                 <nav aria-label="breadcrumb">
                     <ol class="breadcrumb mb-1">
-                        <li class="breadcrumb-item">
-                        <a href="admin_dashboard.php" class="text-decoration-none" style="color: var(--orange-primary);">Home</a></li>
-                        </li>
+                        <li class="breadcrumb-item"><a href="admin_dashboard.php" class="text-decoration-none" style="color: var(--orange-primary);">Home</a></li>
                         <li class="breadcrumb-item active" aria-current="page" style="color: #6c757d;">Admin Manage</li>
                     </ol>
                 </nav>
@@ -195,19 +189,25 @@ $admin_img_path = "../uploads/admin/";
             </div>
         </header>
 
-        <!-- 状态切换选项卡 -->
-        <div class="status-tabs shadow-sm">
-            <button class="tab-btn active" data-status="Active" onclick="filterByStatus('Active', this)">
-                <i class="bi bi-person-check-fill me-2"></i> Active Admins
-            </button>
-            <button class="tab-btn" data-status="Banned" onclick="filterByStatus('Banned', this)">
-                <i class="bi bi-person-x-fill me-2"></i> Banned Admins
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div class="status-tabs shadow-sm">
+                <button class="tab-btn active" data-status="Active" onclick="filterByStatus('Active', this)">
+                    <i class="bi bi-person-check-fill me-2"></i> Active Admins
+                </button>
+                <button class="tab-btn" data-status="Banned" onclick="filterByStatus('Banned', this)">
+                    <i class="bi bi-person-x-fill me-2"></i> Banned Admins
+                </button>
+            </div>
+
+            <button type="button" class="partner-request-btn shadow-sm" title="Receive Partner Requests" onclick="showPartnerRequestsPopup()">
+                <i class="bi bi-people-fill"></i>
+                <?php if ($pending_count > 0): ?>
+                    <span class="partner-badge-dot"></span>
+                <?php endif; ?>
             </button>
         </div>
 
-
         <div class="container-fluid p-0">
-            <!-- 操作栏[cite: 6] -->
             <div class="action-bar">
                 <div class="search-wrapper">
                     <i class="bi bi-search"></i>
@@ -218,12 +218,12 @@ $admin_img_path = "../uploads/admin/";
                 </a>
             </div>
 
-            <!-- 管理员列表[cite: 6] -->
             <div class="row g-4" id="adminList">
-                <?php if($result && $result->num_rows > 0): ?>
-                    <?php while($row = $result->fetch_assoc()): 
+                <?php if(!empty($admins_active_banned)): ?>
+                    <?php foreach($admins_active_banned as $row): 
                             $isBanned = (isset($row['Admin_Status']) && $row['Admin_Status'] == 'Banned');
                             $status = $isBanned ? 'Banned' : 'Active';
+
                             if (!empty($row['Admin_Image'])) {
                                 $displayImg = $admin_img_path . $row['Admin_Image'];
                             } else {
@@ -271,14 +271,13 @@ $admin_img_path = "../uploads/admin/";
                             </div>
                         </div>
                     </div>
-                    <?php endwhile; ?>
+                    <?php endforeach; ?>
                 <?php endif; ?>
             </div>
         </div>
     </div>
 </div>
 
-<!-- 编辑管理员 Modal[cite: 6] -->
 <div class="modal fade" id="editAdminModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered modal-lg">
         <div class="modal-content border-0 shadow-lg" style="border-radius: 20px;">
@@ -294,7 +293,7 @@ $admin_img_path = "../uploads/admin/";
                             <div class="mb-3 text-center">
                                 <div class="avatar-container mb-2">
                                     <img id="edit_preview_img" src="" alt="preview">
-                                </div>
+                                tap chi</div>
                             </div>
                             <div class="mb-3">
                                 <label class="form-label small fw-bold text-muted text-uppercase">Full Name</label>
@@ -337,6 +336,142 @@ $admin_img_path = "../uploads/admin/";
 </div>
 
 <script>
+    // 注入提取自 vendors 表的完整核心队列
+    const pendingPartners = <?php echo json_encode($admins_pending); ?>;
+
+    // 展示流式丰富信息卡片弹窗
+    function showPartnerRequestsPopup() {
+        if (pendingPartners.length === 0) {
+            Swal.fire({
+                icon: 'info',
+                title: 'No Pending Requests',
+                text: 'There are currently no partner requests to review.',
+                confirmButtonColor: '#FF8C00'
+            });
+            return;
+        }
+
+        let htmlContent = `<div style="max-height: 520px; overflow-y: auto; padding-right: 5px;">`;
+
+        pendingPartners.forEach(partner => {
+            let avatar = partner.Image ? `../uploads/vendor/${partner.Image}` : `https://ui-avatars.com/api/?name=${encodeURIComponent(partner.Name)}&background=random`;
+            
+            // 💡 彻底清理了容易引发意外中断的行尾反斜杠 \
+            let verifyDoc = partner.VerificationDoc 
+                ? `<a href="../uploads/vendor/docs/${partner.VerificationDoc}" target="_blank" class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size:0.75rem;"><i class="bi bi-file-earmark-pdf"></i> View Document</a>` 
+                : `<span class="text-muted small">Not Uploaded</span>`;
+                
+            let bankStatement = partner.BankStatement 
+                ? `<a href="../uploads/vendor/docs/${partner.BankStatement}" target="_blank" class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size:0.75rem;"><i class="bi bi-file-earmark-richtext"></i> View Statement</a>` 
+                : `<span class="text-muted small">Not Uploaded</span>`;
+
+            htmlContent += `
+                <div class="card mb-3 border text-start shadow-sm" style="border-radius: 12px; border-color: #e2e8f0 !important;">
+                    <div class="card-header bg-light d-flex justify-content-between align-items-center py-2 px-3 border-bottom">
+                        <div class="d-flex align-items-center gap-2">
+                            <img src="${avatar}" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover; border: 1px solid #cbd5e1;" onerror="this.src='https://ui-avatars.com/api/?name=${encodeURIComponent(partner.Name)}'">
+                            <span class="fw-bold text-dark" style="font-size: 0.9rem;">${partner.Name}</span>
+                        </div>
+                        <span class="badge bg-warning-subtle text-warning border border-warning-subtle px-2 py-1 rounded-pill small fw-bold">New Apply</span>
+                    </div>
+                    
+                    <div class="card-body p-3 bg-white" style="font-size: 0.83rem; line-height: 1.6; color: #475569;">
+                        <div class="row g-3">
+                            
+                            <div class="col-md-4 border-end pe-3">
+                                <div class="mb-3">
+                                    <span class="text-muted d-block small text-uppercase fw-semibold" style="font-size:0.72rem;">Brand</span>
+                                    <span class="text-dark fw-bold" style="color: var(--orange-primary) !important; font-size: 0.95rem;">${partner.Brand}</span>
+                                </div>
+                                <div class="mb-3">
+                                    <span class="text-muted d-block small text-uppercase fw-semibold" style="font-size:0.72rem;">Email Address</span>
+                                    <span class="text-dark fw-medium" style="word-break: break-all;">${partner.Email}</span>
+                                </div>
+                                <div class="mb-3">
+                                    <span class="text-muted d-block small text-uppercase fw-semibold" style="font-size:0.72rem;">Phone</span>
+                                    <span class="text-dark fw-medium">${partner.Phone}</span>
+                                </div>
+                                <div>
+                                    <span class="text-muted d-block small text-uppercase fw-semibold" style="font-size:0.72rem;">SSM (Reg Number)</span>
+                                    <span class="text-dark fw-semibold">${partner.SSM}</span>
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-8 ps-3">
+                                <div class="mb-3">
+                                    <span class="text-muted d-block small text-uppercase fw-semibold" style="font-size:0.72rem;">Verification Document</span>
+                                    <div class="mt-1">${verifyDoc}</div>
+                                </div>
+                                
+                                <div class="row g-2 mb-3">
+                                    <div class="col-6">
+                                        <span class="text-muted d-block small text-uppercase fw-semibold" style="font-size:0.72rem;">Bank Name</span>
+                                        <span class="text-dark fw-semibold">${partner.BankName}</span>
+                                    </div>
+                                    <div class="col-6">
+                                        <span class="text-muted d-block small text-uppercase fw-semibold" style="font-size:0.72rem;">Bank Account Number</span>
+                                        <span class="text-dark fw-bold text-secondary">${partner.BankAccNo}</span>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-1">
+                                    <span class="text-muted d-block small text-uppercase fw-semibold" style="font-size:0.72rem;">Bank Statement</span>
+                                    <div class="mt-1">${bankStatement}</div>
+                                </div>
+                            </div>
+
+                            <div class="col-12 mt-2">
+                                <span class="text-muted d-block small text-uppercase fw-semibold" style="font-size:0.72rem;">Warehouse Address</span>
+                                <span class="text-dark bg-light d-block p-2 rounded mt-1 border" style="font-size:0.8rem; min-height:34px;">${partner.WarehouseAddress}</span>
+                            </div>
+                        </div>
+
+                        <hr class="my-3" style="color: #e2e8f0; opacity: 0.6;">
+                        
+                        <div class="d-flex justify-content-end gap-2">
+                            <button class="btn btn-success btn-sm px-3 fw-bold" onclick="handlePartnerReview(${partner.Id}, 'Active', '${partner.Name}')">
+                                <i class="bi bi-check-lg me-1"></i> Approve Partner
+                            </button>
+                            <button class="btn btn-danger btn-sm px-3 fw-bold" onclick="handlePartnerReview(${partner.Id}, 'Banned', '${partner.Name}')">
+                                <i class="bi bi-x-lg me-1"></i> Reject
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+
+        htmlContent += `</div>`;
+
+        Swal.fire({
+            title: 'Partner Onboarding Requests (Pending Vendors)',
+            html: htmlContent,
+            showConfirmButton: false,
+            showCloseButton: true,
+            width: '820px', 
+            customClass: {
+                title: 'fw-bold fs-5 text-start border-bottom pb-3 mt-2 ms-2'
+            }
+        });
+    }
+
+    // 二级审核处理流
+    function handlePartnerReview(vendorId, action, partnerName) {
+        const isActive = (action === 'Active');
+        Swal.fire({
+            title: isActive ? 'Approve Account?' : 'Reject Request?',
+            text: isActive ? `Authorize ${partnerName} to access the system dashboard?` : `Deny and ban ${partnerName}?`,
+            icon: isActive ? 'question' : 'warning',
+            showCancelButton: true,
+            confirmButtonColor: isActive ? '#198754' : '#d33',
+            confirmButtonText: isActive ? 'Yes, Approve' : 'Yes, Reject'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                window.location.href = `update_admin_status.php?id=${vendorId}&status=${action}`;
+            }
+        });
+    }
+
     function filterAdmins() {
         const input = document.getElementById('adminSearch');
         const filter = input.value.toLowerCase();
@@ -348,26 +483,22 @@ $admin_img_path = "../uploads/admin/";
     }
 
     function filterByStatus(status, btn) {
-        // update active tab UI
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
         if (btn) btn.classList.add('active');
 
         const adminItems = document.querySelectorAll('.admin-item');
         adminItems.forEach(item => {
             const itemStatus = item.getAttribute('data-status');
-            // keep search filter applied
             const searchTerm = document.getElementById('adminSearch').value.toLowerCase();
             const matchesSearch = (item.getAttribute('data-name') || '').includes(searchTerm);
             item.style.display = (itemStatus === status && matchesSearch) ? "" : "none";
         });
     }
 
-    // Initialize view from URL (supports ?status= or ?view=)
     (function() {
         const params = new URLSearchParams(window.location.search);
         const s = params.get('status') || params.get('view');
         if (s && (s === 'Active' || s === 'Banned')) {
-            // find matching tab button
             const btns = document.querySelectorAll('.tab-btn');
                 btns.forEach(b => {
                     if (b.dataset.status === s) {
@@ -375,7 +506,6 @@ $admin_img_path = "../uploads/admin/";
                     }
                 });
         } else {
-            // default to Active
             const activeBtn = document.querySelector('.tab-btn');
             if (activeBtn) filterByStatus('Active', activeBtn);
         }
@@ -411,7 +541,6 @@ $admin_img_path = "../uploads/admin/";
         new bootstrap.Modal(document.getElementById('editAdminModal')).show();
     }
 
-    // 密码强度检测[cite: 6]
     document.getElementById('passwordInput').addEventListener('input', function() {
         const val = this.value;
         let strength = 0;
