@@ -1,4 +1,6 @@
 <?php
+// 强制把 PHP 时区设置为马来西亚（吉隆坡）时间
+date_default_timezone_set('Asia/Kuala_Lumpur');
 // admin_manage_orders.php
 session_start();
 require_once '../includes/db_connection.php'; 
@@ -31,7 +33,7 @@ $admin_level = $_SESSION['role']; // 或者是 $_SESSION['role']，取决于你�
 
 
 // 1. 先定义基础 SQL（注意：这里不要加分号结束，我们要根据条件拼接）
-$sql = "SELECT o.*, u.User_Name 
+$sql = "SELECT o.*, u.User_Name, u.User_Email
         FROM `order` o 
         JOIN `user` u ON o.User_Id = u.User_Id";
 
@@ -52,80 +54,119 @@ if ($_SESSION['role'] == 3) {
 $sql .= " ORDER BY o.Order_Date DESC";
 $result = mysqli_query($conn, $sql);
 
-// --- 处理 AJAX 请求：更新状态 ---
+// --- 处理 AJAX 请求：更新状态、记录各自的时间节点 ---
 if (isset($_POST['update_status'])) {
     $order_id = mysqli_real_escape_string($conn, $_POST['order_id']);
     $new_status = mysqli_real_escape_string($conn, $_POST['new_status']);
+    $current_time = date('Y-m-d H:i:s'); // 获取当前系统时间
     
-    $update_sql = "UPDATE `order` SET Order_Status = '$new_status' WHERE Order_Id = '$order_id'";
+    $extra_query = ""; // 用于动态拼接 order 表的更新字段
+
+    if ($new_status == 'Processing') {
+        // Processing 时，订单处理时间留在 order 表
+        $extra_query = ", Order_Processing_Date = '$current_time'";
+        
+        include 'generate_estimated_arrival_date.php'; 
+        
+        // 预计到达时间写入 shipment 表
+        $check_shipment = mysqli_query($conn, "SELECT * FROM `shipment` WHERE Order_Id = '$order_id'");
+        if (mysqli_num_rows($check_shipment) > 0) {
+            $shipment_sql = "UPDATE `shipment` SET Estimated_Arrival_Date = '$estimated_arrival_date' WHERE Order_Id = '$order_id'";
+        } else {
+            $shipment_sql = "INSERT INTO `shipment` (Order_Id, Estimated_Arrival_Date) VALUES ('$order_id', '$estimated_arrival_date')";
+        }
+        mysqli_query($conn, $shipment_sql);
+    } 
+    elseif ($new_status == 'Shipped') {
+        // Shipped 时不更新 order 表其他字段
+        $extra_query = ""; 
+        
+        $month_day = date('md'); 
+        $permitted_chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        $random_str = substr(str_shuffle($permitted_chars), 0, 2); 
+        $tracking_number = "SSPMY" . $month_day . $random_str;
+
+        // 追踪单号(Ship_Tracking_Number) 和 发货时间(Shipped_Date) 存入 shipment 表
+        $check_shipment = mysqli_query($conn, "SELECT * FROM `shipment` WHERE Order_Id = '$order_id'");
+        if (mysqli_num_rows($check_shipment) > 0) {
+            $shipment_sql = "UPDATE `shipment` 
+                             SET Ship_Tracking_num = '$tracking_number', 
+                                 Shipped_Date = '$current_time' 
+                             WHERE Order_Id = '$order_id'";
+        } else {
+            $shipment_sql = "INSERT INTO `shipment` (Order_Id, Ship_Tracking_num, Shipped_Date) 
+                             VALUES ('$order_id', '$tracking_number', '$current_time')";
+        }
+        mysqli_query($conn, $shipment_sql);
+    } 
+    elseif ($new_status == 'Delivered') {
+        // Delivered 时不更新 order 表其他字段
+        $extra_query = ""; 
+        
+        // 【修改点】将 Delivered_Date 存入 shipment 表！
+        $check_shipment = mysqli_query($conn, "SELECT * FROM `shipment` WHERE Order_Id = '$order_id'");
+        if (mysqli_num_rows($check_shipment) > 0) {
+            $shipment_sql = "UPDATE `shipment` SET Delivered_Date = '$current_time' WHERE Order_Id = '$order_id'";
+        } else {
+            $shipment_sql = "INSERT INTO `shipment` (Order_Id, Delivered_Date) VALUES ('$order_id', '$current_time')";
+        }
+        mysqli_query($conn, $shipment_sql);
+    }
+
+    // 最后，只更新 order 表中的 Status（以及 Processing 时的处理时间）
+    $update_sql = "UPDATE `order` SET Order_Status = '$new_status' $extra_query WHERE Order_Id = '$order_id'";
+    
     if (mysqli_query($conn, $update_sql)) {
         echo json_encode(['status' => 'success']);
     } else {
-        echo json_encode(['status' => 'error']);
+        echo json_encode(['status' => 'error', 'message' => mysqli_error($conn)]);
     }
     exit();
+}
+
+// --- 统计订单状态数量 (为顶部的4个卡片提供数据) ---
+$stats = [
+    'pending' => 0,
+    'processing' => 0,
+    'shipped' => 0,
+    'delivered' => 0
+];
+
+$stat_sql = "SELECT Order_Status, COUNT(*) as count FROM `order` o";
+
+// 如果是 Level 3 品牌管理员，统计时也必须过滤出该管理员的订单
+if ($_SESSION['role'] == 3) {
+    $stat_sql .= " WHERE EXISTS (
+        SELECT 1 FROM order_detail od
+        JOIN product p ON od.Pro_Id = p.Pro_Id
+        JOIN brand b ON p.Brand_Id = b.Brand_Id
+        WHERE od.Order_Id = o.Order_Id 
+        AND b.Admin_Id = '$current_admin_id'
+    )";
+}
+
+$stat_sql .= " GROUP BY Order_Status";
+$stat_result = mysqli_query($conn, $stat_sql);
+
+if ($stat_result) {
+    while ($row = mysqli_fetch_assoc($stat_result)) {
+        // 将数据库里的状态 (如 'Pending') 转成小写 ('pending') 以匹配我们的数组键名
+        $status = strtolower($row['Order_Status']); 
+        if (isset($stats[$status])) {
+            $stats[$status] = $row['count'];
+        }
+    }
 }
 
 
 
 // --- 修改后的逻辑 ---
 
-// 1. 获取统计数据 (第 103 行左右的统计逻辑也建议加上过滤，否则 Level 3 看到的总数会是全站的)
-$stats_where = "";
-if ($_SESSION['role'] == 3) {
-    $stats_where = " WHERE EXISTS (
-        SELECT 1 FROM order_detail od 
-        JOIN product p ON od.Pro_Id = p.Pro_Id 
-        JOIN brand b ON p.Brand_Id = b.Brand_Id 
-        WHERE od.Order_Id = `order`.Order_Id AND b.Admin_Id = '".$_SESSION['admin_id']."'
-    )";
-}
-$stats_query = "SELECT 
-    COUNT(CASE WHEN Order_Status = 'Pending' THEN 1 END) as pending,
-    COUNT(CASE WHEN Order_Status = 'Processing' THEN 1 END) as processing,
-    COUNT(CASE WHEN Order_Status = 'Shipped' THEN 1 END) as shipped,
-    COUNT(CASE WHEN Order_Status = 'Delivered' THEN 1 END) as delivered,
-    COUNT(*) as total FROM `order` $stats_where";
-$stats_result = mysqli_query($conn, $stats_query);
-$stats = mysqli_fetch_assoc($stats_result);
-
-
-// 2. 修改主表格查询 (第 115 行左右)
-$filter = $_GET['status'] ?? 'All';
-
-// 基础条件：如果是 Level 3，必须只看自己品牌
-if ($_SESSION['role'] == 3) {
-    $base_condition = "EXISTS (
-        SELECT 1 FROM order_detail od2 
-        JOIN product p2 ON od2.Pro_Id = p2.Pro_Id 
-        JOIN brand b2 ON p2.Brand_Id = b2.Brand_Id 
-        WHERE od2.Order_Id = o.Order_Id AND b2.Admin_Id = '".$_SESSION['admin_id']."'
-    )";
-    
-    // 如果有状态筛选，则用 AND 连接
-    $where_clause = ($filter != 'All') ? "WHERE ($base_condition) AND o.Order_Status = '$filter'" : "WHERE $base_condition";
-} else {
-    // Level 1 或 2 的原有逻辑
-    $where_clause = ($filter != 'All') ? "WHERE o.Order_Status = '$filter'" : "";
-}
-
-// 最终执行的 SQL
-$sql = "SELECT o.*, u.User_Name, u.User_Email, GROUP_CONCAT(p.Pro_Name SEPARATOR ', ') as products, SUM(od.Order_Qty) as total_qty
-        FROM `order` o
-        JOIN `user` u ON o.User_Id = u.User_Id
-        JOIN `order_detail` od ON o.Order_Id = od.Order_Id
-        JOIN `product` p ON od.Pro_Id = p.Pro_Id
-        $where_clause 
-        GROUP BY o.Order_Id 
-        ORDER BY o.Order_Date DESC";
-        
-$result = mysqli_query($conn, $sql);
-
 // --- 处理 AJAX 请求：获取订单内的商品列表 (整合颜色图片逻辑) ---
 if (isset($_GET['ajax_get_items'])) {
     $order_id = mysqli_real_escape_string($conn, $_GET['ajax_get_items']);
     
-    // 增加查询 Pro_Colour (订单时的颜色)
+    // 增加查询 Pro_Colour 和 Pro_Size (从 order_detail 表)
     $sql = "SELECT od.*, p.Pro_Name, p.Pro_Image, b.Brand_Name, p.Pro_Id
             FROM order_detail od 
             JOIN product p ON od.Pro_Id = p.Pro_Id 
@@ -141,35 +182,43 @@ if (isset($_GET['ajax_get_items'])) {
     
     echo '<div class="list-group">';
     while ($item = mysqli_fetch_assoc($result)) {
-        // --- 核心整合：拿颜色的 Code ---
-        $item_color = trim($item['Order_Colour'] ?? ''); // 订单里记录的颜色
+        // --- 1. 从 order_detail 中拿出 color 和 size ---
+        $item_color = trim($item['Pro_Colour'] ?? ''); 
+        $item_size = trim($item['Pro_Size'] ?? '');
+        
+        // --- 2. 拼接图片逻辑 ---
         $base_img = $item['Pro_Image'];
         $display_img = "../uploads/" . $base_img; // 默认图片路径
 
-        if (!empty($item_color)) {
-            // 这里的逻辑参考自 admin_manage_products.php
-            $base_name = preg_replace('/_\d+$/', '', pathinfo($base_img, PATHINFO_FILENAME));
-            $slug = strtolower(str_replace(' ', '_', $item_color));
+        // 检查是否是 Custom Design 并且有预览图 (兼容你数据库里的 Custom_Preview)
+        if ($item_color === 'Custom Design' && !empty($item['Custom_Preview'])) {
+            $display_img = $item['Custom_Preview'];
+        } 
+        else if (!empty($item_color)) {
+            $path_info = pathinfo($base_img);
+            // 提取前面的文件名 (例如: pegasus42)
+            $base_name = preg_replace('/_\d+$/', '', $path_info['filename']); 
+            $ext = isset($path_info['extension']) ? '.' . $path_info['extension'] : '';
             
-            // 搜索匹配该颜色的物理文件
-            $files = glob("../uploads/{$base_name}*{$slug}*.*");
-            if (!empty($files)) {
-                $display_img = "../uploads/" . basename($files[0]); // 取该颜色第一张
-            }
+            // 将颜色转成小写，并将空格替换为下划线 (例如 "Laksa Pruple" 变成 "laksa_pruple")
+            $formatted_color = strtolower(str_replace(' ', '_', $item_color));
+            
+            // 组装格式: [pro_image]_[pro_color]_1
+            $target_img_name = $base_name . '_' . $formatted_color . '_1' . $ext;
+            $display_img = "../uploads/" . $target_img_name;
         }
         // ----------------------------
 
-        $detail_link = "admin_order_details.php?id=$order_id&pro_id=" . $item['Pro_Id'];
+        $detail_link = "order_details.php?id=$order_id&pro_id=" . $item['Pro_Id'];
         
         echo '
-        <a href="'.$detail_link.'" class="list-group-item list-group-item-action d-flex align-items-center p-3 mb-2" style="border-radius:10px; border:1px solid #eee;">
-            <img src="'.$display_img.'" class="rounded me-3" style="width:50px; height:50px; object-fit:cover;" onerror="this.src=\'../assets/no-image.png\'">
-            <div class="flex-grow-1 text-start">
+        <a href="'.$detail_link.'" class="list-group-item list-group-item-action d-flex align-items-center p-3 mb-2 order-item-hover" style="border-radius:10px;">
+        <img src="'.$display_img.'" class="rounded me-3 shadow-sm" style="width:80px; height:80px; object-fit:contain; background-color: #fff; padding: 4px; border: 1px solid #eee;" onerror="this.src=\'../assets/no-image.png\'">            <div class="flex-grow-1 text-start">
                 <div class="d-flex justify-content-between">
                     <h6 class="mb-0 fw-bold">'.$item['Pro_Name'].'</h6>
                     <span class="badge bg-light text-dark border">'.$item['Brand_Name'].'</span>
                 </div>
-                <small class="text-muted">Color: <b>'.$item_color.'</b> | Size: '.$item['Pro_Size'].'</small>
+                <small class="text-muted">Color: <b>'.($item_color ?: 'N/A').'</b> | Size: <b>'.($item_size ?: 'N/A').'</b></small>
                 <div class="d-flex justify-content-between align-items-center mt-1">
                     <small class="text-muted">RM '.number_format($item['Order_Subtotal'], 2).' x '.$item['Order_Qty'].'</small>
                     <div class="fw-bold text-orange">Subtotal: RM '.number_format($item['Order_Subtotal'] * $item['Order_Qty'], 2).'</div>
@@ -284,6 +333,18 @@ if (isset($_GET['ajax_get_items'])) {
 
         
         @media (max-width: 991px) { .main-content { margin-left: 0; padding: 15px; } }
+
+        /* --- 订单商品列表 Hover 效果 --- */
+                .order-item-hover {
+                    border: 1px solid #eee !important;
+                    transition: all 0.2s ease-in-out;
+                }
+                .order-item-hover:hover {
+                    border-color: rgba(255, 140, 0, 0.6) !important; /* 浅橙色边框 */
+                    background-color: #fffbf5; /* 加一点极浅的橙色背景，效果更好看 */
+                    box-shadow: 0 4px 8px rgba(255, 140, 0, 0.05); /* 微微的阴影 */
+                }
+
     </style>
 </head>
 <body>
@@ -370,7 +431,7 @@ if (isset($_GET['ajax_get_items'])) {
                                 $current_index = array_search($current_status, $status_flow);
                             ?>
                             <tr>
-                                <td class="fw-bold">#ORD-<?php echo $row['Order_Id']; ?></td>
+                                <td class="fw-bold">#ORD-<?php echo str_pad($row['Order_Id'], 5, '0', STR_PAD_LEFT); ?></td>
                                 <td>
                                     <div class="fw-bold"><?php echo htmlspecialchars($row['User_Name']); ?></div>
                                     <div class="small text-muted"><?php echo $row['User_Email']; ?></div>
@@ -428,31 +489,40 @@ function updateStatus(orderId, newStatus) {
     })
     .then(response => response.json())
     .then(data => {
-        if (data.status === 'success') {
-            const Toast = Swal.mixin({
-                toast: true,
-                position: 'top-end',
-                showConfirmButton: false,
-                timer: 2000,
-                timerProgressBar: true
-            });
-            Toast.fire({
-                icon: 'success',
-                title: 'Status updated to ' + newStatus
+if (data.status === 'success') {
+            // 使用标准的屏幕居中 SweetAlert
+            Swal.fire({
+                icon: 'success', // 自动自带 ✔ 图标
+                title: 'Status Updated to ' + newStatus,
+                position: 'center', // 显示在屏幕正中心
+                showConfirmButton: false, // 隐藏底部的 OK 按钮
+                timer: 2000, // 2000 毫秒 (2秒) 后自动关闭
+                timerProgressBar: true // 显示底部的时间进度条（视觉效果更好，不需要可以删掉这行）
             }).then(() => {
-                location.reload(); 
+                location.reload(); // 2秒后弹窗关闭，自动刷新页面更新数据
+            });
+        } else {
+            Swal.fire({
+                icon: 'error',
+                title: 'Error',
+                text: data.message || 'Failed to update status. Please try again.'
             });
         }
     });
 }
 
 function showItemPopup(orderId) {
+    let paddedOrderId = String(orderId).padStart(5, '0');
     Swal.fire({
-        title: 'Order Items (ID: #ORD-' + orderId + ')',
+        title: 'Order Items (ID: #ORD-' + paddedOrderId + ')',
+        // --- 加入 customClass 控制标题样式 ---
+        customClass: {
+            title: 'text-start w-100 fs-5 mt-2 ms-2' 
+        },
         html: '<div id="popup-loading" class="py-4"><div class="spinner-border text-primary"></div><p>Loading items...</p></div>',
         showConfirmButton: false,
         showCloseButton: true,
-        width: '500px',
+        width: '600px', // 保持之前的 600px
         didOpen: () => {
             // 通过 AJAX 获取商品列表 HTML
             fetch('admin_manage_orders.php?ajax_get_items=' + orderId)

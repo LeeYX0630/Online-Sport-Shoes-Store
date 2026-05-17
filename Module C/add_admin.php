@@ -2,6 +2,11 @@
 // admin/add_admin.php
 session_start();
 require_once '../includes/db_connection.php';
+// 1. 安全检查
+if (!isset($_SESSION['role'])) {
+    header("Location: admin_login.php");
+    exit();
+}
 
 // 1. 权限检查
 if (!isset($_SESSION['role']) || $_SESSION['role'] != 1) {

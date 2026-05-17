@@ -6,6 +6,12 @@
 session_start();
 require_once '../includes/db_connection.php'; 
 
+// 1. 安全检查
+if (!isset($_SESSION['role'])) {
+    header("Location: admin_login.php");
+    exit();
+}
+
 // --- 1. 安全与权限检查[cite: 2, 6] ---
 if (!isset($_SESSION['role']) || $_SESSION['role'] != 1) {
     echo "<script>

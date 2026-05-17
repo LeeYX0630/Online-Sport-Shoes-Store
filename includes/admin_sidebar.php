@@ -66,8 +66,8 @@ $admin_role = $_SESSION['role'] ?? ''; // 获取当前登录的角色
             <?php endif; ?>
 
             <li class="nav-item">
-                <a href="admin_settings.php" class="nav-link <?php echo ($current_page == 'admin_settings.php') ? 'active' : ''; ?>">
-                    <i class="bi bi-gear"></i> Settings
+                <a href="admin_profile.php" class="nav-link <?php echo ($current_page == 'admin_profile.php') ? 'active' : ''; ?>">
+                    <i class="bi bi-person"></i> Profile
                 </a>
             </li>
         </ul>

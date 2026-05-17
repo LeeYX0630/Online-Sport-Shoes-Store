@@ -8,10 +8,54 @@ if (!isset($_SESSION['role'])) {
     exit();
 }
 
-// --- 1. 后端处理逻辑 ---
+// --- 变量初始化 ---
+$is_edit = false;
+$edit_pro_id = 0;
+$product_data = [];
+$existing_stock = [];
+$existing_colors = [];
+$existing_sizes = [];
+
+// --- 获取原有产品资料 (用于编辑模式) ---
+if (isset($_GET['id'])) {
+    $is_edit = true;
+    $edit_pro_id = intval($_GET['id']);
+    
+    $stmt_get = $conn->prepare("SELECT * FROM product WHERE Pro_Id = ?");
+    $stmt_get->bind_param("i", $edit_pro_id);
+    $stmt_get->execute();
+    $res_get = $stmt_get->get_result();
+
+    if ($res_get->num_rows > 0) {
+        $product_data = $res_get->fetch_assoc();
+        
+        // 拆分颜色和尺寸用于 UI 显示
+        $raw_colors = preg_split('/[\/,]/', $product_data['Pro_Colour']);
+        $existing_colors = array_map('trim', $raw_colors);
+        $existing_colors = array_filter($existing_colors); 
+
+        $existing_sizes = explode(',', $product_data['Pro_Size']);
+    }
+    $stmt_get->close();
+
+    // 获取库存数据
+    $stmt_stock_get = $conn->prepare("SELECT * FROM product_stock WHERE Pro_Id = ?");
+    $stmt_stock_get->bind_param("i", $edit_pro_id);
+    $stmt_stock_get->execute();
+    $res_stock = $stmt_stock_get->get_result();
+    while ($row = $res_stock->fetch_assoc()) {
+        $existing_stock[$row['Pro_Colour']][$row['Pro_Size']] = $row['Quantity'];
+    }
+    $stmt_stock_get->close();
+}
+
+// --- 后端保存处理逻辑 (Add & Edit 通用) ---
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_product'])) {
     $pro_name = mysqli_real_escape_string($conn, $_POST['product_name']);
-    $brand_id = intval($_POST['brand']); 
+    
+    // 修复：如果 brand 被禁用，则从 hidden 字段或旧数据中获取，防止外键报错
+    $brand_id = isset($_POST['brand']) ? intval($_POST['brand']) : ($is_edit ? $product_data['Brand_Id'] : 0); 
+    
     $price    = abs(floatval($_POST['selling_price'])); 
     $desc     = mysqli_real_escape_string($conn, $_POST['description']);
     $gender   = $_POST['gender'];
@@ -42,63 +86,98 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_product'])) {
         $cat_id = intval($_POST['category']);
     }
 
-    // 处理名字转为全小写且无空格 (例如 Niki Air -> nikiair)
+    // 图片命名处理
     $pure_name = strtolower(str_replace(' ', '', $_POST['product_name']));
-    $db_main_image = $pure_name . ".jpg"; // 默认图片名
+    // 如果是编辑且没传新图，先默认使用数据库旧图名
+    $db_main_image = $is_edit ? $product_data['Pro_Image'] : ($pure_name . ".jpg");
 
-    // ==========================================
-    // 上传照片处理逻辑开始
-    // ==========================================
+    // 上传照片处理
     $upload_dir = '../uploads/';
-    if (!is_dir($upload_dir)) {
-        mkdir($upload_dir, 0777, true);
-    }
+    if (!is_dir($upload_dir)) mkdir($upload_dir, 0777, true);
 
     $first_image_uploaded = false;
-
     if (isset($_FILES['color_photos'])) {
         foreach ($_FILES['color_photos']['tmp_name'] as $color => $tmp_names) {
-            // 清理颜色名称（去掉空格并转小写），例如: Black -> black
             $color_clean = strtolower(str_replace(' ', '_', $color));
             $count = 0;
-
             foreach ($tmp_names as $index => $tmp_name) {
-                if ($count >= 4) break; // 每个颜色最大只能存4张
-                
+                if ($count >= 4) break; 
                 if (!empty($tmp_name) && is_uploaded_file($tmp_name)) {
                     $original_name = $_FILES['color_photos']['name'][$color][$index];
                     $ext = strtolower(pathinfo($original_name, PATHINFO_EXTENSION));
                     if (empty($ext)) $ext = 'jpg'; 
                     
-                    // 只在 SQL 存名字，不执行实体 copy，避免文件夹出现重复照片
                     if (!$first_image_uploaded) {
                         $db_main_image = $pure_name . "." . $ext;
                         $first_image_uploaded = true;
                     }
                     
-                    // 命名格式: 名字_颜色_1/2/3/4 (例如: nikiair_black_1.jpg)
                     $new_filename = $pure_name . "_" . $color_clean . "_" . ($count + 1) . "." . $ext;
-                    $destination = $upload_dir . $new_filename;
-                    
-                    move_uploaded_file($tmp_name, $destination);
+                    move_uploaded_file($tmp_name, $upload_dir . $new_filename);
                     $count++;
                 }
             }
         }
     }
-    // ==========================================
-    // 上传照片处理逻辑结束
-    // ==========================================
+
+    // --- 在此处插入删除逻辑 ---
+// 如果是编辑模式，且用户上传了新照片，则先清理旧照片
+if ($is_edit && isset($_FILES['color_photos'])) {
+    // 检查是否有任何一个颜色上传了文件
+    $has_new_upload = false;
+    foreach ($_FILES['color_photos']['tmp_name'] as $color => $tmp_names) {
+        foreach ($tmp_names as $tmp_name) {
+            if (!empty($tmp_name) && is_uploaded_file($tmp_name)) {
+                $has_new_upload = true;
+                break 2;
+            }
+        }
+    }
+
+    if ($has_new_upload) {
+        // 获取产品图片的基础名称 (基于数据库现有的 Pro_Image)
+        $path_info = pathinfo($product_data['Pro_Image']);
+        $img_base_name = $path_info['filename']; // 例如 "nike_air_max"
+        
+        // 匹配该产品所有的变体图：nike_air_max_*.jpg, nike_air_max_*.png 等
+        $old_files = glob($upload_dir . $img_base_name . "_*.*");
+        if ($old_files) {
+            foreach ($old_files as $file) {
+                if (is_file($file)) {
+                    unlink($file); // 执行物理删除
+                }
+            }
+        }
+    }
+}
+
+
+
+// --- 下面是你原本的上传照片处理逻辑 ---  
+$first_image_uploaded = false;
 
     $size_string = isset($_POST['variant_sizes']) ? implode(',', array_unique($_POST['variant_sizes'])) : '';
     $color_string = isset($_POST['selected_colors']) ? implode(',', $_POST['selected_colors']) : '';
 
-    $sql_product = "INSERT INTO product (Pro_Name, Cat_Id, Brand_Id, Pro_Price, Pro_Description, Pro_Image, Pro_Size, Pro_Colour, Pro_Gender, Pro_Age_Group, Pro_Status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-    $stmt = $conn->prepare($sql_product);
-    $stmt->bind_param("siidsssssss", $pro_name, $cat_id, $brand_id, $price, $desc, $db_main_image, $size_string, $color_string, $gender, $age_group, $status);
+    // --- 核心改动：判断 UPDATE 还是 INSERT ---
+    if ($is_edit) {
+        $sql_product = "UPDATE product SET Pro_Name=?, Cat_Id=?, Brand_Id=?, Pro_Price=?, Pro_Description=?, Pro_Image=?, Pro_Size=?, Pro_Colour=?, Pro_Gender=?, Pro_Age_Group=?, Pro_Status=? WHERE Pro_Id=?";
+        $stmt = $conn->prepare($sql_product);
+        $stmt->bind_param("siidsssssssi", $pro_name, $cat_id, $brand_id, $price, $desc, $db_main_image, $size_string, $color_string, $gender, $age_group, $status, $edit_pro_id);
+    } else {
+        $sql_product = "INSERT INTO product (Pro_Name, Cat_Id, Brand_Id, Pro_Price, Pro_Description, Pro_Image, Pro_Size, Pro_Colour, Pro_Gender, Pro_Age_Group, Pro_Status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        $stmt = $conn->prepare($sql_product);
+        $stmt->bind_param("siidsssssss", $pro_name, $cat_id, $brand_id, $price, $desc, $db_main_image, $size_string, $color_string, $gender, $age_group, $status);
+    }
     
     if ($stmt->execute()) {
-        $new_pro_id = $conn->insert_id;
+        $current_pro_id = $is_edit ? $edit_pro_id : $conn->insert_id;
+
+        // --- 库存更新策略：先删除旧的，再插入新的 ---
+        if ($is_edit) {
+            $conn->query("DELETE FROM product_stock WHERE Pro_Id = $current_pro_id");
+        }
+
         if (!empty($_POST['selected_colors']) && is_array($_POST['selected_colors'])) {
             if (!empty($_POST['stock']) && is_array($_POST['stock'])) {
                 $stmt_stock = $conn->prepare("INSERT INTO product_stock (Pro_Id, Pro_Size, Pro_Colour, Quantity) VALUES (?, ?, ?, ?)");
@@ -107,24 +186,24 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_product'])) {
                         $qty_i = intval($qty);
                         $size_s = $conn->real_escape_string($size);
                         $color_s = $conn->real_escape_string($color);
-                        $stmt_stock->bind_param("issi", $new_pro_id, $size_s, $color_s, $qty_i);
+                        $stmt_stock->bind_param("issi", $current_pro_id, $size_s, $color_s, $qty_i);
                         $stmt_stock->execute();
                     }
                 }
                 $stmt_stock->close();
             }
         }
-        echo "<script>alert('Product Added Successfully!'); window.location.href='admin_manage_products.php';</script>";
+        $msg = $is_edit ? "Product Updated Successfully!" : "Product Added Successfully!";
+        echo "<script>alert('$msg'); window.location.href='admin_manage_products.php';</script>";
     } else {
         echo "Error: " . $stmt->error;
     }
 }
 
-// --- 2. 管理员与品牌获取逻辑 ---
+// 管理员信息获取 (保持不变)
 $admin_id = $_SESSION['admin_id'] ?? 0;
 $admin_name = $_SESSION['username'] ?? 'Admin';
 $admin_image = 'default_admin.png';
-
 if ($admin_id && isset($conn)) {
     $resAdmin = $conn->query("SELECT * FROM admin WHERE Admin_Id = " . (int)$admin_id);
     if ($resAdmin && $admin = $resAdmin->fetch_assoc()) {
@@ -135,7 +214,7 @@ if ($admin_id && isset($conn)) {
 }
 $admin_role = $admin_role ?? $_SESSION['role'] ?? 2;
 
-// 恢复品牌逻辑
+// 品牌与分类获取 (保持不变)
 if ($admin_role == 1 || $admin_role == 2) {
     $brands = $conn->query("SELECT * FROM brand WHERE Brand_Status = 'Active'");
     $brand_locked = false;
@@ -146,8 +225,23 @@ if ($admin_role == 1 || $admin_role == 2) {
     $brands = $stmt_b->get_result();
     $brand_locked = true; 
 }
-
 $categories = $conn->query("SELECT * FROM category");
+
+// 图片预览路径逻辑 (保持不变)
+$existing_images = []; 
+if ($is_edit && !empty($product_data['Pro_Image'])) {
+    $path_info = pathinfo($product_data['Pro_Image']);
+    $pure_name_img = $path_info['filename']; 
+    foreach ($existing_colors as $color) {
+        $color_slug = strtolower(str_replace(' ', '_', trim($color)));
+        $search_pattern = "../uploads/" . $pure_name_img . "_" . $color_slug . "_*.*";
+        $files = glob($search_pattern);
+        if ($files) {
+            sort($files);
+            $existing_images[$color] = $files;
+        }
+    }
+}
 ?>
 
 <!DOCTYPE html>
@@ -159,6 +253,7 @@ $categories = $conn->query("SELECT * FROM category");
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    
     
     <style>
         :root { 
@@ -304,38 +399,47 @@ $categories = $conn->query("SELECT * FROM category");
                 <div class="row g-4">
                     <div class="col-md-8">
                         <label class="form-label">Product Name *</label>
-                        <input type="text" name="product_name" class="form-control" placeholder="e.g. Nike Air Max 270" required>
+                        <input type="text" name="product_name" class="form-control" placeholder="e.g. Nike Air Max 270" value="<?php echo $is_edit ? htmlspecialchars($product_data['Pro_Name']) : ''; ?>" required>
                     </div>
                     <div class="col-md-4">
                         <label class="form-label">Brand</label>
                         <?php $selected_brand_id = ""; ?>
                         <select name="brand" class="form-select" <?= $brand_locked ? 'disabled' : '' ?>>
                             <?php 
+                            $current_selected_brand = 0;
                             while($b = $brands->fetch_assoc()) {
-                                $selected = $brand_locked ? 'selected' : '';
-                                if ($selected) $selected_brand_id = $b['Brand_Id'];
+                                $selected = ($is_edit && $product_data['Brand_Id'] == $b['Brand_Id']) ? 'selected' : ($brand_locked && !$is_edit ? 'selected' : '');
+                                if($selected) $current_selected_brand = $b['Brand_Id'];
                                 echo "<option value='{$b['Brand_Id']}' $selected>{$b['Brand_Name']}</option>";
                             } 
                             ?>
                         </select>
-                        <?php if($brand_locked): ?>
-                            <input type="hidden" name="brand" value="<?= $selected_brand_id ?>">
+                        <?php if($brand_locked || $is_edit): ?>
+                            <input type="hidden" name="brand" value="<?= $current_selected_brand ?>">
                         <?php endif; ?>
                     </div>
+
                     <div class="col-md-4">
                         <label class="form-label">Category</label>
                         <select name="category" id="category_select" class="form-select">
                             <option value="">-- Select Category --</option>
-                            <?php while($c = $categories->fetch_assoc()) echo "<option value='{$c['Cat_Id']}'>{$c['Cat_Name']}</option>"; ?>
+                            <?php 
+                            $categories->data_seek(0); // 重置指针
+                            while($c = $categories->fetch_assoc()) {
+                                $selected = ($is_edit && $product_data['Cat_Id'] == $c['Cat_Id']) ? 'selected' : '';
+                                echo "<option value='{$c['Cat_Id']}' $selected>{$c['Cat_Name']}</option>";
+                            } 
+                            ?>
                         </select>
                     </div>
+
                     <div class="col-md-4">
                         <label class="form-label">New Category (Optional)</label>
                         <input type="text" name="new_category" id="new_category_input" class="form-control" placeholder="Add custom category">
                     </div>
                     <div class="col-md-12">
                         <label class="form-label">Description</label>
-                        <textarea name="description" class="form-control" rows="3" placeholder="Enter product details..."></textarea>
+                        <textarea name="description" class="form-control" rows="3" placeholder="Enter product details..."><?php echo $is_edit ? htmlspecialchars($product_data['Pro_Description']) : ''; ?></textarea>
                     </div>
                 </div>
             </div>
@@ -347,19 +451,22 @@ $categories = $conn->query("SELECT * FROM category");
                         <label class="form-label">Base Price (RM) *</label>
                         <div class="input-group">
                             <span class="input-group-text bg-white border-end-0 rounded-start-3">RM</span>
-                            <input type="number" step="0.01" name="selling_price" class="form-control  border-start-1" min="1" placeholder="0.00" required>
+                            <input type="number" step="0.01" name="selling_price" class="form-control" placeholder="0.00" value="<?php echo $is_edit ? $product_data['Pro_Price'] : ''; ?>" min="1" required>
                         </div>
                     </div>
                     <div class="col-md-4">
                         <label class="form-label">Gender</label>
                         <select name="gender" class="form-select">
-                            <option value="Unisex">Unisex</option><option value="Men">Men</option><option value="Women">Women</option>
+                            <option value="Unisex" <?= ($is_edit && $product_data['Pro_Gender'] == 'Unisex') ? 'selected' : '' ?>>Unisex</option>
+                            <option value="Men" <?= ($is_edit && $product_data['Pro_Gender'] == 'Men') ? 'selected' : '' ?>>Men</option>
+                            <option value="Women" <?= ($is_edit && $product_data['Pro_Gender'] == 'Women') ? 'selected' : '' ?>>Women</option>
                         </select>
                     </div>
                     <div class="col-md-4">
                         <label class="form-label">Age Group</label>
                         <select name="age_group" class="form-select">
-                            <option value="Adult">Adult</option><option value="Kids">Kids</option>
+                            <option value="Adult" <?= ($is_edit && $product_data['Pro_Age_Group'] == 'Adult') ? 'selected' : '' ?>>Adult</option>
+                            <option value="Kids" <?= ($is_edit && $product_data['Pro_Age_Group'] == 'Kids') ? 'selected' : '' ?>>Kids</option>
                         </select>
                     </div>
                 </div>
@@ -371,10 +478,12 @@ $categories = $conn->query("SELECT * FROM category");
                     <div class="col-md-12">
                         <label class="form-label d-block">Select Available Colors</label>
                         <div class="d-flex flex-wrap gap-2 mb-3">
-                            <?php foreach(['Black','White','Red','Blue','Grey','Green'] as $col): ?>
-                                <input type="checkbox" name="selected_colors[]" class="btn-check color-selector" id="c_<?= $col ?>" value="<?= $col ?>">
-                                <label class="btn btn-outline-orange" for="c_<?= $col ?>"><?= $col ?></label>
-                            <?php endforeach; ?>
+<?php foreach(['Black','White','Red','Blue','Grey','Green'] as $col): ?>
+    <?php $checked = ($is_edit && in_array($col, $existing_colors)) ? 'checked' : ''; ?>
+    <input type="checkbox" name="selected_colors[]" class="btn-check color-selector" 
+           id="c_<?= $col ?>" value="<?= $col ?>" <?= $checked ?>>
+    <label class="btn btn-outline-orange" for="c_<?= $col ?>"><?= $col ?></label>
+<?php endforeach; ?>
                         </div>
                         <div class="input-group" style="max-width: 300px;">
                             <input type="text" id="custom-color-input" class="form-control" placeholder="Other Color Name">
@@ -394,7 +503,9 @@ $categories = $conn->query("SELECT * FROM category");
                         <option value="Active">Publish Now</option>
                         <option value="Draft">Save Draft</option>
                     </select>
-                    <button type="submit" name="save_product" class="btn btn-save">Create Product</button>
+                    <button type="submit" name="save_product" class="btn btn-save">
+                        <?= $is_edit ? 'Update Product' : 'Create Product' ?>
+                    </button>
             </div>
         </form>
     </div>
@@ -474,6 +585,8 @@ function addVariantBox(color) {
     `;
     container.insertAdjacentHTML('beforeend', html);
 }
+
+
 
 function handleFileSelect(input, color) {
     const safeId = color.replace(/\s+/g, '_');
@@ -635,6 +748,127 @@ document.addEventListener('input', function(e) {
 
 // 修正价格输入框的最小属性 (在原有HTML中找到该行并确保有 min="1")
 document.querySelector('input[name="selling_price"]').setAttribute('min', '1');
+
+// --- 修正版：编辑模式下的自动初始化 ---
+window.addEventListener('load', function() {
+    <?php if ($is_edit): ?>
+        // 1. 获取从 PHP 正则拆分后的颜色数组
+        const existingColors = <?php echo json_encode($existing_colors); ?>;
+        const stockData = <?php echo json_encode($existing_stock); ?>;
+        
+        existingColors.forEach(color => {
+            if (!color) return;
+
+            // 检查是否是预设颜色
+            const checkbox = document.getElementById('c_' + color);
+            
+            if (checkbox) {
+                // 勾选 UI 上的 Checkbox
+                checkbox.checked = true;
+            } else {
+                // 如果是自定义颜色，先手动添加到 UI 列表
+                const id = 'c_' + color.replace(/\s+/g, '_');
+                const wrapper = document.querySelector('.d-flex.flex-wrap.gap-2');
+                wrapper.insertAdjacentHTML('beforeend', 
+                    `<input type="checkbox" name="selected_colors[]" class="btn-check color-selector" id="${id}" value="${color}" checked>` +
+                    `<label class="btn btn-outline-orange" for="${id}">${color}</label>`
+                );
+            }
+
+            // 【核心修正】：直接调用你原有的函数生成变体框，不依赖模拟点击
+            // 移除可能存在的 empty-hint
+            const hint = document.getElementById('empty-hint');
+            if(hint) hint.remove();
+            
+            // 执行你代码中定义的函数
+            addVariantBox(color);
+        });
+
+        // --- 最终修正：确保 Stock Quantity 正确填充 ---
+        setTimeout(() => {
+            const stockData = <?php echo json_encode($existing_stock); ?>;
+            
+            for (const color in stockData) {
+                const safeId = color.replace(/\s+/g, '_');
+                
+                for (const size in stockData[color]) {
+                    // 1. 统一格式，例如 "4.0"
+                    const formattedSize = parseFloat(size).toFixed(1);
+                    const sizeId = `s_${safeId}_${formattedSize}`;
+                    const sizeCb = document.getElementById(sizeId);
+                    
+                    if (sizeCb) {
+                        // 2. 勾选尺寸
+                        sizeCb.checked = true;
+                        
+                        // 3. 强制触发 change 事件来执行你原有的库存输入框生成逻辑
+                        const event = new Event('change', { bubbles: true });
+                        sizeCb.dispatchEvent(event);
+                        
+                        // 4. 【关键】：在当前事件循环之后立即填值
+                        // 使用 requestAnimationFrame 或 setTimeout(..., 0) 确保输入框已渲染
+                        (function(c, s, val) {
+                            setTimeout(() => {
+                                // 这里的选择器必须匹配你 HTML 逻辑生成的 name 格式
+                                const stockInput = document.querySelector(`input[name="stock[${c}][${s}]"]`);
+                                if (stockInput) {
+                                    stockInput.value = val;
+                                    // 打印调试（可选）：console.log(`Filled ${c} size ${s} with ${val}`);
+                                }
+                            }, 50); // 给浏览器 50ms 时间渲染 HTML 结构
+                        })(color, formattedSize, stockData[color][size]);
+                    }
+                }
+            }
+        }, 500);
+
+        
+setTimeout(() => {
+    const imageData = <?php echo json_encode($existing_images); ?>;
+    
+    for (const color in imageData) {
+        const safeId = color.replace(/\s+/g, '_');
+        const previewContainer = document.getElementById(`preview_${safeId}`);
+        
+        if (previewContainer) {
+            // 移除 "No photos yet" 提示
+            const emptyHint = previewContainer.querySelector('.text-muted');
+            if (emptyHint) emptyHint.remove();
+
+            imageData[color].forEach((imgUrl, index) => {
+                // 1. 创建和原文件一样的 div 容器
+                const div = document.createElement('div');
+                div.className = 'preview-item'; // 使用原本的 CSS 类名 (110x110, 圆角等)
+                
+                // 2. 直接绑定原文件里的 openLightbox function
+                div.onclick = function() { 
+                    openLightbox(color, div); 
+                };
+                
+                // 3. 填入照片和原本的 X 按钮
+                // 注意：由于是旧照片，点击 X 只是把这个元素从 UI 移除 (this.parentNode.remove())
+                div.innerHTML = `
+                    <img src="${imgUrl}">
+                    <button type="button" class="remove-img" onclick="event.stopPropagation(); this.parentNode.remove();">×</button>
+                `;
+                
+                // 4. 将生成好的预览图塞进容器
+                previewContainer.appendChild(div);
+            });
+            
+            // 重要：如果你有维护 colorImageData[color].count，请在这里同步，避免新上传覆盖旧图编号
+            if (typeof colorImageData !== 'undefined' && colorImageData[color]) {
+                colorImageData[color].count = imageData[color].length;
+            }
+        }
+    }
+}, 800);
+
+
+
+
+    <?php endif; ?>
+});
 </script>
 </body>
 </html>

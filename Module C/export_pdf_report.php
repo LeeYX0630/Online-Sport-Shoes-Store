@@ -3,9 +3,10 @@
 session_start();
 require_once '../includes/db_connection.php';
 
-// 1. Safety Check
-if (!isset($_SESSION['admin_id'])) {
-    die("Unauthorized access. Please login first.");
+// 1. 安全检查
+if (!isset($_SESSION['role'])) {
+    header("Location: admin_login.php");
+    exit();
 }
 
 $admin_id = $_SESSION['admin_id'];
