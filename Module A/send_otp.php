@@ -8,7 +8,9 @@ require '../includes/PHPMailer/PHPMailer.php';
 require '../includes/PHPMailer/SMTP.php';
 require '../includes/mail_config.php';
 
-session_start();
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
 function sendOTP($recipientEmail) {
     // 1. 生成 6 位随机数字 OTP

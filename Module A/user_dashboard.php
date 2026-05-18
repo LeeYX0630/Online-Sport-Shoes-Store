@@ -4,6 +4,13 @@ date_default_timezone_set("Asia/Kuala_Lumpur");
 
 session_start();
 require_once '../includes/db_connection.php';
+require_once 'send_otp.php';
+
+function respondJson(array $payload) {
+    header('Content-Type: application/json');
+    echo json_encode($payload);
+    exit;
+}
 
 // Check login
 if (!isset($_SESSION['user_id'])) {
@@ -19,7 +26,52 @@ $msg_type = "";
 // HANDLE POST REQUESTS
 // ===============================
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    
+    if (isset($_POST['action'])) {
+        $action = trim($_POST['action']);
+
+        if ($action === 'send_security_otp') {
+            $email_result = $conn->query("SELECT User_Email FROM `user` WHERE User_Id='$user_id'");
+            $user_row = $email_result ? $email_result->fetch_assoc() : null;
+
+            if (!$user_row || empty($user_row['User_Email'])) {
+                respondJson(['success' => false, 'message' => 'Unable to locate your registered email address.']);
+            }
+
+            $send_result = sendOTP($user_row['User_Email']);
+            if ($send_result === true) {
+                respondJson(['success' => true, 'message' => 'Verification code sent to your email.']);
+            }
+
+            respondJson(['success' => false, 'message' => $send_result]);
+        }
+
+        if ($action === 'verify_security_otp') {
+            $otp_input = trim($_POST['otp'] ?? '');
+            $current_time = time();
+
+            if (empty($otp_input) || !preg_match('/^\d{6}$/', $otp_input)) {
+                respondJson(['success' => false, 'message' => 'Please enter the 6-digit verification code.']);
+            }
+
+            if (!isset($_SESSION['otp']) || !isset($_SESSION['otp_time'])) {
+                respondJson(['success' => false, 'message' => 'No verification code was requested. Please request a new code.']);
+            }
+
+            if ($current_time - $_SESSION['otp_time'] > 300) {
+                unset($_SESSION['otp'], $_SESSION['otp_time']);
+                respondJson(['success' => false, 'message' => 'The verification code has expired. Please request a new one.']);
+            }
+
+            if ($otp_input !== (string)$_SESSION['otp']) {
+                respondJson(['success' => false, 'message' => 'The verification code is incorrect.']);
+            }
+
+            $_SESSION['password_change_verified'] = true;
+            $_SESSION['password_change_verified_time'] = $current_time;
+            respondJson(['success' => true, 'message' => 'Identity verified. You may now change your password.']);
+        }
+    }
+
    // --- HANDLE PASSWORD UPDATE ---
 if (isset($_POST['update_password'])) {
     $current_pass = trim($_POST['current_pass']); 
@@ -40,6 +92,11 @@ if (isset($_POST['update_password'])) {
         $msg = "New password must be at least 6 characters!";
         $msg_type = "danger";
     }
+    // 2.5. Secure check: Require OTP verification before allowing password change
+    elseif (empty($_SESSION['password_change_verified']) || $_SESSION['password_change_verified'] !== true) {
+        $msg = "Please verify your identity with the security code before changing your password.";
+        $msg_type = "danger";
+    }
     // 3. Third check: Verify user exists
     elseif (!$user_data || empty($user_data['User_Password'])) {
         $msg = "Error: Unable to retrieve password information!";
@@ -54,6 +111,7 @@ if (isset($_POST['update_password'])) {
         if ($stmt->execute()) {
             $msg = "Password updated successfully!";
             $msg_type = "success";
+            unset($_SESSION['password_change_verified'], $_SESSION['password_change_verified_time'], $_SESSION['otp'], $_SESSION['otp_time']);
         }
     } 
     // 5. If password doesn't match
@@ -119,7 +177,8 @@ if (isset($_POST['update_password'])) {
 // ===============================
 $user_res = $conn->query("SELECT * FROM `user` WHERE User_Id='$user_id'");
 $user = $user_res->fetch_assoc();
-
+$passwordChangeDisabled = (empty($_SESSION['password_change_verified']) || $_SESSION['password_change_verified'] !== true) ? 'disabled' : '';
+$passwordVerified = ($passwordChangeDisabled === '') ? true : false;
 $available_promos = $conn->query("
     SELECT p.* FROM user_promo up
     JOIN promo p ON up.Promo_Id = p.Promo_Id 
@@ -149,6 +208,8 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
     font-weight: 800; border-radius: 12px; transition: 0.3s; border: none; 
 }
 .btn-orange:hover { background-color: #E66000; color: white; transform: translateY(-2px); }
+.btn-outline-orange { color: var(--brand-orange); border: 1px solid var(--brand-orange); background: transparent; }
+.btn-outline-orange:hover { background: rgba(255, 107, 0, 0.08); }
 .nav-tabs { border-bottom: 1px solid #eee; }
 .nav-tabs .nav-link { border: none; color: #6c757d; font-weight: 700; padding: 10px 20px; }
 .nav-tabs .nav-link.active { color: var(--brand-orange); border-bottom: 3px solid var(--brand-orange); background: none; }
@@ -374,20 +435,63 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
                     <div class="tab-pane fade" id="security">
                         <form method="POST">
                             <div class="row g-3">
+                                <div class="col-12 mb-3">
+                                    <div class="p-3 rounded-4 border border-secondary-subtle bg-white">
+                                        <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3 mb-3">
+                                            <div>
+                                                <h6 class="fw-bold mb-1">Identity Verification</h6>
+                                                <p class="small text-muted mb-0">A one-time verification code is required before updating your password.</p>
+                                            </div>
+                                            <button type="button" id="sendSecurityOTP" class="btn btn-outline-orange btn-sm">
+                                                Send OTP
+                                            </button>
+                                        </div>
+                                        <div id="securityOtpSection" class="d-none">
+                                            <div class="row g-3">
+                                                <div class="col-md-8">
+                                                    <label class="small fw-bold text-muted text-uppercase">Verification Code</label>
+                                                    <input type="text" id="security_otp" class="form-control bg-light border-0 py-2" maxlength="6" pattern="[0-9]*" placeholder="Enter 6-digit code">
+                                                </div>
+                                                <div class="col-md-4 align-self-end">
+                                                    <button type="button" id="verifySecurityOTP" class="btn btn-secondary w-100">Verify Code</button>
+                                                </div>
+                                            </div>
+                                            <div id="securityOtpMessage" class="mt-2 small text-muted"></div>
+                                        </div>
+                                        <div id="verifiedBadge" class="mt-3 small text-success fw-bold d-none">
+                                            <i class="bi bi-shield-check me-1"></i>Verified. You may now change your password.
+                                        </div>
+                                    </div>
+                                </div>
                                 <div class="col-md-12 mb-2">
                                     <label class="small fw-bold text-muted text-uppercase">Current Password</label>
-                                    <input type="password" name="current_pass" class="form-control bg-light border-0 py-2" required>
+                                    <input id="currentPassInput" type="password" name="current_pass" class="form-control bg-light border-0 py-2" <?php echo $passwordChangeDisabled; ?> required>
                                 </div>
                                 <div class="col-md-6 mb-2">
                                     <label class="small fw-bold text-muted text-uppercase">New Password</label>
-                                    <input type="password" name="new_pass" class="form-control bg-light border-0 py-2" required>
+                                    <input id="newPassInput" type="password" name="new_pass" class="form-control bg-light border-0 py-2" <?php echo $passwordChangeDisabled; ?> required>
+                                </div>
+                                <div class="col-md-6 mb-2">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <label class="small fw-bold text-muted text-uppercase mb-0">Password Strength</label>
+                                        <small id="passwordStrengthLabel" class="text-muted fw-bold">Enter password</small>
+                                    </div>
+                                    <div class="progress rounded-pill" style="height: 8px;">
+                                        <div id="passwordStrengthBar" class="progress-bar bg-danger rounded-pill" role="progressbar" style="width: 0%;"></div>
+                                    </div>
+                                    <div class="d-flex gap-2 mt-2 justify-content-between align-items-center">
+                                        <small id="weakIndicator" class="fw-bold" style="font-size: 0.9rem; color: #ccc;">🔴 Weak</small>
+                                        <small id="mediumIndicator" class="fw-bold" style="font-size: 0.9rem; color: #ccc;">🟡 Medium</small>
+                                        <small id="strongIndicator" class="fw-bold" style="font-size: 0.9rem; color: #ccc;">🟢 Strong</small>
+                                    </div>
+                                    <small id="passwordStrengthHint" class="text-muted d-block mt-2">Use at least 8 characters with uppercase, number, and symbol.</small>
                                 </div>
                                 <div class="col-md-6 mb-2">
                                     <label class="small fw-bold text-muted text-uppercase">Confirm New Password</label>
-                                    <input type="password" name="confirm_pass" class="form-control bg-light border-0 py-2" required>
+                                    <input id="confirmPassInput" type="password" name="confirm_pass" class="form-control bg-light border-0 py-2" <?php echo $passwordChangeDisabled; ?> required>
                                 </div>
                                 <div class="col-12 mt-4">
-                                    <button type="submit" name="update_password" class="btn btn-orange px-5 py-2">
+                                    <button id="updatePasswordBtn" type="submit" name="update_password" class="btn btn-orange px-5 py-2" <?php echo $passwordChangeDisabled; ?>>
                                         Update Password
                                     </button>
                                 </div>
@@ -440,6 +544,199 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
     }
     setInterval(updateClock, 1000);
     updateClock();
+
+    const passwordVerified = <?php echo $passwordVerified ? 'true' : 'false'; ?>;
+
+    function setSecurityFormState(verified) {
+        const disabled = !verified;
+        document.getElementById('currentPassInput').disabled = disabled;
+        document.getElementById('newPassInput').disabled = disabled;
+        document.getElementById('confirmPassInput').disabled = disabled;
+        document.getElementById('updatePasswordBtn').disabled = disabled;
+
+        const verifiedBadge = document.getElementById('verifiedBadge');
+        if (verified) {
+            verifiedBadge.classList.remove('d-none');
+            verifiedBadge.classList.add('d-inline-flex');
+        } else {
+            verifiedBadge.classList.add('d-none');
+        }
+    }
+
+    function showOTPSection() {
+        document.getElementById('securityOtpSection').classList.remove('d-none');
+        document.getElementById('securityOtpMessage').textContent = 'A verification code has been sent to your email. Please enter it below.';
+    }
+
+    async function postSecurityAction(action, payload = {}) {
+        const body = new URLSearchParams({ action, ...payload });
+        const response = await fetch(window.location.href, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body.toString()
+        });
+        return response.json();
+    }
+
+    document.getElementById('sendSecurityOTP').addEventListener('click', async () => {
+        const result = await postSecurityAction('send_security_otp');
+        if (result.success) {
+            showOTPSection();
+            document.getElementById('securityOtpMessage').classList.remove('text-danger');
+            document.getElementById('securityOtpMessage').classList.add('text-muted');
+            document.getElementById('securityOtpMessage').textContent = result.message;
+        } else {
+            document.getElementById('securityOtpMessage').classList.add('text-danger');
+            document.getElementById('securityOtpMessage').textContent = result.message;
+            document.getElementById('securityOtpSection').classList.remove('d-none');
+        }
+    });
+
+    document.getElementById('verifySecurityOTP').addEventListener('click', async () => {
+        const code = document.getElementById('security_otp').value.trim();
+        const result = await postSecurityAction('verify_security_otp', { otp: code });
+        document.getElementById('securityOtpMessage').textContent = result.message;
+        if (result.success) {
+            document.getElementById('securityOtpMessage').classList.remove('text-danger');
+            document.getElementById('securityOtpMessage').classList.add('text-success');
+            setSecurityFormState(true);
+        } else {
+            document.getElementById('securityOtpMessage').classList.add('text-danger');
+            document.getElementById('securityOtpMessage').classList.remove('text-success');
+        }
+    });
+
+    function calculateStrength(password) {
+        let score = 0;
+        if (password.length >= 8) score += 1;
+        if (/[A-Z]/.test(password)) score += 1;
+        if (/[a-z]/.test(password)) score += 1;
+        if (/[0-9]/.test(password)) score += 1;
+        if (/[^A-Za-z0-9]/.test(password)) score += 1;
+        return score;
+    }
+
+    function getPasswordRequirements(password) {
+        const requirements = {
+            length: password.length >= 8,
+            uppercase: /[A-Z]/.test(password),
+            lowercase: /[a-z]/.test(password),
+            digit: /[0-9]/.test(password),
+            special: /[^A-Za-z0-9]/.test(password)
+        };
+        return requirements;
+    }
+
+    function buildPasswordHint(password, score) {
+        if (!password) {
+            return 'Use at least 8 characters with uppercase, number, and symbol.';
+        }
+
+        const reqs = getPasswordRequirements(password);
+        const missing = [];
+
+        if (!reqs.length) missing.push('at least 8 characters');
+        if (!reqs.uppercase) missing.push('uppercase letter');
+        if (!reqs.lowercase) missing.push('lowercase letter');
+        if (!reqs.digit) missing.push('number');
+        if (!reqs.special) missing.push('special character');
+
+        if (missing.length === 0) {
+            return 'Great! Your password is strong and secure.';
+        } else if (score <= 2 || password.length < 8) {
+            return 'Add: ' + missing.join(', ') + '.';
+        } else {
+            return 'Add: ' + missing.join(', ') + ' to reach Strong.';
+        }
+    }
+
+    function updatePasswordStrength() {
+    const password = document.getElementById('newPassInput').value;
+    const label = document.getElementById('passwordStrengthLabel');
+    const bar = document.getElementById('passwordStrengthBar');
+    const hint = document.getElementById('passwordStrengthHint');
+    const weakInd = document.getElementById('weakIndicator');
+    const mediumInd = document.getElementById('mediumIndicator');
+    const strongInd = document.getElementById('strongIndicator');
+
+    // 1. 初始化：重置所有指示灯为灰色
+    weakInd.style.color = '#ccc';
+    mediumInd.style.color = '#ccc';
+    strongInd.style.color = '#ccc';
+    weakInd.style.textShadow = 'none';
+    mediumInd.style.textShadow = 'none';
+    strongInd.style.textShadow = 'none';
+
+    // 2. 空密码状态
+    if (!password) {
+        label.textContent = 'Enter password';
+        bar.style.width = '0%';
+        bar.className = 'progress-bar bg-danger rounded-pill';
+        hint.textContent = 'Use at least 8 characters with uppercase, number, and symbol.';
+        return;
+    }
+
+    // 3. 计算复杂度分数 (满分 5 分)
+    let score = 0;
+    if (password.length >= 8) score++;
+    if (/[A-Z]/.test(password)) score++;
+    if (/[a-z]/.test(password)) score++;
+    if (/[0-9]/.test(password)) score++;
+    if (/[^A-Za-z0-9]/.test(password)) score++;
+
+    // 4. 定义变量，准备赋值
+    let strengthLabel, width, barClass, hintText, currentLevel;
+
+    // 5. 重新划分的平滑阶梯逻辑
+    if (score <= 2) {
+        // 分数极低 (0-2分)：绝对的 Weak
+        strengthLabel = 'Weak';
+        width = 33;
+        barClass = 'progress-bar bg-danger rounded-pill';
+        hintText = 'Weak password — add uppercase, numbers, symbols.';
+        currentLevel = 'weak';
+    } 
+    else if (score === 3 || score === 4) {
+        // 中等复杂度 (3-4分)：完美的 Medium 阶梯，进度条停在 66%
+        strengthLabel = 'Medium';
+        width = 66;
+        barClass = 'progress-bar bg-warning rounded-pill';
+        hintText = 'Medium password — add one more security element to reach Strong.';
+        currentLevel = 'medium';
+    } 
+    else if (score === 5) {
+        // 满分 (5分)：终极 Strong，进度条冲满 100%
+        strengthLabel = 'Strong';
+        width = 100;
+        barClass = 'progress-bar bg-success rounded-pill';
+        hintText = 'Strong password — excellent security level.';
+        currentLevel = 'strong';
+    }
+
+    // 6. 亮灯控制逻辑 (根据上面计算出的等级，精准亮起某一个灯)
+    if (currentLevel === 'weak') {
+        weakInd.style.color = 'red';
+        weakInd.style.textShadow = '0 0 8px rgba(239,68,68,0.5)';
+    } else if (currentLevel === 'medium') {
+        mediumInd.style.color = 'orange';
+        mediumInd.style.textShadow = '0 0 10px rgba(245,158,11,0.5)';
+    } else if (currentLevel === 'strong') {
+        strongInd.style.color = 'green';
+        strongInd.style.textShadow = '0 0 10px rgba(16,185,129,0.5)';
+    }
+
+    // 7. 将计算结果渲染到前端页面
+    label.textContent = strengthLabel;
+    bar.style.width = width + '%';
+    bar.className = barClass;
+    hint.textContent = hintText;
+}
+
+// 绑定事件
+document.getElementById('newPassInput').addEventListener('input', updatePasswordStrength);
+updatePasswordStrength();
+
+    setSecurityFormState(passwordVerified);
 
     function setupWalletPIN() {
         Swal.fire({
