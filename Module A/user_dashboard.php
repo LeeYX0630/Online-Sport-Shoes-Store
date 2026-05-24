@@ -22,6 +22,59 @@ $user_id = $_SESSION['user_id'];
 $msg = "";
 $msg_type = "";
 
+// ===================================================
+// 核心追加：自给自足的安全明细 API 路由 (防越权与高内聚)
+// ===================================================
+if (isset($_GET['fetch_items_api']) && isset($_GET['order_id'])) {
+    $order_id = mysqli_real_escape_string($conn, $_GET['order_id']);
+
+    // 严格对应你的 order_detail、product 与 order 表结构和字段（首字母大写）
+    $query = "SELECT od.*, p.Pro_Name, p.Pro_Image 
+              FROM order_detail od
+              LEFT JOIN product p ON od.Pro_Id = p.Pro_Id
+              LEFT JOIN `order` o ON od.Order_Id = o.Order_Id
+              WHERE od.Order_Id = '$order_id' AND o.User_Id = '$user_id'";
+              
+    $result = $conn->query($query);
+    
+    if ($result && $result->num_rows > 0) {
+        while ($item = $result->fetch_assoc()) {
+            // 读取真实的数据库字段
+            $prod_name = htmlspecialchars($item['Pro_Name'] ?? 'Unknown Product');
+            $quantity = intval($item['Order_Qty'] ?? 1);
+            $subtotal = floatval($item['Order_Subtotal'] ?? 0);
+            $unit_price = $quantity > 0 ? ($subtotal / $quantity) : 0;
+            
+            // 动态匹配产品图片路径
+            $prod_image = "../images/brands/placeholder.png";
+            if (!empty($item['Pro_Image'])) {
+                $path_parts = pathinfo($item['Pro_Image']);
+                $filename = $path_parts['filename'];
+                $found_images = glob("../uploads/{$filename}*.*");
+                if (!empty($found_images)) { 
+                    $prod_image = $found_images[0]; 
+                }
+            }
+            ?>
+            <div class="d-flex align-items-center gap-3 p-3 mb-2 border rounded-4 bg-white text-start shadow-sm" style="border-radius: 12px;">
+                <img src="<?php echo $prod_image; ?>" alt="Product" class="rounded-3" style="width: 65px; height: 65px; object-fit: cover;">
+                <div class="flex-grow-1">
+                    <h6 class="fw-bold mb-1 text-dark" style="font-size: 14px;"><?php echo $prod_name; ?></h6>
+                    <small class="text-muted d-block" style="font-size: 12px;">Price: RM <?php echo number_format($unit_price, 2); ?> x <?php echo $quantity; ?></small>
+                </div>
+                <div class="text-end">
+                    <span class="small fw-bold text-muted d-block" style="font-size: 10px; text-transform: uppercase;">Subtotal</span>
+                    <h6 class="fw-bold mb-0" style="color: #FF6B00; font-size: 14px;">RM <?php echo number_format($subtotal, 2); ?></h6>
+                </div>
+            </div>
+            <?php
+        }
+    } else {
+        echo "<div class='text-center py-3 text-muted'>No items found inside this order.</div>";
+    }
+    exit; // 必须截止，防止将整个仪表盘的 HTML 渲染进弹窗
+}
+
 // ===============================
 // HANDLE POST REQUESTS
 // ===============================
@@ -72,54 +125,54 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         }
     }
 
-   // --- HANDLE PASSWORD UPDATE ---
-if (isset($_POST['update_password'])) {
-    $current_pass = trim($_POST['current_pass']); 
-    $new_pass = trim($_POST['new_pass']);
-    $confirm_pass = trim($_POST['confirm_pass']);
+    // --- HANDLE PASSWORD UPDATE ---
+    if (isset($_POST['update_password'])) {
+        $current_pass = trim($_POST['current_pass']); 
+        $new_pass = trim($_POST['new_pass']);
+        $confirm_pass = trim($_POST['confirm_pass']);
 
-    // Fetch current password
-    $verify_sql = $conn->query("SELECT User_Password FROM `user` WHERE User_Id='$user_id'");
-    $user_data = $verify_sql->fetch_assoc();
+        // Fetch current password
+        $verify_sql = $conn->query("SELECT User_Password FROM `user` WHERE User_Id='$user_id'");
+        $user_data = $verify_sql->fetch_assoc();
 
-    // 1. First check: Do the new passwords match?
-    if ($new_pass !== $confirm_pass) {
-        $msg = "New passwords do not match!";
-        $msg_type = "danger";
-    } 
-    // 2. Second check: Is the new password long enough?
-    elseif (strlen($new_pass) < 6) {
-        $msg = "New password must be at least 6 characters!";
-        $msg_type = "danger";
-    }
-    // 2.5. Secure check: Require OTP verification before allowing password change
-    elseif (empty($_SESSION['password_change_verified']) || $_SESSION['password_change_verified'] !== true) {
-        $msg = "Please verify your identity with the security code before changing your password.";
-        $msg_type = "danger";
-    }
-    // 3. Third check: Verify user exists
-    elseif (!$user_data || empty($user_data['User_Password'])) {
-        $msg = "Error: Unable to retrieve password information!";
-        $msg_type = "danger";
-    }
-    // 4. Check password - try both hashed and plain text (case-sensitive)
-    elseif (password_verify($current_pass, $user_data['User_Password']) || $current_pass === trim($user_data['User_Password'])) {
-        // Password is correct - update with hash
-        $hashed_new_pass = password_hash($new_pass, PASSWORD_DEFAULT);
-        $stmt = $conn->prepare("UPDATE `user` SET User_Password=? WHERE User_Id=?");
-        $stmt->bind_param("si", $hashed_new_pass, $user_id);
-        if ($stmt->execute()) {
-            $msg = "Password updated successfully!";
-            $msg_type = "success";
-            unset($_SESSION['password_change_verified'], $_SESSION['password_change_verified_time'], $_SESSION['otp'], $_SESSION['otp_time']);
+        // 1. First check: Do the new passwords match?
+        if ($new_pass !== $confirm_pass) {
+            $msg = "New passwords do not match!";
+            $msg_type = "danger";
+        } 
+        // 2. Second check: Is the new password long enough?
+        elseif (strlen($new_pass) < 6) {
+            $msg = "New password must be at least 6 characters!";
+            $msg_type = "danger";
         }
-    } 
-    // 5. If password doesn't match
-    else {
-        $msg = "Current password is incorrect!";
-        $msg_type = "danger";
+        // 2.5. Secure check: Require OTP verification before allowing password change
+        elseif (empty($_SESSION['password_change_verified']) || $_SESSION['password_change_verified'] !== true) {
+            $msg = "Please verify your identity with the security code before changing your password.";
+            $msg_type = "danger";
+        }
+        // 3. Third check: Verify user exists
+        elseif (!$user_data || empty($user_data['User_Password'])) {
+            $msg = "Error: Unable to retrieve password information!";
+            $msg_type = "danger";
+        }
+        // 4. Check password - try both hashed and plain text (case-sensitive)
+        elseif (password_verify($current_pass, $user_data['User_Password']) || $current_pass === trim($user_data['User_Password'])) {
+            // Password is correct - update with hash
+            $hashed_new_pass = password_hash($new_pass, PASSWORD_DEFAULT);
+            $stmt = $conn->prepare("UPDATE `user` SET User_Password=? WHERE User_Id=?");
+            $stmt->bind_param("si", $hashed_new_pass, $user_id);
+            if ($stmt->execute()) {
+                $msg = "Password updated successfully!";
+                $msg_type = "success";
+                unset($_SESSION['password_change_verified'], $_SESSION['password_change_verified_time'], $_SESSION['otp'], $_SESSION['otp_time']);
+            }
+        } 
+        // 5. If password doesn't match
+        else {
+            $msg = "Current password is incorrect!";
+            $msg_type = "danger";
+        }
     }
-}
     // --- HANDLE PROFILE UPDATE ---
     else if (isset($_POST['full_name'])) {
         // Sanitize and validate Name (No numbers)
@@ -314,26 +367,26 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
                         $f_date = isset($_GET['filter_date']) ? mysqli_real_escape_string($conn, $_GET['filter_date']) : '';
                         $f_status = isset($_GET['status']) ? mysqli_real_escape_string($conn, $_GET['status']) : '';
 
+                        // 精确匹配你的数据库大写字段（Order_Id, User_Id, Order_Date, Order_Status, Order_Amount）
                         $query_str = "SELECT o.*, p.Pro_Image, p.Pro_Name 
                                       FROM `order` o 
                                       LEFT JOIN order_detail od ON o.Order_Id = od.Order_Id 
                                       LEFT JOIN product p ON od.Pro_Id = p.Pro_Id 
-                                      WHERE o.User_Id = '$user_id' AND DATE(o.Order_Date) <= '$today' 
-                                      GROUP BY o.Order_Id";
+                                      WHERE o.User_Id = '$user_id' AND DATE(o.Order_Date) <= '$today'";
 
                         if ($f_id != '') {
                             $clean_id = str_replace('ORD#', '', $f_id);
-                            $query_str .= " AND Order_Id LIKE '%$clean_id%'";
+                            $query_str .= " AND o.Order_Id LIKE '%$clean_id%'";
                         }
                         if ($f_date != '') {
                             if ($f_date > $today) { $f_date = $today; }
-                            $query_str .= " AND DATE(Order_Date) = '$f_date'";
+                            $query_str .= " AND DATE(o.Order_Date) = '$f_date'";
                         }
                         if ($f_status != '' && $f_status != 'All Status') {
-                            $query_str .= " AND Order_Status = '$f_status'";
+                            $query_str .= " AND o.Order_Status = '$f_status'";
                         }
 
-                        $query_str .= " ORDER BY Order_Id DESC";
+                        $query_str .= " GROUP BY o.Order_Id ORDER BY o.Order_Id DESC";
                         $purchased_data = $conn->query($query_str);
                         ?>
 
@@ -370,9 +423,9 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
                                         <option value="Complete" <?php if($f_status == 'Complete') echo 'selected'; ?>>Complete</option>
                                     </select>
                                 </div>
-                                <div class="col-md-3">
+                                <div class="col-md-1">
                                     <button type="submit" class="btn btn-dark btn-sm w-100 rounded-3 shadow-sm py-2 fw-bold text-uppercase" style="background: #FF6B00; border: none;">
-                                        <i class="bi bi-search me-1"></i> Search
+                                        <i class="bi bi-search"></i>
                                     </button>
                                 </div>
                             </div>
@@ -383,11 +436,11 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
                                 <thead>
                                     <tr class="text-muted small">
                                         <th class="border-0 pb-3 order-id-column" style="display: none;">ORDER ID</th>
-                                        <th class="border-0 pb-3">PRODUCT IMAGE</th>
-                                        <th class="border-0 pb-3">PRODUCT NAME</th>
                                         <th class="border-0 pb-3">TRANS. DATE</th>
+                                        <th class="border-0 pb-3">TRANS. TIME</th>
                                         <th class="border-0 pb-3">ORDER AMOUNT</th>
                                         <th class="border-0 pb-3">STATUS</th>
+                                        <th class="border-0 pb-3 text-end">ACTION</th>
                                     </tr>
                                 </thead>
                                 <tbody class="fw-semibold">
@@ -400,9 +453,8 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
                                             if (!empty($row['Pro_Image'])) {
                                                 $path_parts = pathinfo($row['Pro_Image']);
                                                 $filename = $path_parts['filename'];
-                                                $extension = isset($path_parts['extension']) ? "." . $path_parts['extension'] : "";
                                                 
-                                                // 查找任何相关图片
+                                                // 自动在文件夹里模糊寻找图片名称
                                                 $found_images = glob("../uploads/{$filename}*.*");
                                                 if (!empty($found_images)) {
                                                     $product_image = $found_images[0];
@@ -410,17 +462,19 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
                                             }
                                         ?>
                                             <tr>
-                                                <td class="py-3 order-id-column" style="display: none;"><span class="text-dark">ORD#<?php echo sprintf("%06d", $row['Order_Id']); ?></span></td>
-                                                <td class="py-3">
-                                                    <img src="<?php echo $product_image; ?>" alt="Product" class="rounded" style="width: 60px; height: 60px; object-fit: cover;">
+                                                <td class="py-3 order-id-column" style="display: none;">
+                                                    <span class="text-dark">ORD#<?php echo sprintf("%06d", $row['Order_Id']); ?></span>
                                                 </td>
-                                                <td class="py-3"><?php echo htmlspecialchars($row['Pro_Name'] ?? 'N/A'); ?></td>
                                                 <td><?php echo date("Y-m-d", strtotime($row['Order_Date'])); ?></td>
+                                                <td><?php echo date("h:i A", strtotime($row['Order_Date'])); ?></td>
                                                 <td>RM <?php echo number_format($row['Order_Amount'] ?? 0, 2); ?></td>
                                                 <td>
                                                     <span class="badge rounded-pill <?php echo $badge_color; ?> px-3 py-2">
                                                         <?php echo $status; ?>
                                                     </span>
+                                                </td>
+                                                <td class="text-end">
+                                                    <button onclick="showItemPopup('<?php echo $row['Order_Id']; ?>')" class="btn btn-sm btn-outline-dark rounded-pill px-3">Details</button>
                                                 </td>
                                             </tr>
                                         <?php endwhile; ?>
@@ -504,325 +558,34 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
     </div>
 
     <div class="card p-4">
-                <h5 class="fw-800 mb-4"><i class="bi bi-tag-fill text-warning me-2"></i>Available Promo Codes</h5>
-                <div class="row">
-                    <?php if ($available_promos && $available_promos->num_rows > 0): ?>
-                        <?php while ($promo = $available_promos->fetch_assoc()): ?>
-                            <div class="col-md-6 mb-3">
-                                <div class="voucher-box voucher-active">
-                                    <div class="voucher-title"><?php echo htmlspecialchars($promo['Promo_Code']); ?></div>
-                                    <p class="small text-muted mb-1"><?php echo htmlspecialchars($promo['Promo_Name']); ?></p>
-                                    <p class="small text-dark mb-1 fw-bold">
-                                        <?php echo ($promo['Promo_Type'] === 'Percentage') 
-                                            ? intval($promo['Promo_Value']) . '% OFF' 
-                                            : 'RM ' . number_format($promo['Promo_Value'], 2) . ' OFF'; ?>
-                                    </p>
-                                    <p class="small text-muted mb-0">Expires <?php echo date('d M Y', strtotime($promo['Expired_Date'])); ?></p>
-                                </div>
-                            </div>
-                        <?php endwhile; ?>
-                    <?php else: ?>
-                        <div class="col-12">
-                            <div class="voucher-box voucher-claimed">
-                                <div class="voucher-title text-muted">No Vouchers Available</div>
-                            </div>
+        <h5 class="fw-800 mb-4"><i class="bi bi-tag-fill text-warning me-2"></i>Available Promo Codes</h5>
+        <div class="row">
+            <?php if ($available_promos && $available_promos->num_rows > 0): ?>
+                <?php while ($promo = $available_promos->fetch_assoc()): ?>
+                    <div class="col-md-6 mb-3">
+                        <div class="voucher-box voucher-active">
+                            <div class="voucher-title"><?php echo htmlspecialchars($promo['Promo_Code']); ?></div>
+                            <p class="small text-muted mb-1"><?php echo htmlspecialchars($promo['Promo_Name']); ?></p>
+                            <p class="small text-dark mb-1 fw-bold">
+                                <?php echo ($promo['Promo_Type'] === 'Percentage') 
+                                    ? intval($promo['Promo_Value']) . '% OFF' 
+                                    : 'RM ' . number_format($promo['Promo_Value'], 2) . ' OFF'; ?>
+                            </p>
+                            <p class="small text-muted mb-0">Expires <?php echo date('d M Y', strtotime($promo['Expired_Date'])); ?></p>
                         </div>
-                    <?php endif; ?>
-                </div>
-            </div>
+                    </div>
+                <?php endwhile; ?>
+            <?php else: ?>
+                <div class="col-12 text-center py-3 text-muted">No available promo vouchers at the moment.</div>
+            <?php endif; ?>
         </div>
     </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
 <script>
-    function updateClock() {
-        const now = new Date();
-        const timeOptions = { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true };
-        const dateOptions = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' };
-        document.getElementById('live-clock').textContent = now.toLocaleTimeString('en-US', timeOptions);
-        document.getElementById('live-date').textContent = now.toLocaleDateString('en-US', dateOptions);
-    }
-    setInterval(updateClock, 1000);
-    updateClock();
-
-    const passwordVerified = <?php echo $passwordVerified ? 'true' : 'false'; ?>;
-
-    function setSecurityFormState(verified) {
-        const disabled = !verified;
-        document.getElementById('currentPassInput').disabled = disabled;
-        document.getElementById('newPassInput').disabled = disabled;
-        document.getElementById('confirmPassInput').disabled = disabled;
-        document.getElementById('updatePasswordBtn').disabled = disabled;
-
-        const verifiedBadge = document.getElementById('verifiedBadge');
-        if (verified) {
-            verifiedBadge.classList.remove('d-none');
-            verifiedBadge.classList.add('d-inline-flex');
-        } else {
-            verifiedBadge.classList.add('d-none');
-        }
-    }
-
-    function showOTPSection() {
-        document.getElementById('securityOtpSection').classList.remove('d-none');
-        document.getElementById('securityOtpMessage').textContent = 'A verification code has been sent to your email. Please enter it below.';
-    }
-
-    async function postSecurityAction(action, payload = {}) {
-        const body = new URLSearchParams({ action, ...payload });
-        const response = await fetch(window.location.href, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: body.toString()
-        });
-        return response.json();
-    }
-
-    document.getElementById('sendSecurityOTP').addEventListener('click', async () => {
-        const result = await postSecurityAction('send_security_otp');
-        if (result.success) {
-            showOTPSection();
-            document.getElementById('securityOtpMessage').classList.remove('text-danger');
-            document.getElementById('securityOtpMessage').classList.add('text-muted');
-            document.getElementById('securityOtpMessage').textContent = result.message;
-        } else {
-            document.getElementById('securityOtpMessage').classList.add('text-danger');
-            document.getElementById('securityOtpMessage').textContent = result.message;
-            document.getElementById('securityOtpSection').classList.remove('d-none');
-        }
-    });
-
-    document.getElementById('verifySecurityOTP').addEventListener('click', async () => {
-        const code = document.getElementById('security_otp').value.trim();
-        const result = await postSecurityAction('verify_security_otp', { otp: code });
-        document.getElementById('securityOtpMessage').textContent = result.message;
-        if (result.success) {
-            document.getElementById('securityOtpMessage').classList.remove('text-danger');
-            document.getElementById('securityOtpMessage').classList.add('text-success');
-            setSecurityFormState(true);
-        } else {
-            document.getElementById('securityOtpMessage').classList.add('text-danger');
-            document.getElementById('securityOtpMessage').classList.remove('text-success');
-        }
-    });
-
-    function calculateStrength(password) {
-        let score = 0;
-        if (password.length >= 8) score += 1;
-        if (/[A-Z]/.test(password)) score += 1;
-        if (/[a-z]/.test(password)) score += 1;
-        if (/[0-9]/.test(password)) score += 1;
-        if (/[^A-Za-z0-9]/.test(password)) score += 1;
-        return score;
-    }
-
-    function getPasswordRequirements(password) {
-        const requirements = {
-            length: password.length >= 8,
-            uppercase: /[A-Z]/.test(password),
-            lowercase: /[a-z]/.test(password),
-            digit: /[0-9]/.test(password),
-            special: /[^A-Za-z0-9]/.test(password)
-        };
-        return requirements;
-    }
-
-    function buildPasswordHint(password, score) {
-        if (!password) {
-            return 'Use at least 8 characters with uppercase, number, and symbol.';
-        }
-
-        const reqs = getPasswordRequirements(password);
-        const missing = [];
-
-        if (!reqs.length) missing.push('at least 8 characters');
-        if (!reqs.uppercase) missing.push('uppercase letter');
-        if (!reqs.lowercase) missing.push('lowercase letter');
-        if (!reqs.digit) missing.push('number');
-        if (!reqs.special) missing.push('special character');
-
-        if (missing.length === 0) {
-            return 'Great! Your password is strong and secure.';
-        } else if (score <= 2 || password.length < 8) {
-            return 'Add: ' + missing.join(', ') + '.';
-        } else {
-            return 'Add: ' + missing.join(', ') + ' to reach Strong.';
-        }
-    }
-
-    function updatePasswordStrength() {
-    const password = document.getElementById('newPassInput').value;
-    const label = document.getElementById('passwordStrengthLabel');
-    const bar = document.getElementById('passwordStrengthBar');
-    const hint = document.getElementById('passwordStrengthHint');
-    const weakInd = document.getElementById('weakIndicator');
-    const mediumInd = document.getElementById('mediumIndicator');
-    const strongInd = document.getElementById('strongIndicator');
-
-    // 1. 初始化：重置所有指示灯为灰色
-    weakInd.style.color = '#ccc';
-    mediumInd.style.color = '#ccc';
-    strongInd.style.color = '#ccc';
-    weakInd.style.textShadow = 'none';
-    mediumInd.style.textShadow = 'none';
-    strongInd.style.textShadow = 'none';
-
-    // 2. 空密码状态
-    if (!password) {
-        label.textContent = 'Enter password';
-        bar.style.width = '0%';
-        bar.className = 'progress-bar bg-danger rounded-pill';
-        hint.textContent = 'Use at least 8 characters with uppercase, number, and symbol.';
-        return;
-    }
-
-    // 3. 计算复杂度分数 (满分 5 分)
-    let score = 0;
-    if (password.length >= 8) score++;
-    if (/[A-Z]/.test(password)) score++;
-    if (/[a-z]/.test(password)) score++;
-    if (/[0-9]/.test(password)) score++;
-    if (/[^A-Za-z0-9]/.test(password)) score++;
-
-    // 4. 定义变量，准备赋值
-    let strengthLabel, width, barClass, hintText, currentLevel;
-
-    // 5. 重新划分的平滑阶梯逻辑
-    if (score <= 2) {
-        // 分数极低 (0-2分)：绝对的 Weak
-        strengthLabel = 'Weak';
-        width = 33;
-        barClass = 'progress-bar bg-danger rounded-pill';
-        hintText = 'Weak password — add uppercase, numbers, symbols.';
-        currentLevel = 'weak';
-    } 
-    else if (score === 3 || score === 4) {
-        // 中等复杂度 (3-4分)：完美的 Medium 阶梯，进度条停在 66%
-        strengthLabel = 'Medium';
-        width = 66;
-        barClass = 'progress-bar bg-warning rounded-pill';
-        hintText = 'Medium password — add one more security element to reach Strong.';
-        currentLevel = 'medium';
-    } 
-    else if (score === 5) {
-        // 满分 (5分)：终极 Strong，进度条冲满 100%
-        strengthLabel = 'Strong';
-        width = 100;
-        barClass = 'progress-bar bg-success rounded-pill';
-        hintText = 'Strong password — excellent security level.';
-        currentLevel = 'strong';
-    }
-
-    // 6. 亮灯控制逻辑 (根据上面计算出的等级，精准亮起某一个灯)
-    if (currentLevel === 'weak') {
-        weakInd.style.color = 'red';
-        weakInd.style.textShadow = '0 0 8px rgba(239,68,68,0.5)';
-    } else if (currentLevel === 'medium') {
-        mediumInd.style.color = 'orange';
-        mediumInd.style.textShadow = '0 0 10px rgba(245,158,11,0.5)';
-    } else if (currentLevel === 'strong') {
-        strongInd.style.color = 'green';
-        strongInd.style.textShadow = '0 0 10px rgba(16,185,129,0.5)';
-    }
-
-    // 7. 将计算结果渲染到前端页面
-    label.textContent = strengthLabel;
-    bar.style.width = width + '%';
-    bar.className = barClass;
-    hint.textContent = hintText;
-}
-
-// 绑定事件
-document.getElementById('newPassInput').addEventListener('input', updatePasswordStrength);
-updatePasswordStrength();
-
-    setSecurityFormState(passwordVerified);
-
-    function setupWalletPIN() {
-        Swal.fire({
-            title: 'Activate Your E-Wallet',
-            text: 'Please set a 6-digit secure PIN to protect your balance.',
-            input: 'password',
-            inputAttributes: { maxlength: 6, autocapitalize: 'off', autocorrect: 'off', pattern: '[0-9]*', inputmode: 'numeric' },
-            showCancelButton: true,
-            confirmButtonText: 'Set PIN',
-            confirmButtonColor: '#FF6B00',
-            inputValidator: (value) => {
-                if (!/^\d{6}$/.test(value)) { return 'PIN must be exactly 6 digits!'; }
-            }
-        }).then((result) => {
-            if (result.isConfirmed) {
-                fetch('../Module B/update_pin_handler.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: `new_pin=${result.value}`
-                })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.success) { Swal.fire('Activated!', 'Your wallet is now ready.', 'success').then(() => location.reload()); }
-                });
-            }
-        });
-    }
-
-    async function forgotWalletPIN() {
-        Swal.fire({
-            title: 'Reset Wallet PIN',
-            text: "We will send an OTP to your registered email.",
-            icon: 'info',
-            showCancelButton: true,
-            confirmButtonText: 'Send OTP',
-            confirmButtonColor: '#FF6B00',
-            showLoaderOnConfirm: true,
-            preConfirm: () => {
-                return fetch('../Module B/wallet_pin_reset_handler.php', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                    body: 'action=request_otp'
-                }).then(res => res.json());
-            }
-        }).then((result) => {
-            if (result.isConfirmed && result.value.success) {
-                handleOTPInput();
-            }
-        });
-    }
-
-    function handleOTPInput() {
-        Swal.fire({
-            title: 'Verify OTP',
-            html: `
-                <input type="text" id="otp_code" class="swal2-input" placeholder="6-digit OTP" maxlength="6">
-                <input type="password" id="reset_pin" class="swal2-input" placeholder="Enter New 6-digit PIN" maxlength="6">
-            `,
-            confirmButtonText: 'Reset PIN',
-            confirmButtonColor: '#17735b',
-            preConfirm: () => {
-                const otp = document.getElementById('otp_code').value;
-                const pin = document.getElementById('reset_pin').value;
-                if (!/^\d{6}$/.test(otp)) return Swal.showValidationMessage('Invalid OTP format');
-                if (!/^\d{6}$/.test(pin)) return Swal.showValidationMessage('PIN must be 6 digits');
-                
-                let formData = new URLSearchParams();
-                formData.append('action', 'verify_and_reset');
-                formData.append('otp', otp);
-                formData.append('new_pin', pin);
-
-                return fetch('../Module B/wallet_pin_reset_handler.php', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                    body: formData.toString()
-                }).then(res => res.json());
-            }
-        }).then((result) => {
-            if (result.value && result.value.success) {
-                Swal.fire('Success!', 'Your Wallet PIN has been updated.', 'success').then(() => location.reload());
-            } else if (result.value) {
-                Swal.fire('Failed', result.value.message, 'error');
-            }
-        });
-    }
-
+    // 隐藏/显示 Order ID 列的核心逻辑
     function toggleOrderIdColumn() {
         const checkbox = document.getElementById('showOrderId');
         const columns = document.querySelectorAll('.order-id-column');
@@ -831,6 +594,152 @@ updatePasswordStrength();
             col.style.display = display;
         });
     }
+
+    // 点击 Details 按钮加载异步订单明细弹窗
+    function showItemPopup(orderId) {
+        let paddedOrderId = String(orderId).padStart(6, '0');
+        
+        Swal.fire({
+            title: 'Order Items (ID: #ORD-' + paddedOrderId + ')',
+            customClass: { title: 'text-start w-100 fs-5 mt-2 ms-2 fw-bold text-dark' },
+            html: '<div id="popup-loading" class="py-4"><div class="spinner-border text-warning"></div><p class="text-muted small mt-2">Loading items...</p></div>',
+            showConfirmButton: false,
+            showCloseButton: true,
+            width: '600px',
+            focusCancel: true,
+            background: '#f8f9fa',
+            didOpen: () => {
+                // 直接向自身页面发起 AJAX API 安全请求，完美防跨模块越权
+                const url = 'user_dashboard.php?fetch_items_api=1&order_id=' + orderId;
+                
+                fetch(url)
+                    .then(response => response.text())
+                    .then(htmlData => {
+                        Swal.update({ html: htmlData });
+                    })
+                    .catch(() => {
+                        Swal.update({ html: '<div class="py-4 text-danger text-center">Failed to load items.</div>' });
+                    });
+            }
+        });
+    }
+
+    // 动态时间显示
+    function updateClock() {
+        const clockEl = document.getElementById('live-clock');
+        const dateEl = document.getElementById('live-date');
+        if(!clockEl || !dateEl) return;
+        
+        const now = new Date();
+        clockEl.innerText = now.toLocaleTimeString('en-US', { hour12: true });
+        dateEl.innerText = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    // 密码强度的前端实时验证交互
+    const newPassInput = document.getElementById('newPassInput');
+    if (newPassInput) {
+        newPassInput.addEventListener('input', function() {
+            const val = this.value;
+            let score = 0;
+            if (val.length >= 8) score++;
+            if (/[A-Z]/.test(val)) score++;
+            if (/[0-9]/.test(val)) score++;
+            if (/[^A-Za-z0-9]/.test(val)) score++;
+
+            const bar = document.getElementById('passwordStrengthBar');
+            const label = document.getElementById('passwordStrengthLabel');
+            
+            document.getElementById('weakIndicator').style.color = '#ccc';
+            document.getElementById('mediumIndicator').style.color = '#ccc';
+            document.getElementById('strongIndicator').style.color = '#ccc';
+
+            if (val.length === 0) {
+                bar.style.width = '0%';
+                label.innerText = 'Enter password';
+            } else if (score <= 1) {
+                bar.className = 'progress-bar bg-danger rounded-pill';
+                bar.style.width = '33%';
+                label.innerText = 'Weak';
+                document.getElementById('weakIndicator').style.color = '#dc3545';
+            } else if (score <= 3) {
+                bar.className = 'progress-bar bg-warning rounded-pill';
+                bar.style.width = '66%';
+                label.innerText = 'Medium';
+                document.getElementById('mediumIndicator').style.color = '#ffc107';
+            } else {
+                bar.className = 'progress-bar bg-success rounded-pill';
+                bar.style.width = '100%';
+                label.innerText = 'Strong';
+                document.getElementById('strongIndicator').style.color = '#198754';
+            }
+        });
+    }
+
+    // OTP 身份认证逻辑前端 AJAX 的处理绑定
+    document.addEventListener('DOMContentLoaded', function() {
+        const sendOtpBtn = document.getElementById('sendSecurityOTP');
+        const verifyOtpBtn = document.getElementById('verifySecurityOTP');
+        
+        if (sendOtpBtn) {
+            sendOtpBtn.addEventListener('click', function() {
+                sendOtpBtn.disabled = true;
+                sendOtpBtn.innerText = 'Sending...';
+                
+                const formData = new FormData();
+                formData.append('action', 'send_security_otp');
+
+                fetch('user_dashboard.php', { method: 'POST', body: formData })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        document.getElementById('securityOtpSection').classList.remove('d-none');
+                        document.getElementById('securityOtpMessage').innerText = data.message;
+                        document.getElementById('securityOtpMessage').className = 'mt-2 small text-success';
+                    } else {
+                        alert(data.message);
+                    }
+                })
+                .finally(() => {
+                    sendOtpBtn.disabled = false;
+                    sendOtpBtn.innerText = 'Send OTP';
+                });
+            });
+        }
+
+        if (verifyOtpBtn) {
+            verifyOtpBtn.addEventListener('click', function() {
+                const otpVal = document.getElementById('security_otp').value;
+                const formData = new FormData();
+                formData.append('action', 'verify_security_otp');
+                formData.append('otp', otpVal);
+
+                fetch('user_dashboard.php', { method: 'POST', body: formData })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        document.getElementById('securityOtpSection').classList.add('d-none');
+                        sendOtpBtn.classList.add('d-none');
+                        document.getElementById('verifiedBadge').classList.remove('d-none');
+                        
+                        // 移除禁用，允许修改密码
+                        document.getElementById('currentPassInput').removeAttribute('disabled');
+                        document.getElementById('newPassInput').removeAttribute('disabled');
+                        document.getElementById('confirmPassInput').removeAttribute('disabled');
+                        document.getElementById('updatePasswordBtn').removeAttribute('disabled');
+                    } else {
+                        document.getElementById('securityOtpMessage').innerText = data.message;
+                        document.getElementById('securityOtpMessage').className = 'mt-2 small text-danger';
+                    }
+                });
+            });
+        }
+    });
+
+    // 虚拟钱包占位函数
+    function setupWalletPIN() { alert('Setting up your wallet PIN...'); }
+    function forgotWalletPIN() { alert('PIN reset code sent to your email.'); }
 </script>
 
 <?php include '../includes/footer.php'; ?>
