@@ -315,10 +315,10 @@ $color_names = [
                     <i class="bi bi-bezier2"></i> Live Preview
                 </button>
                 <div class="preview-menu" id="previewSceneMenu">
+                    <button type="button" class="preview-menu-btn active" id="btn-scene-default" onclick="applyScene('default', this)">👟 3D Shoe (Studio)</button>
                     <button type="button" class="preview-menu-btn" onclick="applyScene('park', this)">🌳 Park Scene</button>
                     <button type="button" class="preview-menu-btn" onclick="applyScene('gym', this)">🏋️ Gym Room</button>
                     <button type="button" class="preview-menu-btn" onclick="applyScene('city', this)">🏙️ City Street</button>
-                    <button type="button" class="preview-menu-btn exit-btn" onclick="exitScenePreview(this)">❌ Exit Preview</button>
                 </div>
             </div>
         </div>
@@ -579,16 +579,16 @@ function updateTotalPriceUI() {
         });
     }, { once: true });
 
-    // ... 你原有的 JavaScript 函数保持不变 (applySavedColors, changeStep, etc.) ...
 async function applySavedColors() {
-    if (!viewer.model) return;
+    // 【实时重定向修复】：永远从当前 DOM 活动的最新节点提取多边形模型
+    const activeViewer = document.querySelector('#shoe-viewer');
+    if (!activeViewer || !activeViewer.model) return;
     const promises = [];
     
     Object.keys(currentSelections).forEach(part => {
         const set = currentSelections[part];
         
-        // 【核心修复 1】：必须加上 m.name 存在性校验！过滤掉无名材质，防止 toLowerCase() 报致命错误导致页面锁死变白
-        const mats = viewer.model.materials.filter(m => 
+        const mats = activeViewer.model.materials.filter(m => 
             m.name && m.name.toLowerCase().includes(part.toLowerCase())
         );
         
@@ -980,9 +980,14 @@ window.addEventListener('load', () => {
     setTimeout(startTutorial, 1000); 
 });
 
-// --- 独立封装：全新 3D 模特动作场景快显引擎 ---
+// =================================================================
+// 【统一封装】：全新 3D 模特场景与摄影棚自由切换引擎（已加固防死锁）
+// =================================================================
 let backupModelSrc = "";
 let isScenePreviewing = false;
+let isDraggingModel = false;
+let previousMouseX = 0;
+let modelRotationY = 0;
 
 function togglePreviewMenu(event) {
     event.stopPropagation();
@@ -991,143 +996,173 @@ function togglePreviewMenu(event) {
     menu.style.display = (menu.style.display === 'flex') ? 'none' : 'flex';
 }
 
-// ==========================================
-// 新增：专用于控制人体模型原地自转的全局变量
-// ==========================================
-let isDraggingModel = false;
-let previousMouseX = 0;
-let modelRotationY = 0; // 记录模型 Y 轴的自转角度
-
-// --- 升级后修复消失死锁的场景切换函数 ---
+// =================================================================
+// 【终极防丢失重构】：多场景无缝自由流转引擎（100% 锁定用户色彩配置）
+// =================================================================
 async function applyScene(sceneType, el) {
-    const modelViewer = document.querySelector('#shoe-viewer');
-    if (!modelViewer) return;
+    const viewerBox = document.getElementById('viewer-box');
+    let modelViewer = document.querySelector('#shoe-viewer');
+    if (!viewerBox || !modelViewer) return;
 
-    // 1. 切换按钮活跃高亮状态
+    // 1. 更新菜单内按钮的高亮视觉状态
     document.querySelectorAll('.preview-menu-btn').forEach(btn => btn.classList.remove('active'));
     if (el) el.classList.add('active');
 
-    const envMapPath = `../includes/models/environments/${sceneType}.jpg`;
+    // ==========================================
+    // 情况 A：用户点击回归初始的 "3D Shoe (Studio)"
+    // ==========================================
+    if (sceneType === 'default') {
+        if (!isScenePreviewing) return; // 如果已经是初始鞋子，不做任何操作
 
-    // 【核心修复】：如果当前已经在预览模式（模型已经加载过），直接无缝更换场景贴图并退出
-    // 这样可以避免重复设置相同的 src，防止不触发 load 事件造成的全黑/消失死锁
-    if (isScenePreviewing) {
-        modelViewer.setAttribute('skybox-image', envMapPath);
-        modelViewer.setAttribute('environment-image', envMapPath);
-        
-        // 瞬间移除加载中样式，防止因没有 load 事件触发导致鞋子蒸发
-        modelViewer.classList.remove('is-loading');
-        return; 
+        // 激活平滑过渡遮罩并标记状态结束
+        modelViewer.classList.add('is-loading');
+        isScenePreviewing = false;
+        isDraggingModel = false;
+
+        // 确定需要复原的静态鞋子路径
+        const fallbackSrc = backupModelSrc || "../includes/models/pair_spread_shoe1.glb";
+
+        // 物理消灭死锁：暴力销毁带有复杂骨骼的小人模型，彻底回收 WebGL 显存
+        modelViewer.remove();
+
+        // 原地重新搭建纯净、无任何动画残留的初始渲染器
+        const newViewer = document.createElement('model-viewer');
+        newViewer.id = 'shoe-viewer';
+        newViewer.className = 'is-loading';
+        newViewer.setAttribute('camera-controls', '');
+        newViewer.setAttribute('touch-action', 'pan-y');
+        newViewer.setAttribute('shadow-intensity', '2');
+        newViewer.setAttribute('environment-image', 'neutral');
+        newViewer.setAttribute('exposure', '1');
+        newViewer.setAttribute('camera-orbit', '45deg 75deg 105%');
+
+        // 【关键修复点 1】：强行重置页面最顶部可能冲突的所有指针作用域
+        window.viewer = newViewer;
+
+        // 重新为主流元素动态绑定手势点下追踪器
+        newViewer.addEventListener('pointerdown', (e) => {
+            if (!isScenePreviewing) return;
+            isDraggingModel = true;
+            previousMouseX = e.clientX;
+            newViewer.style.cursor = 'grabbing';
+        });
+
+        // 【关键修复点 2】：引入递归材质网格校验引擎，替代不稳定的随机延时
+        const safelyApplyDesign = () => {
+            // 如果底层 WebGL 材质树尚未解析出来，等 30ms 重新检测，直到百分百抓到网格为止
+            if (!newViewer.model || !newViewer.model.materials || newViewer.model.materials.length === 0) {
+                setTimeout(safelyApplyDesign, 30);
+                return;
+            }
+            
+            // 材质完全就绪，开始喷涂用户的设计配置
+            if (typeof applySavedColors === 'function') {
+                applySavedColors(); 
+            }
+            
+            // 材质喷涂完后，给予渲染管线一帧的双重缓冲重绘时间，随后丝滑淡入
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    newViewer.classList.remove('is-loading');
+                });
+            });
+        };
+
+        // 先挂载单次 load 监听，鞋子一就绪立刻还原材质颜色
+        newViewer.addEventListener('load', safelyApplyDesign, { once: true });
+
+        // 将全新干净的鞋子视图装载进网页
+        viewerBox.appendChild(newViewer);
+        newViewer.src = fallbackSrc;
+        return;
     }
 
-    // 2. 首次切入预览模式时的初始化
+    // ==========================================
+    // 情况 B：用户在 Park / Gym / City 等环境间切换
+    // ==========================================
+    const envMapPath = `../includes/models/environments/${sceneType}.jpg`;
+
+    if (isScenePreviewing) {
+        // 如果已经在户外场景，只替换背景和环境光，绝对不重复重载小人 src
+        modelViewer.setAttribute('skybox-image', envMapPath);
+        modelViewer.setAttribute('environment-image', envMapPath);
+        modelViewer.classList.remove('is-loading');
+        return;
+    }
+
+    // 首次从鞋子切入小人跑动场景时的初始化
     modelViewer.classList.add('is-loading');
-    backupModelSrc = modelViewer.src;
+    backupModelSrc = modelViewer.src; // 备份当前鞋子是 SINGLE, SPREAD 还是 STACKED
     isScenePreviewing = true;
 
-    modelViewer.src = "../includes/models/running.glb";
+    modelViewer.src = "../includes/models/running with ss.glb";
     modelViewer.autoplay = true;
-    modelViewer.animationName = 'run'; 
+    modelViewer.animationName = 'run';
 
     // 剥离摄影棚原生镜头控制，改用鼠标捕捉控制人体 Y 轴原地自转
-    modelViewer.removeAttribute('camera-controls'); 
+    modelViewer.removeAttribute('camera-controls');
     modelRotationY = 0;
-    modelViewer.setAttribute('orientation', `0deg 0deg ${modelRotationY}deg`); // 垂直 z 轴水平自转
+    modelViewer.setAttribute('orientation', `0deg 0deg ${modelRotationY}deg`);
     modelViewer.cameraTarget = 'auto';
 
     modelViewer.setAttribute('skybox-image', envMapPath);
     modelViewer.setAttribute('environment-image', envMapPath);
-    modelViewer.cameraOrbit = '45deg 75deg 150%'; 
+    modelViewer.cameraOrbit = '45deg 75deg 150%';
 
-    // 3. 首次加载模型的监听器
-    modelViewer.addEventListener('load', async () => {
-        setTimeout(async () => {
-            if (typeof applySavedColors === 'function') {
-                await applySavedColors(); 
-            }
-            modelViewer.play(); 
-        }, 60);
+    // 首次加载跑动小人模型的异步上色监听器（同样进行双重固化检测）
+    const safelyApplyModelDesign = () => {
+        if (!modelViewer.model || !modelViewer.model.materials || modelViewer.model.materials.length === 0) {
+            setTimeout(safelyApplyModelDesign, 30);
+            return;
+        }
+        if (typeof applySavedColors === 'function') {
+            applySavedColors(); // 给跑步小人脚上的鞋子上色
+        }
+        modelViewer.play();
         
         requestAnimationFrame(() => {
             requestAnimationFrame(() => {
                 modelViewer.classList.remove('is-loading');
             });
         });
-    }, { once: true });
-}
+    };
 
-// --- 升级后的退出预览函数 ---
-function exitScenePreview(el) {
-    const modelViewer = document.querySelector('#shoe-viewer');
-    if (!modelViewer) return;
-
-    document.getElementById('previewSceneMenu').style.display = 'none';
-    document.querySelectorAll('.preview-menu-btn').forEach(btn => btn.classList.remove('active'));
-
-    if (!isScenePreviewing) return;
-    modelViewer.classList.add('is-loading');
-
-    modelViewer.removeAttribute('skybox-image');
-    modelViewer.setAttribute('environment-image', 'neutral');
-    modelViewer.cameraOrbit = '45deg 75deg 105%';
-    modelViewer.autoplay = false;
-    modelViewer.removeAttribute('animation-name');
-
-    // 【核心修复 2】：退出预览时，清除自转角度并重新启动原生的 3D 鞋子展台摄像机旋转控制
-    modelViewer.removeAttribute('orientation'); 
-    modelViewer.setAttribute('camera-controls', ''); 
-    modelViewer.cameraTarget = 'auto';
-
-    modelViewer.src = backupModelSrc || "../includes/models/pair_spread_shoe1.glb";
-    isScenePreviewing = false;
-
-    modelViewer.addEventListener('load', async () => {
-        if (typeof applySavedColors === 'function') {
-            await applySavedColors();
-        }
-        requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-                modelViewer.classList.remove('is-loading');
-            });
-        });
-    }, { once: true });
+    modelViewer.addEventListener('load', safelyApplyModelDesign, { once: true });
 }
 
 // ==========================================
-// 【核心修复 3】：全兼容手势捕捉驱动引擎（支持鼠标与手机触屏）
+// 【全动态代理】：兼容动态重组后的手势捕捉驱动引擎
 // ==========================================
-const modelViewerEl = document.querySelector('#shoe-viewer');
-
-// 鼠标/手指点下时激活捕捉
-modelViewerEl.addEventListener('pointerdown', (e) => {
-    if (!isScenePreviewing) return; // 只有在场景预览模式下才干预
+document.addEventListener('pointerdown', (e) => {
+    const activeViewer = document.querySelector('#shoe-viewer');
+    if (!isScenePreviewing || !activeViewer || e.target !== activeViewer) return;
     isDraggingModel = true;
     previousMouseX = e.clientX;
-    modelViewerEl.style.cursor = 'grabbing';
+    activeViewer.style.cursor = 'grabbing';
 });
 
-// 鼠标/手指滑动时实时转换并计算 3D 偏航角自转数值
 window.addEventListener('pointermove', (e) => {
     if (!isScenePreviewing || !isDraggingModel) return;
     
+    const activeViewer = document.querySelector('#shoe-viewer');
+    if (!activeViewer) return;
+
     const deltaX = e.clientX - previousMouseX;
     previousMouseX = e.clientX;
 
-    // 0.6 为旋转灵敏度系数，可根据个人滑行手感微调
     modelRotationY += deltaX * 0.6; 
-
-    // 【核心修复】：将变量移动到第三个槽位（Z轴），确保鼠标左右拖拽时，人体只做水平原地的陀螺式自转
-    modelViewerEl.setAttribute('orientation', `0deg 0deg ${modelRotationY}deg`);
+    activeViewer.setAttribute('orientation', `0deg 0deg ${modelRotationY}deg`);
 });
-// 鼠标/手指松开或移出屏幕时注销追踪
+
 window.addEventListener('pointerup', () => {
-    if (isScenePreviewing) {
+    const activeViewer = document.querySelector('#shoe-viewer');
+    if (activeViewer) {
         isDraggingModel = false;
-        modelViewerEl.style.cursor = 'grab';
+        if (isScenePreviewing) activeViewer.style.cursor = 'grab';
     }
 });
 
-// 辅助：点击空白处自动收起下拉菜单
+// 辅助：点击空白处自动收起场景选择下拉菜单
 document.addEventListener('click', () => {
     const menu = document.getElementById('previewSceneMenu');
     if (menu) menu.style.display = 'none';

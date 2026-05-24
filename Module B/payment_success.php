@@ -140,7 +140,6 @@ $res_details = $conn->query($sql_details);
                             <img src="<?php echo $display_img; ?>" class="item-img me-3 rounded border" onerror="this.src='../images/placeholder.png'">
                             <div>
                                 <div class="fw-bold"><?php echo htmlspecialchars($item['Pro_Name']); ?></div>
-                                <div class="text-muted small">Item ID: #<?php echo $item['Pro_Id']; ?></div>
                             </div>
                         </div>
                     </td>
