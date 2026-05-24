@@ -1123,35 +1123,117 @@ document.getElementById('rvSlider').addEventListener('wheel', (evt) => {
     slider.scrollLeft += evt.deltaY; // 将垂直滚动的偏移量应用到横向滚动上
 });
 
+// --- 升级版：支持扫码/本地上传双模式的弹窗 ---
 async function openARScanner() {
     const sessionToken = 'SS-' + Math.random().toString(36).substr(2, 9);
     await fetch(`init_bridge.php?token=${sessionToken}`);
 
-const computerIP = "10.83.114.155";
-const folderPath = "Module%20B";
-const mobileURL = `http://${computerIP}/${folderPath}/mobile_capture.php?token=${sessionToken}`;
+    const computerIP = "10.83.114.155";
+    const folderPath = "Module%20B";
+    const mobileURL = `http://${computerIP}/${folderPath}/mobile_capture.php?token=${sessionToken}`;
 
     Swal.fire({
-        title: 'Connect Mobile Camera',
+        title: 'AI Foot Sizer Scanner',
+        width: '650px',
         html: `
-            <div style="padding: 10px;">
-                <p style="font-size: 14px;">Scan this QR code with your phone.</p>
-                <div id="qrcode" style="display:flex; justify-content:center; margin: 20px 0;"></div>
-                <div id="status-container">
-                    <div class="spinner-border text-primary" role="status" style="width:1rem; height:1rem;"></div>
-                    <span id="sync-status" style="font-size: 12px; color: #666; margin-left:10px;">Waiting for phone to connect...</span>
+            <div style="padding: 10px; font-family: 'Segoe UI', sans-serif;">
+                <div style="display: flex; gap: 20px; justify-content: center; align-items: stretch; text-align: center;">
+                    
+                    <div style="flex: 1; border-right: 1px solid #eee; padding-right: 20px;">
+                        <h6 style="font-weight: 800; color: #333; margin: 0 0 15px 0; font-size: 14px;">Option 1: Scan via Mobile</h6>
+                        <div id="qrcode" style="display:flex; justify-content:center; margin-bottom: 15px;"></div>
+                        <div id="status-container">
+                            <div class="spinner-border text-success" role="status" style="width:1rem; height:1rem;"></div>
+                            <span id="sync-status" style="font-size: 11px; color: #666; margin-left:5px;">Waiting for phone...</span>
+                        </div>
+                    </div>
+                    
+                    <div style="flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; padding-left: 10px;">
+                        <h6 style="font-weight: 800; color: #333; margin: 0 0 20px 0; font-size: 14px;">Option 2: Upload from Current Device</h6>
+                        
+                        <button type="button" onclick="document.getElementById('localImageInput').click()" 
+                                style="background: #008060; color: #fff; border: none; padding: 12px 25px; border-radius: 30px; font-weight: bold; font-size: 13px; cursor: pointer; box-shadow: 0 4px 12px rgba(0,128,96,0.2); display: flex; align-items: center; gap: 8px;">
+                            <i class="bi bi-upload"></i> SELECT IMAGE
+                        </button>
+                        
+                        <input type="file" id="localImageInput" accept="image/*" style="display: none;" onchange="handleLocalUpload(this, '${sessionToken}')">
+                        
+                        <p style="font-size: 11px; color: #999; margin-top: 15px; line-height: 1.4; max-width: 180px;">
+                            Ensure both your <strong>bare foot</strong> and <strong>A4 paper</strong> reference are fully visible.
+                        </p>
+                    </div>
+                    
                 </div>
             </div>
         `,
+        showConfirmButton: false,
+        showCancelButton: true,
+        cancelButtonText: 'Cancel',
         didOpen: () => {
             new QRCode(document.getElementById("qrcode"), {
-                text: mobileURL, // 现在的二维码包含的是 IP 地址，手机能识别了
-                width: 200,
-                height: 200
+                text: mobileURL,
+                width: 150,
+                height: 150
             });
-            startPolling(sessionToken);
+            startPolling(sessionToken); // 启动统一轮询机制
         }
     });
+}
+
+// --- 全新追加：处理本地上传文件的控制器 ---
+async function handleLocalUpload(input, token) {
+    if (!input.files || input.files.length === 0) return;
+    
+    const file = input.files[0];
+    const syncStatus = document.getElementById('sync-status');
+    if (syncStatus) syncStatus.innerText = "Optimizing image for AI Sizer...";
+
+    // 创建图像预处理容器
+    const img = new Image();
+    img.src = URL.createObjectURL(file);
+    
+    img.onload = async function() {
+        // 创建虚拟画布，强制将分辨率标准化为 1280x720（与手机摄像头完全对齐）
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // 智能判断横竖屏，计算缩放比例
+        let targetWidth = 1280;
+        let targetHeight = 720;
+        
+        // 如果用户传的是标准的竖版照片，自动调换画布轴向，防止画面被压扁变形
+        if (img.height > img.width) {
+            targetWidth = 720;
+            targetHeight = 1280;
+        }
+        
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        
+        // 将高像素原图高质量平滑绘制入标准规格画布中
+        ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+        
+        // 转换为二进制 Blob 流
+        canvas.toBlob(async (blob) => {
+            const formData = new FormData();
+            // 包装和手机同步流一模一样的文件名，彻底消除 AI 的格式歧义
+            formData.append('image', blob, 'capture.jpg'); 
+            formData.append('token', token);
+
+            if (syncStatus) syncStatus.innerText = "Analyzing scaled contours...";
+
+            try {
+                const response = await fetch('upload_bridge.php', { method: 'POST', body: formData });
+                const result = await response.json();
+                
+                if (!result.success) throw new Error(result.error);
+                
+            } catch (error) {
+                console.error('Processing error:', error);
+                Swal.fire({ icon: 'error', title: 'Analysis Failed', text: 'Image resolution too high or layout clear cutoff.' });
+            }
+        }, 'image/jpeg', 0.90); // 适度压缩体积，保障网速和 AI 读取响应率
+    };
 }
 
 // 轮询检查手机是否拍好了
@@ -1189,7 +1271,7 @@ async function processMeasurement(imagePath) {
             <div style="padding: 20px;">
                 <div class="spinner-border text-success" role="status"></div>
                 <p style="margin-top: 15px; font-weight: bold;">Detecting foot contours & A4 reference...</p>
-                <div style="font-size: 11px; color: #888;">Gemini Vision is measuring your foot...</div>
+                <div style="font-size: 11px; color: #888;">AI is measuring your foot...</div>
             </div>
         `,
         allowOutsideClick: false,

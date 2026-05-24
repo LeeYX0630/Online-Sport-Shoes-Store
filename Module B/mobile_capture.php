@@ -77,14 +77,14 @@ if (empty($token)) {
 pose.onResults((results) => {
     canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
     
+    // 【核心新增】：不论有没有拍到脚，每一帧都优先绘制固定的 A4 对齐参考框
+    drawA4ReferenceGuide(canvasCtx);
+    
     if (results.poseLandmarks) {
-        // 提取可见度
         const leftAnkle = results.poseLandmarks[27];
         const rightAnkle = results.poseLandmarks[28];
-
         let pointsToTrack = null;
         
-        // 【语法修复点】：正确定义追踪点数组
         if (leftAnkle && leftAnkle.visibility > 0.7) {
             pointsToTrack = [results.poseLandmarks[27], results.poseLandmarks[31]]; 
         } else if (rightAnkle && rightAnkle.visibility > 0.7) {
@@ -254,6 +254,39 @@ async function startCamera() {
                 Swal.fire('Error', 'Failed to upload photo. Please try again.', 'error');
             }
         }
+
+function drawA4ReferenceGuide(ctx) {
+    const width = ctx.canvas.width;
+    const height = ctx.canvas.height;
+
+    // 1. 根据当前相机分辨率高度，计算一个高阶标准的垂直 A4 尺寸 (比例约 1 : 1.414)
+    const guideHeight = height * 0.65; // 占据屏幕高度的 65% 为最佳测距视距
+    const guideWidth = guideHeight / 1.414;
+    
+    const x = (width - guideWidth) / 2;
+    const y = (height - guideHeight) / 2;
+
+    // 2. 绘制智能遮罩：将对齐框外部区域稍微变暗 (40% 透明黑)，引导用户聚焦
+    ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
+    ctx.fillRect(0, 0, width, y); // 上遮罩
+    ctx.fillRect(0, y + guideHeight, width, height - (y + guideHeight)); // 下遮罩
+    ctx.fillRect(0, y, x, guideHeight); // 左遮罩
+    ctx.fillRect(x + guideWidth, y, width - (x + guideWidth), guideHeight); // 右遮罩
+
+    // 3. 绘制高性能科技白 A4 虚线定位框
+    ctx.setLineDash([10, 8]); // 设置虚线间距
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(x, y, guideWidth, guideHeight);
+    ctx.setLineDash([]); // 还原实线，避免影响后续脚部网格绘制
+
+    // 4. 追加动态视觉文本提示
+    ctx.fillStyle = "#00ff9d"; // 沿用你酷炫的荧光绿主题色
+    ctx.font = "bold 16px Segoe UI, Arial, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("ALIGN A4 PAPER INSIDE THIS BOX", width / 2, y - 20);
+    ctx.textAlign = "left"; // 恢复画布默认对齐机制
+}
     </script>
 </body>
 </html>
