@@ -421,9 +421,9 @@ $conn->begin_transaction();
                 $pay_method_display = "FPX Online Banking (" . ($_POST['fpx_bank'] ?? 'Standard') . ")";
             }
 
-            // 1. 插入主订单
-            $sql_order = "INSERT INTO `ORDER` (User_Id, Order_Amount, Order_Shipping_Addr, Order_Date, Order_Tracking_Num, Promo_Id, Payment_Status, Payment_Method) 
-                          VALUES ('$uid', '$grand_total', '$final_addr', '$order_date', '$tracking_no', $promo_id_to_save, 'Paid', '$pay_method_display')";
+        // 1. 插入主订单
+        $sql_order = "INSERT INTO `ORDER` (User_Id, Order_Amount, Order_Shipping_Addr, Order_Date, Order_Tracking_Num, Promo_Id, Payment_Status, Payment_Method, Order_Status) 
+                    VALUES ('$uid', '$grand_total', '$final_addr', '$order_date', '$tracking_no', $promo_id_to_save, 'Paid', '$pay_method_display', 'Pending')";
             $conn->query($sql_order);
             $order_id = $conn->insert_id;
 
@@ -442,7 +442,7 @@ $conn->begin_transaction();
 
                 // 核心：直接关联 Order_Id，Sub_Order_Id 设为 0
                 $conn->query("INSERT INTO ORDER_DETAIL (Order_Id, Pro_Id, Order_Qty, Order_Subtotal, Pro_Size, Pro_Colour, Custom_Preview) 
-                              VALUES ('$order_id', '$p_id', '$qty', '$subtotal_item', '$size', '$color', '" . ($item['custom_preview'] ?? '') . "')");
+                              VALUES ('$order_id', '$p_id', '$qty', '$subtotal_item', '$size', '$color', '" . ($p_data['display_image'] ?? '') . "')");
                 
                 // 更新库存
                 $db_color_key = ($p_id == 16 || $p_id == 17) ? 'Default' : $color;

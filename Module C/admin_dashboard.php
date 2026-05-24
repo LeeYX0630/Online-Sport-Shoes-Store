@@ -339,7 +339,7 @@ if ($admin_id) {
                                 <tbody>
                                     <?php if($recent_orders && $recent_orders->num_rows > 0): ?>
                                         <?php while($row = $recent_orders->fetch_assoc()): ?>
-                                        <tr style="cursor: pointer;" onclick="window.location='admin_order_details.php?id=<?php echo $row['Order_Id']; ?>'">
+                                        <tr style="cursor: pointer;" onclick="window.location='order_details.php?id=<?php echo $row['Order_Id']; ?>'">
                                             <td class="ps-0 border-0">
                                                 <div class="fw-bold text-dark" style="font-size: 14px;">#<?php echo $row['Order_Id']; ?></div>
                                                 <small class="text-muted"><?php echo htmlspecialchars($row['User_Name'] ?: 'Guest'); ?></small>

@@ -113,6 +113,10 @@ if (!empty($order_data['Estimated_Arrival_Date'])) {
         .content-card { background: white; border-radius: 15px; padding: 24px; border: none; box-shadow: 0 4px 20px rgba(0,0,0,0.05); margin-bottom: 20px; }
         .card-title { font-size: 1.05rem; font-weight: 700; color: #333; margin-bottom: 1.2rem; display: flex; align-items: center; }
         
+        .back-button-container { display: flex; justify-content: flex-end; margin-bottom: 15px; padding: 0 10px; }
+        .btn-back-header { text-decoration: none; color: #64748b; font-weight: 600; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 10px; transition: all 0.2s; border: 1px solid #e2e8f0; background: white; box-shadow: 0 2px 5px rgba(0,0,0,0.02); }
+        .btn-back-header:hover { background-color: #fff; color: #FA8A34; border-color: #FA8A34; transform: translateX(-3px); }
+
         /* --- Stepper 进度条轨道机制 --- */
         .order-tracking { display: flex; justify-content: space-between; position: relative; padding: 10px 0; }
         .step-progress-bar-container { 
@@ -162,6 +166,7 @@ if (!empty($order_data['Estimated_Arrival_Date'])) {
         .product-img { width: 80px; height: 80px; object-fit: contain; background-color: #fff; padding: 4px; border: 1px solid #eee; border-radius: 10px; }
         .text-orange { color: var(--orange-primary) !important; }
         @media (max-width: 991px) { .main-content { margin-left: 0; padding: 15px; } }
+        
     </style>
 </head>
 <body>
@@ -179,6 +184,7 @@ if (!empty($order_data['Estimated_Arrival_Date'])) {
                         <li class="breadcrumb-item active">Order Details</li>
                     </ol>
                 </nav>
+                
                 <h4 class="fw-bold mb-0">Order <?php echo $display_order_id; ?></h4>
             </div>
             <div class="d-flex align-items-center">
@@ -189,6 +195,10 @@ if (!empty($order_data['Estimated_Arrival_Date'])) {
                 <img src="../uploads/admin/<?php echo $admin_image; ?>" class="admin-profile-img" onerror="this.src='../assets/default_admin.png'">
             </div>
         </header>
+
+            <div class="back-button-container">
+                <a href="admin_manage_orders.php" class="btn-back-header"><i class="bi bi-arrow-left"></i> Back to Orders</a>
+            </div>
 
         <div class="row mb-3">
             <div class="col-12">

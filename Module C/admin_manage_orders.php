@@ -345,6 +345,36 @@ if (isset($_GET['ajax_get_items'])) {
                     box-shadow: 0 4px 8px rgba(255, 140, 0, 0.05); /* 微微的阴影 */
                 }
 
+                /* 让 4 个数据框可点击并带有悬浮动画 */
+.summary-card {
+    cursor: pointer;
+    transition: all 0.3s ease;
+    position: relative;
+}
+/* 增加一个隐形的内边框，为“变厚”做准备 */
+.summary-card::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    border: 3px solid transparent;
+    border-radius: inherit;
+    transition: all 0.3s ease;
+    pointer-events: none;
+}
+.summary-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.1) !important;
+}
+
+/* 点击激活后的“变厚”与高亮状态 */
+.summary-card.active-filter {
+    transform: translateY(-4px);
+    box-shadow: 0 10px 25px rgba(255, 140, 0, 0.2) !important;
+}
+.summary-card.active-filter::after {
+    border-color: var(--orange-primary); /* 出现橙色加粗边框，看起来变厚了 */
+}
+
     </style>
 </head>
 <body>
@@ -377,27 +407,29 @@ if (isset($_GET['ajax_get_items'])) {
         </header>
 
         <div class="container-fluid p-0">
-            <!-- 统计卡片区域 -->
+            <!-- 概述卡片 -->
             <div class="row g-4 mb-4">
-                <?php 
-                $cards = [
-                    ['Pending', $stats['pending'], 'bi-clock-history', 'icon-pending'], 
-                    ['Processing', $stats['processing'], 'bi-gear-wide-connected', 'icon-processing'], 
-                    ['Shipped', $stats['shipped'], 'bi-truck', 'icon-shipped'], 
-                    ['Delivered', $stats['delivered'], 'bi-check2-circle', 'icon-delivered']
-                ];
-                foreach($cards as $c): ?>
-                <div class="col-md-3">
-                    <div class="table-card d-flex align-items-center justify-content-between p-4 mb-0">
-                        <div>
-                            <p class="text-muted small fw-bold mb-1 text-uppercase"><?php echo $c[0]; ?></p>
-                            <h3 class="fw-bold mb-0"><?php echo $c[1]; ?></h3>
-                        </div>
-                        <div class="stat-icon <?php echo $c[3]; ?>"><i class="bi <?php echo $c[2]; ?>"></i></div>
+            <?php 
+            $cards = [
+                ['Pending', $stats['pending'], 'bi-clock-history', 'icon-pending'], 
+                ['Processing', $stats['processing'], 'bi-gear-wide-connected', 'icon-processing'], 
+                ['Shipped', $stats['shipped'], 'bi-truck', 'icon-shipped'], 
+                ['Delivered', $stats['delivered'], 'bi-check2-circle', 'icon-delivered']
+            ];
+            
+            foreach($cards as $c): ?>
+            <div class="col-md-3">
+                <div class="table-card summary-card d-flex align-items-center justify-content-between p-4 mb-0" 
+                    onclick="filterOrders('<?php echo $c[0]; ?>', this)">
+                    <div>
+                        <p class="text-muted small fw-bold mb-1 text-uppercase"><?php echo $c[0]; ?></p>
+                        <h3 class="fw-bold mb-0"><?php echo $c[1]; ?></h3>
                     </div>
+                    <div class="stat-icon <?php echo $c[3]; ?>"><i class="bi <?php echo $c[2]; ?>"></i></div>
                 </div>
-                <?php endforeach; ?>
             </div>
+            <?php endforeach; ?>
+        </div>
 
             <!-- 订单表格区域 -->
             <div class="table-card">
@@ -430,41 +462,46 @@ if (isset($_GET['ajax_get_items'])) {
                                 $current_status = $row['Order_Status'];
                                 $current_index = array_search($current_status, $status_flow);
                             ?>
-                            <tr>
-                                <td class="fw-bold">#ORD-<?php echo str_pad($row['Order_Id'], 5, '0', STR_PAD_LEFT); ?></td>
+                            <tr class="order-row" data-status="<?php echo ucfirst(strtolower($row['Order_Status'])); ?>">
+                                <td class="fw-bold">ODR<?php echo htmlspecialchars($row['Order_Tracking_Num']); ?></td>
                                 <td>
                                     <div class="fw-bold"><?php echo htmlspecialchars($row['User_Name']); ?></div>
                                     <div class="small text-muted"><?php echo $row['User_Email']; ?></div>
                                 </td>
-                                <td><?php echo $display_date; ?></td> <td><?php echo $display_time; ?></td> <td>
+                                <td><?php echo $display_date; ?></td> <td><?php echo $display_time; ?></td> 
+                                <td>
                                     <div class="dropdown">
-    <span class="badge-status bg-<?php echo strtolower($current_status); ?> dropdown-toggle" 
-          data-bs-toggle="dropdown" aria-expanded="false">
-        <?php echo $current_status; ?>
-    </span>
-    <ul class="dropdown-menu border-0 shadow-lg p-2" style="border-radius: 12px;">
-        <li class="dropdown-header small text-uppercase fw-bold pb-2">Change Progress</li>
-        <?php 
-        foreach ($status_flow as $index => $step) {
-            if ($index === $current_index - 1 || $index === $current_index + 1) {
-                // 根据步骤类型显示不同的图标前缀
-                $icon = ($index > $current_index) ? 'bi-arrow-right-circle' : 'bi-arrow-left-circle';
-                $color_class = ($index > $current_index) ? 'text-primary' : 'text-muted';
-                
-                echo '<li><a class="dropdown-item d-flex align-items-center rounded-3 py-2" href="javascript:void(0)" 
-                      onclick="updateStatus('.$row['Order_Id'].', \''.$step.'\')">
-                      <i class="bi '.$icon.' '.$color_class.' me-2"></i>
-                      <span>Move to '.$step.'</span></a></li>';
-            }
-        }
-        ?>
-    </ul>
-</div>
+                                        <?php 
+                                        // 判断是否已经是最后一个状态 (Delivered)
+                                        $is_last_status = ($current_index === count($status_flow) - 1);
+                                        ?>
+                                        
+                                        <span class="badge-status bg-<?php echo strtolower($current_status); ?> <?php echo !$is_last_status ? 'dropdown-toggle' : ''; ?>" 
+                                            <?php echo !$is_last_status ? 'data-bs-toggle="dropdown" aria-expanded="false"' : ''; ?>>
+                                            <?php echo $current_status; ?>
+                                        </span>
+                                        
+                                        <?php if (!$is_last_status): ?>
+                                        <ul class="dropdown-menu border-0 shadow-lg p-2" style="border-radius: 12px;">
+                                            <li class="dropdown-header small text-uppercase fw-bold pb-2">Change Progress</li>
+                                            <?php 
+                                            foreach ($status_flow as $index => $step) {
+                                                // 【核心修改】：只允许显示索引正好比当前大 1 的选项（只能前进1步，绝不后退）
+                                                if ($index === $current_index + 1) {
+                                                    echo '<li><a class="dropdown-item d-flex align-items-center rounded-3 py-2" href="javascript:void(0)" 
+                                                        onclick="updateStatus('.$row['Order_Id'].', \''.$step.'\')">
+                                                        <i class="bi bi-arrow-right-circle text-primary me-2"></i>
+                                                        <span>Move to '.$step.'</span></a></li>';
+                                                }
+                                            }
+                                            ?>
+                                        </ul>
+                                        <?php endif; ?>
+                                    </div>
                                 </td>
                                 <td class="fw-bold text-dark">RM <?php echo number_format($row['Order_Amount'], 2); ?></td>
                                 <td class="text-end">
-                                    <button onclick="showItemPopup('<?php echo $row['Order_Id']; ?>')" class="btn btn-sm btn-outline-dark rounded-pill px-3">Details    </button>
-                                </td>
+                                <button onclick="showItemPopup('<?php echo $row['Order_Id']; ?>', '<?php echo htmlspecialchars($row['Order_Tracking_Num']); ?>')" class="btn btn-sm btn-outline-dark rounded-pill px-3">Details</button>                                </td>
                             </tr>
                             <?php endwhile; ?>
                         </tbody>
@@ -532,6 +569,34 @@ function showItemPopup(orderId) {
                         html: html
                     });
                 });
+        }
+    });
+}
+
+let currentFilter = '';
+
+function filterOrders(status, cardElement) {
+    const rows = document.querySelectorAll('.order-row');
+    
+    // 1. 如果点击的是已经“变厚”的框，代表取消过滤，显示所有订单
+    if (currentFilter === status) {
+        currentFilter = '';
+        cardElement.classList.remove('active-filter');
+        rows.forEach(row => row.style.display = ''); // 恢复显示所有行
+        return;
+    }
+
+    // 2. 移除所有框的“变厚”状态，只给当前点击的框加厚
+    document.querySelectorAll('.summary-card').forEach(card => card.classList.remove('active-filter'));
+    cardElement.classList.add('active-filter');
+    currentFilter = status;
+
+    // 3. 秒速过滤下面的表格 List
+    rows.forEach(row => {
+        if (row.getAttribute('data-status') === status) {
+            row.style.display = ''; // 状态吻合，显示
+        } else {
+            row.style.display = 'none'; // 状态不吻合，隐藏
         }
     });
 }
