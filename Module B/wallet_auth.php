@@ -90,8 +90,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['wallet_pin'])) {
 
                     $res_p = $conn->query("SELECT Pro_Price FROM product WHERE Pro_Id = '$item_pid'");
                     $row_p = $res_p->fetch_assoc();
-                    $item_sub = floatval($row_p['Pro_Price']) * intval($item_qty);
-                    $conn->query("INSERT INTO ORDER_DETAIL (Order_Id, Pro_Id, Order_Qty, Order_Subtotal) VALUES ('$order_id', '$item_pid', '$item_qty', '$item_sub')");
+                    $unit_price = isset($item['price']) ? floatval($item['price']) : floatval($row_p['Pro_Price']);
+                    $item_sub = $unit_price * intval($item_qty);
+                    $item_custom_preview = $conn->real_escape_string($item['custom_preview'] ?? '');
+
+                    $conn->query("INSERT INTO ORDER_DETAIL (Order_Id, Pro_Id, Order_Qty, Order_Subtotal, Pro_Size, Pro_Colour, Custom_Preview) 
+                                  VALUES ('$order_id', '$item_pid', '$item_qty', '$item_sub', '$item_size', '$item_color', '$item_custom_preview')");
                     $db_color_key = ($item_pid == 16 || $item_pid == 17) ? 'Default' : $item_color;
                     $conn->query("UPDATE PRODUCT_STOCK SET Quantity = Quantity - $item_qty WHERE Pro_Id = '$item_pid' AND Pro_Size = '$item_size' AND Pro_Colour = '$db_color_key'");
                 }

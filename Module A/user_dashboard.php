@@ -291,7 +291,7 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
             <div class="card p-4 text-center">
                 <img src="<?php echo $profile_pic; ?>" class="profile-img-large mb-3">
                 <h4 class="fw-800 mb-1"><?php echo htmlspecialchars($user['User_Name']); ?></h4>
-                <div class="mb-3"><span class="badge rounded-pill bg-light text-orange border">ELITE MEMBER</span></div>
+                <div class="mb-3"><span class="badge rounded-pill bg-light text-orange border">SS MEMBER</span></div>
                 
                 <div class="mt-2 p-3 rounded-4" style="background-color: #FFF5EE; border: 1px solid #FFE4D3;">
                     <small class="text-muted text-uppercase fw-bold d-block" style="font-size: 0.65rem;">Account Balance</small>

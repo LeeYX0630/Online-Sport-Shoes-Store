@@ -437,12 +437,13 @@ $conn->begin_transaction();
                 // 获取单价计算小计
                 $v_res = $conn->query("SELECT Pro_Price FROM product WHERE Pro_Id = '$p_id'");
                 $p_info = $v_res->fetch_assoc();
-                $unit_price = isset($item['price']) ? $item['price'] : $p_info['Pro_Price'];
+                $unit_price = isset($item['price']) ? floatval($item['price']) : floatval($p_info['Pro_Price']);
                 $subtotal_item = $unit_price * $qty;
+                $item_custom_preview = $conn->real_escape_string($item['custom_preview'] ?? '');
 
                 // 核心：直接关联 Order_Id，Sub_Order_Id 设为 0
                 $conn->query("INSERT INTO ORDER_DETAIL (Order_Id, Pro_Id, Order_Qty, Order_Subtotal, Pro_Size, Pro_Colour, Custom_Preview) 
-                              VALUES ('$order_id', '$p_id', '$qty', '$subtotal_item', '$size', '$color', '" . ($p_data['display_image'] ?? '') . "')");
+                              VALUES ('$order_id', '$p_id', '$qty', '$subtotal_item', '$size', '$color', '$item_custom_preview')");
                 
                 // 更新库存
                 $db_color_key = ($p_id == 16 || $p_id == 17) ? 'Default' : $color;
