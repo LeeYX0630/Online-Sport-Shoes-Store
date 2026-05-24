@@ -278,7 +278,7 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
     <div class="mb-5 border-bottom pb-3 d-flex justify-content-between align-items-end">
         <div>
             <h1 class="fw-800">Online Sport <span class="text-orange">Shoes Store.</span></h1>
-            <p class="text-muted">Personal locker for performance and elite footwear.</p>
+            <p class="text-muted">Personal locker for performance and SS footwear.</p>
         </div>
         <div class="text-end">
             <h5 id="live-clock" class="fw-bold mb-0" style="font-size: 1.5rem;">00:00:00 PM</h5>
