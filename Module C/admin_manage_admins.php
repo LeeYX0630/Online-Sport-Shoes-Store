@@ -66,9 +66,9 @@ $vendor_res = $conn->query($vendor_sql);
 if ($vendor_res && $vendor_res->num_rows > 0) {
     while ($v_row = $vendor_res->fetch_assoc()) {
         $admins_pending[] = [
-            'Id'               => $v_row['Vendor_Id'] ?? $v_row['id'] ?? 0,
-            'Name'             => $v_row['Vendor_Name'] ?? $v_row['name'] ?? 'Unknown Partner',
-            'Brand'            => $v_row['business_name'] ?? 'No Brand', 
+            'Id'               => $v_row['vendor_id'] ?? $v_row['id'] ?? 0,
+            'Name'             => $v_row['business_name'] ?? $v_row['name'] ?? 'Unknown Partner',
+            'Brand'            => $v_row['brand'] ?? 'No Brand', 
             'Email'            => $v_row['email'] ?? 'N/A',
             'Phone'            => $v_row['phone'] ?? 'N/A',
             'SSM'              => $v_row['reg_number'] ?? 'N/A', 
@@ -358,11 +358,11 @@ $admin_img_path = "../uploads/admin/";
             
             // 💡 彻底清理了容易引发意外中断的行尾反斜杠 \
             let verifyDoc = partner.VerificationDoc 
-                ? `<a href="../uploads/vendor/docs/${partner.VerificationDoc}" target="_blank" class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size:0.75rem;"><i class="bi bi-file-earmark-pdf"></i> View Document</a>` 
+                ? `<a href="../uploads/vendors/${partner.VerificationDoc}" target="_blank" class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size:0.75rem;"><i class="bi bi-file-earmark-pdf"></i> View Document</a>` 
                 : `<span class="text-muted small">Not Uploaded</span>`;
                 
             let bankStatement = partner.BankStatement 
-                ? `<a href="../uploads/vendor/docs/${partner.BankStatement}" target="_blank" class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size:0.75rem;"><i class="bi bi-file-earmark-richtext"></i> View Statement</a>` 
+                ? `<a href="../uploads/vendors/${partner.BankStatement}" target="_blank" class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size:0.75rem;"><i class="bi bi-file-earmark-richtext"></i> View Statement</a>` 
                 : `<span class="text-muted small">Not Uploaded</span>`;
 
             htmlContent += `
@@ -466,10 +466,11 @@ $admin_img_path = "../uploads/admin/";
             confirmButtonColor: isActive ? '#198754' : '#d33',
             confirmButtonText: isActive ? 'Yes, Approve' : 'Yes, Reject'
         }).then((result) => {
-            if (result.isConfirmed) {
-                window.location.href = `update_admin_status.php?id=${vendorId}&status=${action}`;
-            }
-        });
+        let action = result.isConfirmed ? 'approve' : 'reject';
+        
+        // 跳转到处理文件，带上 action 参数
+        window.location.href = `update_vendors_status.php?id=${vendorId}&action=${action}`;
+    });
     }
 
     function filterAdmins() {

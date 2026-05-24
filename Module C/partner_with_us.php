@@ -1,10 +1,8 @@
 <?php
-// ============================================================
-//  Vendor Registration — Server-side processing
-// ============================================================
-
+//====partner_with_us.php====
 session_start();
-require_once '../includes/db_connection.php'; 
+require_once '../includes/db_connection.php';
+require_once 'send_partner_otp.php'; // ⚠️ 请确保路径正确，如果跟 partner_with_us.php 同级直接这样写
 
 $success  = false;
 $errors   = [];
@@ -15,6 +13,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // ── Sanitise helpers ───────────────────────────────────
     $str  = fn(string $k) => trim($_POST[$k] ?? '');
     $old  = [
+        'brand'    => $str('brand'),
         'business_name' => $str('business_name'),
         'email'         => $str('email'),
         'phone'         => $str('phone'),
@@ -45,9 +44,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'Bank Muamalat (MB)' => 14,
     ];
 
+
     // ── Validation ─────────────────────────────────────────
     if ($old['business_name'] === '')
         $errors['business_name'] = 'Please enter your business name.';
+
+    if ($old['brand'] === '')
+        $errors['brand'] = 'Please enter your brand name.';
 
     if (!filter_var($old['email'], FILTER_VALIDATE_EMAIL))
         $errors['email'] = 'Please enter a valid email address.';
@@ -64,14 +67,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($old['bank_name'] === '')
         $errors['bank_name'] = 'Please select a bank.';
 
-    // Validate bank account number: digits only + required length per bank
-    $clean_acc = preg_replace('/\D/', '', $old['bank_acc_no']);
-    if ($clean_acc === '' || !ctype_digit($clean_acc)) {
+    if ($old['bank_acc_no'] === '' || !ctype_digit($old['bank_acc_no']))
         $errors['bank_acc_no'] = 'Please enter a valid account number (digits only).';
-    } else if (!empty($old['bank_name']) && isset($bank_lengths[$old['bank_name']])) {
-        $reqLen = $bank_lengths[$old['bank_name']];
-        if (strlen($clean_acc) !== $reqLen) {
-            $errors['bank_acc_no'] = "Please enter a valid account number ({$reqLen} digits) for {$old['bank_name']}.";
+
+    // ── Bank account length validation based on selected bank ──
+    if (!isset($errors['bank_acc_no']) && !empty($old['bank_name']) && isset($bank_lengths[$old['bank_name']])) {
+        $expected = (int)$bank_lengths[$old['bank_name']];
+        if (strlen($old['bank_acc_no']) !== $expected) {
+            $errors['bank_acc_no'] = "Account number must be {$expected} digits for {$old['bank_name']}.";
         }
     }
 
@@ -100,64 +103,136 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    // 在验证逻辑之前，把 phone 里的 - 和空格去掉，转回纯数字
-    $clean_phone = str_replace(['-', ' '], '', $old['phone']);
-
-    // 如果你之后需要验证是否全是数字，用 $clean_phone
-    if ($clean_phone === '' || !ctype_digit($clean_phone)) {
-        $errors['phone'] = 'Please enter a valid contact number.';
+    // ── Uniqueness checks (block submission on duplicates)
+    // Only run checks for fields that passed basic validation and have no prior errors
+    if (!isset($errors['brand']) && !empty($old['brand'])) {
+        $sql = "SELECT COUNT(*) FROM vendors WHERE brand = ?";
+        if ($stmtc = $conn->prepare($sql)) {
+            $stmtc->bind_param('s', $old['brand']);
+            $stmtc->execute();
+            $stmtc->bind_result($cnt);
+            $stmtc->fetch();
+            if (!empty($cnt)) $errors['brand'] = 'Brand name already registered.';
+            $stmtc->close();
+        }
     }
 
-// ── If valid → process (save / DB insert here) ─
+    if (!isset($errors['email']) && !empty($old['email']) && filter_var($old['email'], FILTER_VALIDATE_EMAIL)) {
+        $sql = "SELECT COUNT(*) FROM vendors WHERE email = ?";
+        if ($stmte = $conn->prepare($sql)) {
+            $stmte->bind_param('s', $old['email']);
+            $stmte->execute();
+            $stmte->bind_result($cnt2);
+            $stmte->fetch();
+            if (!empty($cnt2)) $errors['email'] = 'Email address is already in use.';
+            $stmte->close();
+        }
+    }
+
+    if (!isset($errors['reg_number']) && !empty($old['reg_number'])) {
+        $sql = "SELECT COUNT(*) FROM vendors WHERE reg_number = ?";
+        if ($stmtr = $conn->prepare($sql)) {
+            $stmtr->bind_param('s', $old['reg_number']);
+            $stmtr->execute();
+            $stmtr->bind_result($cnt3);
+            $stmtr->fetch();
+            if (!empty($cnt3)) $errors['reg_number'] = 'Registration number already exists.';
+            $stmtr->close();
+        }
+    }
+
+    // ── If valid → process (save / email / DB insert here) ─
     if (empty($errors)) {
-        // 1. 设置上传目录
+        // Move uploaded files and insert into DB (vendors)
         $upload_dir = '../uploads/vendors/';
-        if (!is_dir($upload_dir)) {
-            mkdir($upload_dir, 0777, true);
+        if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
+
+        $auth_dest = null;
+        $bank_dest = null;
+
+        if (!empty($_FILES['auth_doc']['tmp_name'])) {
+            $ext = strtolower(pathinfo($_FILES['auth_doc']['name'], PATHINFO_EXTENSION));
+            $fname = 'auth_' . bin2hex(random_bytes(6)) . '.' . $ext;
+            if (move_uploaded_file($_FILES['auth_doc']['tmp_name'], $upload_dir . $fname)) {
+                // Store only the filename in DB/session; files remain on disk in uploads/vendors/
+                $auth_dest = $fname;
+            }
         }
 
-        // 2. 处理文件重命名与移动 (避免文件名重复)
-        $auth_doc_ext  = pathinfo($_FILES['auth_doc']['name'], PATHINFO_EXTENSION);
-        $auth_doc_name = "auth_" . uniqid() . "." . $auth_doc_ext;
-        move_uploaded_file($_FILES['auth_doc']['tmp_name'], $upload_dir . $auth_doc_name);
+        if (!empty($_FILES['bank_statement']['tmp_name'])) {
+            $ext = strtolower(pathinfo($_FILES['bank_statement']['name'], PATHINFO_EXTENSION));
+            $fname = 'bank_' . bin2hex(random_bytes(6)) . '.' . $ext;
+            if (move_uploaded_file($_FILES['bank_statement']['tmp_name'], $upload_dir . $fname)) {
+                // Store only the filename in DB/session; files remain on disk in uploads/vendors/
+                $bank_dest = $fname;
+            }
+        }
 
-        $bank_stmt_ext  = pathinfo($_FILES['bank_statement']['name'], PATHINFO_EXTENSION);
-        $bank_stmt_name = "bank_" . uniqid() . "." . $bank_stmt_ext;
-        move_uploaded_file($_FILES['bank_statement']['tmp_name'], $upload_dir . $bank_stmt_name);
+        // 标记上传是否成功（在各自 move_uploaded_file 成功的分支内设置）
+        $auth_upload_ok = !empty($auth_dest);
+        $bank_upload_ok = !empty($bank_dest);
 
-        // 3. 插入数据库
-        try {
-            $sql = "INSERT INTO vendors (
-                        business_name, email, phone, reg_number, 
-                        auth_doc_path, bank_name, bank_acc_no, 
-                        bank_statement_path, warehouse_address, status
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')";
-            
-            $stmt = $conn->prepare($sql);
-            
-            // "sssssssss" 代表 9 个字符串参数
-            $stmt->bind_param("sssssssss", 
-                $old['business_name'], 
-                $old['email'], 
-                $old['phone'], 
-                $old['reg_number'], 
-                $auth_doc_name, 
-                $old['bank_name'], 
-                $old['bank_acc_no'], 
-                $bank_stmt_name, 
-                $old['address']
+        // 如果两个文件都上传成功，先暂存 session 并发送 OTP 然后跳转到验证页
+        if ($auth_upload_ok && $bank_upload_ok) {
+
+            $_SESSION['partner_temp_data'] = [
+                'brand'         => $old['brand'],
+                'business_name' => $old['business_name'],
+                'email'         => $old['email'],
+                'phone'         => $old['phone'],
+                'reg_number'    => $old['reg_number'],
+                'bank_name'     => $old['bank_name'],
+                'bank_acc_no'   => $old['bank_acc_no'],
+                'address'       => $old['address'],
+                'auth_doc_path' => $auth_dest,
+                'bank_doc_path' => $bank_dest
+            ];
+
+            // 调用你封装的发 OTP 函数
+            $is_sent = sendPartnerOTP($old['email']);
+
+            if ($is_sent) {
+                header("Location: verify_partner_otp.php"); // 确认文件名是否正确
+                exit();
+            } else {
+                $errors['otp'] = 'Failed to send OTP to your email. Please check your email address and try again.';
+                unset($_SESSION['partner_temp_data']);
+                // 继续到页面渲染以显示错误（不会写入 DB）
+            }
+        }
+
+        // 如果没有走 OTP 重定向，则继续走原来的 DB 插入流程
+        // Insert into DB using mysqli connection ($conn from includes/db_connection.php)
+        $status = 'pending';
+        $created_at = date('Y-m-d H:i:s');
+
+        $stmt = $conn->prepare("INSERT INTO vendors
+            (brand, business_name, email, phone, reg_number, auth_doc_path, bank_name, bank_acc_no, bank_statement_path, warehouse_address, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        if ($stmt) {
+            $stmt->bind_param('ssssssssssss',
+                $old['brand'],
+                $old['business_name'],
+                $old['email'],
+                $old['phone'],
+                $old['reg_number'],
+                $auth_dest,
+                $old['bank_name'],
+                $old['bank_acc_no'],
+                $bank_dest,
+                $old['address'],
+                $status,
+                $created_at
             );
-
             if ($stmt->execute()) {
                 $success = true;
-                $old = []; // 成功后清空表单数据
+                $old     = []; // clear form after success
             } else {
-                $errors['db'] = "Database Error: " . $conn->error;
+                $errors['db'] = 'Failed to save your application. Please try again.';
             }
-            
             $stmt->close();
-        } catch (Exception $e) {
-            $errors['db'] = "System Error: " . $e->getMessage();
+        } else {
+            $errors['db'] = 'Database error (prepare failed).';
         }
     }
 }
@@ -190,20 +265,18 @@ function bc(array $errors, string $field): string {
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Become Our Partner – Online Sports Shoes Store</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <style>
         /* ── Reset & base ──────────────────────────────── */
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: 'Arial, "Segoe UI", sans-serif';
             background: #f3f4f6;
             color: #212529;
             line-height: 1.6;
             min-height: 100vh;
-            position: relative;
         }
-        
-        /* 模糊背景图 */
+
+                /* 模糊背景图 */
         body::before {
             content: '';
             position: fixed;
@@ -220,6 +293,29 @@ function bc(array $errors, string $field): string {
             z-index: -1;
         }
 
+
+        /* ── Navbar ────────────────────────────────────── */
+        .navbar {
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            background: #333333;
+            padding: 1rem 1.5rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,.25);
+        }
+        .navbar-inner {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: .75rem;
+        }
+        .navbar-inner svg { color: #fff; flex-shrink: 0; }
+        .navbar-title {
+            color: #fff;
+            font-weight: 700;
+            font-size: clamp(.95rem, 2.5vw, 1.1rem);
+            letter-spacing: .05em;
+        }
 
         /* ── Main wrapper ──────────────────────────────── */
         .main-wrap {
@@ -240,12 +336,11 @@ function bc(array $errors, string $field): string {
         .card-header {
             padding: 2rem 2.5rem 1.5rem;
             border-bottom: 4px solid #FF6B00 !important;
-            
         }
         .card-header h2 {
             font-size: clamp(1.4rem, 4vw, 1.75rem);
             font-weight: 700;
-            color: #FF6B00;
+            color: #333333;
         }
         .card-header p {
             margin-top: .35rem;
@@ -359,139 +454,8 @@ function bc(array $errors, string $field): string {
             margin-top: .4rem;
         }
 
-        /* ── Preview container ────────────────────────── */
-        .preview-container {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 15px;
-            margin-top: 15px;
-        }
-        .preview-item {
-            position: relative;
-            width: 100px; height: 100px;
-            border-radius: 8px;
-            overflow: hidden;
-            border: 2px solid #ddd;
-            cursor: pointer;
-            transition: transform 0.2s;
-        }
-        .preview-item:hover {
-            transform: scale(1.05);
-            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-        }
-        .preview-item img {
-            width: 100%; height: 100%;
-            object-fit: cover;
-        }
-        .remove-img {
-            position: absolute;
-            top: 2px; right: 2px;
-            background: rgba(255, 0, 0, 0.8);
-            color: white;
-            border: none;
-            border-radius: 50%;
-            width: 20px; height: 20px;
-            font-size: 12px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 10;
-        }
-
-        /* ── Lightbox styles ──────────────────────────── */
-        .lightbox-modal {
-            display: none;
-            position: fixed;
-            z-index: 2000;
-            padding-top: 50px;
-            left: 0; top: 0;
-            width: 100%; height: 100%;
-            overflow: auto;
-            background-color: rgba(0, 0, 0, 0.9);
-            backdrop-filter: blur(5px);
-        }
-
-        .lightbox-content {
-            position: relative;
-            margin: auto;
-            display: block;
-            width: auto;
-            max-width: 90%;
-            max-height: 85vh;
-            border-radius: 12px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-            animation: zoomIn 0.3s ease;
-        }
-        @keyframes zoomIn { from {transform:scale(0.8); opacity:0;} to {transform:scale(1); opacity:1;} }
-
-        .lightbox-close {
-            position: absolute;
-            top: 15px; right: 35px;
-            color: #f1f1f1;
-            font-size: 40px;
-            font-weight: bold;
-            transition: 0.3s;
-            cursor: pointer;
-            z-index: 2010;
-        }
-        .lightbox-close:hover { color: #FF6B00; transform: rotate(90deg); }
-
-        .lightbox-nav {
-            cursor: pointer;
-            position: absolute;
-            top: 50%;
-            width: auto;
-            padding: 12px 18px;
-            margin-top: -50px;
-            color: rgba(255, 255, 255, 0.8);
-            font-weight: normal;
-            font-size: 24px;
-            -webkit-text-stroke: 0.5px rgba(255, 255, 255, 0.8);
-            transition: 0.3s ease;
-            user-select: none;
-            background-color: rgba(0, 0, 0, 0.2);
-            border: none;
-            z-index: 2010;
-            outline: none;
-            border-radius: 8px;
-        }
-
-        .lightbox-prev { left: 20px; }
-        .lightbox-next { right: 20px; }
-
-        .lightbox-nav:hover {
-            background-color: rgba(255, 107, 0, 0.3);
-            color: #FF6B00;
-            -webkit-text-stroke: 0.5px #FF6B00;
-            transform: scale(1.1);
-        }
-
-        .lightbox-caption-area {
-            text-align: center;
-            color: #ccc;
-            padding: 20px 0;
-            width: 90%;
-            margin: auto;
-        }
-
-        .lightbox-dots-container {
-            display: flex;
-            justify-content: center;
-            gap: 8px;
-            margin-top: 10px;
-        }
-
-        .lightbox-dot {
-            height: 10px; width: 10px;
-            background-color: #bbb;
-            border-radius: 50%;
-            display: inline-block;
-            transition: background-color 0.6s ease;
-            cursor: pointer;
-        }
-
-        .lightbox-dot.active { background-color: #FF6B00; transform: scale(1.2); }
+        /* ── Terms block ───────────────────────────────── */
+        .terms-wrap { margin-top: 1.5rem; }
         .terms-check-row {
             display: flex;
             align-items: flex-start;
@@ -501,7 +465,8 @@ function bc(array $errors, string $field): string {
             border-radius: .5rem;
         }
         .terms-check-row input[type="checkbox"] {
-            width: 1.2rem; height: 1.2rem;
+            width: 1.2rem;
+            height: 1.2rem;
             margin-top: .15rem;
             cursor: pointer;
             accent-color: #FF6B00;
@@ -513,7 +478,8 @@ function bc(array $errors, string $field): string {
             cursor: pointer;
         }
         .terms-toggle {
-            background: none; border: none;
+            background: none;
+            border: none;
             color: #FF6B00;
             font-weight: 600;
             text-decoration: underline;
@@ -551,7 +517,8 @@ function bc(array $errors, string $field): string {
         }
         .terms-panel-header h4 svg { color: #FF6B00; }
         .terms-close {
-            background: none; border: none;
+            background: none;
+            border: none;
             color: #6b7280;
             font-size: .8rem;
             font-weight: 500;
@@ -622,34 +589,107 @@ function bc(array $errors, string $field): string {
             font-size: .875rem;
             color: #6b7280;
         }
-        
-        /* SweetAlert2 自定义按钮颜色 */
-        .swal2-confirm {
-            background-color: #FF6B00 !important;
-        }
+
+/* 🌟 新增：图片放大预览样式 (移植自 add_product.php) */
+.img-zoom-modal {
+    display: none; /* 默认隐藏 */
+    position: fixed;
+    z-index: 10000; /* 确保在最上层 */
+    padding-top: 50px;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0,0,0,0.9); /* 黑色背景 */
+    backdrop-filter: blur(5px); /* 可选：增加背景模糊，更高级 */
+}
+
+.img-zoom-content {
+    margin: auto;
+    display: block;
+    max-width: 90%;
+    max-height: 85vh; /* 限制高度在屏幕内 */
+    animation-name: zoomAnimation;
+    animation-duration: 0.3s;
+    border: 3px solid #fff;
+    border-radius: 8px;
+    object-fit: contain; /* 确保整张图片可见 */
+}
+
+@keyframes zoomAnimation {
+    from {transform:scale(0)}
+    to {transform:scale(1)}
+}
+
+.close-zoom-modal {
+    position: absolute;
+    top: 15px;
+    right: 35px;
+    color: #f1f1f1;
+    font-size: 40px;
+    font-weight: bold;
+    transition: 0.3s;
+    cursor: pointer;
+}
+
+.close-zoom-modal:hover,
+.close-zoom-modal:focus {
+    color: #bbb;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+/* 移动端适配 */
+@media only screen and (max-width: 700px){
+    .img-zoom-content {
+        width: 100%;
+        max-height: 70vh;
+    }
+    .close-zoom-modal {
+        right: 20px;
+        top: 10px;
+    }
+}
+
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 </head>
-
-<?php include '../includes/header.php'; ?>
-
 <body>
 
+<!-- ═══════════════════════ Header ═══════════════════════ -->
+<?php include '../includes/header.php'; ?>
+
+<!-- ═══════════════════════ MAIN ═════════════════════════ -->
 <main class="main-wrap">
     <div class="card">
 
+        <!-- Card header -->
         <div class="card-header">
             <h2>Become Our Partner</h2>
             <p>Join our marketplace and grow your business</p>
         </div>
 
+        <!-- Form body -->
         <div class="form-body">
 
+            <?php
+            // Server-side alerts will be shown via SweetAlert2 (JS rendered below)
+            ?>
 
+            <!-- ════════════════════════════════════════
+                 FORM
+            ════════════════════════════════════════ -->
+            <form id="vendorForm"
+                  method="POST"
+                  action=""
+                  enctype="multipart/form-data"
+                  novalidate>
 
-            <form id="vendorForm" method="POST" action="" enctype="multipart/form-data" novalidate>
-
+                <!-- ── Business name ── -->
                 <div class="form-group">
                     <label class="field-label" for="business_name">
+                        <!-- Building icon -->
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
                              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                              stroke-linejoin="round">
@@ -667,28 +707,32 @@ function bc(array $errors, string $field): string {
                     <?= err($errors, 'business_name') ?>
                 </div>
 
+                <!-- ── Brand name (new) ── -->
                 <div class="form-group">
-                    <label class="field-label" for="business_brand">
+                    <label class="field-label" for="brand">
+                        <!-- Tag icon -->
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
                              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                              stroke-linejoin="round">
-                            <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/>
-                            <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
+                            <path d="M20.59 13.41L11 3 3 11l8.59 8.59a2 2 0 0 0 2.83 0l6.17-6.17a2 2 0 0 0 0-2.83z"/>
+                            <circle cx="7.5" cy="7.5" r="1.5"/>
                         </svg>
-                        Business / Company Name <span class="req">*</span>
+                        Brand Name <span class="req">*</span>
                     </label>
                     <input
-                        class="form-control <?= isset($errors['business_name']) ? 'is-invalid' : '' ?>"
-                        type="text" id="business_name" name="business_name"
-                        value="<?= htmlspecialchars($old['business_name'] ?? '') ?>"
-                        placeholder="e.g., Pro-Kicks Malaysia"
+                        class="form-control <?= isset($errors['brand']) ? 'is-invalid' : '' ?>"
+                        type="text" id="brand" name="brand"
+                        value="<?= htmlspecialchars($old['brand'] ?? '') ?>"
+                        placeholder="e.g., Yonex"
                     />
-                    <?= err($errors, 'business_name') ?>
+                    <?= err($errors, 'brand') ?>
                 </div>
 
+                <!-- ── Email & Phone ── -->
                 <div class="form-row">
                     <div class="form-group">
                         <label class="field-label" for="email">
+                            <!-- Mail icon -->
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
                                  fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                                  stroke-linejoin="round">
@@ -708,6 +752,7 @@ function bc(array $errors, string $field): string {
 
                     <div class="form-group">
                         <label class="field-label" for="phone">
+                            <!-- Phone icon -->
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
                                  fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                                  stroke-linejoin="round">
@@ -719,16 +764,17 @@ function bc(array $errors, string $field): string {
                             class="form-control <?= isset($errors['phone']) ? 'is-invalid' : '' ?>"
                             type="tel" id="phone" name="phone"
                             value="<?= htmlspecialchars($old['phone'] ?? '') ?>"
-                            placeholder="012-345 6789"
                             inputmode="numeric"
-                            maxlength="13" 
+                            placeholder="012-3456789"
                         />
                         <?= err($errors, 'phone') ?>
                     </div>
                 </div>
 
+                <!-- ── Registration number ── -->
                 <div class="form-group">
                     <label class="field-label" for="reg_number">
+                        <!-- FileText icon -->
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
                              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                              stroke-linejoin="round">
@@ -745,14 +791,17 @@ function bc(array $errors, string $field): string {
                         type="text" id="reg_number" name="reg_number"
                         value="<?= htmlspecialchars($old['reg_number'] ?? '') ?>"
                         placeholder="e.g., 202401xxxxxx"
-                        maxlength="12"
                         inputmode="numeric"
+                        maxlength="12" 
+                        minlength="12"
                     />
                     <?= err($errors, 'reg_number') ?>
                 </div>
 
+                <!-- ── Auth document ── -->
                 <div class="form-group">
                     <label class="field-label">
+                        <!-- Upload icon -->
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
                              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                              stroke-linejoin="round">
@@ -760,13 +809,12 @@ function bc(array $errors, string $field): string {
                             <line x1="12" y1="12" x2="12" y2="21"/>
                             <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/>
                         </svg>
-                        Verification Document (SSM / IC) <span class="req">*</span>
+                        Verification Document (SSM) <span class="req">*</span>
                     </label>
-                    <div class="file-zone <?= isset($errors['auth_doc']) ? 'is-invalid' : '' ?>"
-                         id="auth_doc_zone">
-                        <input type="file" id="auth_doc" name="auth_doc"
-                               accept=".pdf,.jpg,.png"
-                               onchange="handleFileSelect(this, 'auth_doc')" />
+                    <div class="file-zone">
+        <input type="file" name="auth_doc" id="auth_doc" accept=".pdf,.jpg,.png" required>
+        
+        <div class="file-text">
                         <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24"
                              fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
                              stroke-linejoin="round" style="display:block;margin:0 auto .75rem">
@@ -774,13 +822,16 @@ function bc(array $errors, string $field): string {
                             <line x1="12" y1="12" x2="12" y2="21"/>
                             <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/>
                         </svg>
-                        <p class="file-label" id="auth_doc_label">Click to upload or drag &amp; drop</p>
-                        <p class="file-hint">Supported formats: PDF, JPG, PNG (Max 2 MB)</p>
-                    </div>
-                    <div class="preview-container" id="preview_auth_doc"></div>
+                        <p>Click or drag file to this area to upload</p>
+            <p style="font-size: 0.8rem; color: #6b7280;">Max 2MB. JPG, PNG or PDF.</p>
+        </div>
+
+        <div class="file-preview" id="preview_auth_doc" style="display: none; margin-top: 10px;"></div>
+    </div>
                     <?= err($errors, 'auth_doc') ?>
                 </div>
 
+                <!-- ══ Bank Details section ══════════════════ -->
                 <div class="section-divider" style="margin-top:1.5rem;">
                     <div class="bar"></div>
                     <h3>Bank Account Details</h3>
@@ -837,8 +888,11 @@ function bc(array $errors, string $field): string {
                     </div>
                 </div>
 
+
+                <!-- ── Bank statement ── -->
                 <div class="form-group">
                     <label class="field-label">
+                        <!-- FileText icon -->
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
                              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                              stroke-linejoin="round">
@@ -850,11 +904,10 @@ function bc(array $errors, string $field): string {
                         </svg>
                         Bank Statement Header <span class="req">*</span>
                     </label>
-                    <div class="file-zone <?= isset($errors['bank_statement']) ? 'is-invalid' : '' ?>"
-                         id="bank_statement_zone">
-                        <input type="file" id="bank_statement" name="bank_statement"
-                               accept=".pdf,.jpg,.png"
-                               onchange="handleFileSelect(this, 'bank_statement')" />
+                    <div class="file-zone">
+        <input type="file" name="bank_statement" id="bank_statement" accept=".pdf,.jpg,.png" required>
+        
+        <div class="file-text">
                         <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24"
                              fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
                              stroke-linejoin="round" style="display:block;margin:0 auto .75rem">
@@ -862,15 +915,18 @@ function bc(array $errors, string $field): string {
                             <line x1="12" y1="12" x2="12" y2="21"/>
                             <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/>
                         </svg>
-                        <p class="file-label" id="bank_statement_label">Click to upload or drag &amp; drop</p>
-                        <p class="file-hint">Upload statement showing company name &amp; account number</p>
-                    </div>
-                    <div class="preview-container" id="preview_bank_statement"></div>
+                        <p>Click or drag file to this area to upload</p>
+            <p style="font-size: 0.8rem; color: #6b7280;">Max 2MB. JPG, PNG or PDF.</p>
+        </div>
+
+        <div class="file-preview" id="preview_bank_statement" style="display: none; margin-top: 10px;"></div>
                     <?= err($errors, 'bank_statement') ?>
                 </div>
 
+                <!-- ── Warehouse address ── -->
                 <div class="form-group">
                     <label class="field-label" for="address">
+                        <!-- MapPin icon -->
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
                              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                              stroke-linejoin="round">
@@ -887,6 +943,7 @@ function bc(array $errors, string $field): string {
                     <?= err($errors, 'address') ?>
                 </div>
 
+                <!-- ── Terms & Conditions ── -->
                 <div class="terms-wrap">
                     <div class="terms-check-row">
                         <input type="checkbox" id="agreed_terms" name="agreed_terms"
@@ -901,9 +958,11 @@ function bc(array $errors, string $field): string {
                     </div>
                     <?= err($errors, 'agreed_terms') ?>
 
+                    <!-- Terms content panel -->
                     <div class="terms-panel" id="termsPanel">
                         <div class="terms-panel-header">
                             <h4>
+                                <!-- FileCheck icon -->
                                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
                                      fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                                      stroke-linejoin="round">
@@ -927,7 +986,9 @@ function bc(array $errors, string $field): string {
                     </div>
                 </div>
 
+                <!-- ── Submit button ── -->
                 <button type="submit" class="btn-submit" id="submitBtn">
+                    <!-- CheckCircle2 icon -->
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
                          fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                          stroke-linejoin="round">
@@ -937,148 +998,39 @@ function bc(array $errors, string $field): string {
                     Submit Application
                 </button>
 
-            </form>
-        </div>
-    </div>
+            </form><!-- /form -->
+        </div><!-- /form-body -->
+    </div><!-- /card -->
 
     <p class="footer-note">
         After submission, we will review your application within 2–3 business days and notify you via email.
     </p>
 </main>
 
-<div id="lightboxModal" class="lightbox-modal">
-    <span class="lightbox-close" onclick="closeLightbox()">&times;</span>
-    <div style="position:relative; display:flex; align-items:center; justify-content:center; min-height:85vh;">
-        <button type="button" class="lightbox-nav lightbox-prev" onclick="changeLightboxSlide(-1)">&#10094;</button>
-        <img class="lightbox-content" id="lightboxImage">
-        <button type="button" class="lightbox-nav lightbox-next" onclick="changeLightboxSlide(1)">&#10095;</button>
-    </div>
-    <div class="lightbox-caption-area">
-        <div class="fw-bold fs-5 text-white" id="lightboxCaption">Document</div>
-        <div id="lightboxDots" class="lightbox-dots-container"></div>
-    </div>
+<div id="imageZoomModal" class="img-zoom-modal">
+    <span class="close-zoom-modal">&times;</span>
+    <img class="img-zoom-content" id="imgModalSrc">
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-
+<!-- ═══════════════════════ JAVASCRIPT ══════════════════ -->
 <script>
-    // 如果 PHP 处理成功，弹出 SweetAlert2 成功提示
-    <?php if ($success): ?>
-        window.addEventListener('DOMContentLoaded', () => {
-            Swal.fire({
-                title: 'Submitted Successfully!',
-                text: 'Thank you for applying. We will review your application within 2–3 business days and notify you via email.',
-                icon: 'success',
-                confirmButtonText: 'Ok'
-            });
-        });
-    <?php endif; ?>
-
-    const fileManagers = {};
-    ['auth_doc', 'bank_statement'].forEach(field => {
-        fileManagers[field] = new DataTransfer();
-    });
-
-    let currentLightboxIndex = 0;
-    let currentLightboxField = '';
-    let currentLightboxImages = [];
-
-    function handleFileSelect(input, field) {
-        const files = input.files;
-        const previewContainer = document.getElementById(`preview_${field}`);
-        if (files.length === 0) return;
-        previewContainer.innerHTML = '';
-        for (let i = 0; i < files.length; i++) {
-            const file = files[i];
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                const previewItem = document.createElement('div');
-                previewItem.className = 'preview-item';
-                previewItem.innerHTML = `
-                    <img src="${e.target.result}" onclick="openLightbox('${field}', this.parentElement)">
-                    <button type="button" class="remove-img" onclick="removeFile('${field}', this)">×</button>
-                `;
-                previewContainer.appendChild(previewItem);
-            };
-            reader.readAsDataURL(file);
+    // ── Update file zone label when a file is chosen ──────
+    function updateFileLabel(input, labelId) {
+        const label = document.getElementById(labelId);
+        if (input.files && input.files[0]) {
+            label.textContent = input.files[0].name;
+        } else {
+            label.textContent = 'Click to upload or drag & drop';
         }
     }
 
-    function removeFile(field, btn) {
-        const previewContainer = document.getElementById(`preview_${field}`);
-        const finalInput = document.getElementById(field);
-        const items = Array.from(previewContainer.querySelectorAll('.preview-item'));
-        const currentIndex = items.indexOf(btn.parentNode);
-        const dt = new DataTransfer();
-        const { files } = fileManagers[field];
-        for (let i = 0; i < files.length; i++) {
-            if (i !== currentIndex) dt.items.add(files[i]);
-        }
-        fileManagers[field] = dt;
-        finalInput.files = dt.files;
-        btn.parentNode.remove();
-    }
-
-    function openLightbox(field, clickedElement) {
-        const previewContainer = document.getElementById(`preview_${field}`);
-        const allPreviewItems = Array.from(previewContainer.querySelectorAll('.preview-item'));
-        currentLightboxIndex = allPreviewItems.indexOf(clickedElement);
-        currentLightboxField = field;
-        currentLightboxImages = allPreviewItems.map(item => item.querySelector('img').src);
-        if (currentLightboxImages.length === 0) return;
-        document.getElementById('lightboxModal').style.display = "block";
-        document.body.style.overflow = 'hidden';
-        updateLightboxDOM();
-    }
-
-    function closeLightbox() {
-        document.getElementById('lightboxModal').style.display = "none";
-        document.body.style.overflow = 'auto';
-    }
-
-    function updateLightboxDOM() {
-        const imgElement = document.getElementById('lightboxImage');
-        const captionElement = document.getElementById('lightboxCaption');
-        const dotsContainer = document.getElementById('lightboxDots');
-        imgElement.src = currentLightboxImages[currentLightboxIndex];
-        captionElement.innerText = `${currentLightboxField.toUpperCase()} (${currentLightboxIndex + 1} / ${currentLightboxImages.length})`;
-        const prevBtn = document.querySelector('.lightbox-prev');
-        const nextBtn = document.querySelector('.lightbox-next');
-        prevBtn.style.display = nextBtn.style.display = (currentLightboxImages.length <= 1) ? 'none' : 'block';
-        dotsContainer.innerHTML = '';
-        currentLightboxImages.forEach((_, i) => {
-            const dot = document.createElement('span');
-            dot.className = `lightbox-dot ${i === currentLightboxIndex ? 'active' : ''}`;
-            dot.setAttribute('onclick', `setLightboxSlide(${i})`);
-            dotsContainer.appendChild(dot);
-        });
-    }
-
-    function changeLightboxSlide(n) {
-        currentLightboxIndex += n;
-        if (currentLightboxIndex >= currentLightboxImages.length) currentLightboxIndex = 0;
-        if (currentLightboxIndex < 0) currentLightboxIndex = currentLightboxImages.length - 1;
-        updateLightboxDOM();
-    }
-
-    function setLightboxSlide(n) {
-        currentLightboxIndex = n;
-        updateLightboxDOM();
-    }
-
-    document.addEventListener('keydown', function(e) {
-        if (document.getElementById('lightboxModal').style.display === 'block') {
-            if (e.key === 'ArrowLeft') changeLightboxSlide(-1);
-            if (e.key === 'ArrowRight') changeLightboxSlide(1);
-            if (e.key === 'Escape') closeLightbox();
-        }
-    });
-
+    // ── Toggle Terms panel ────────────────────────────────
     function toggleTerms() {
         const panel = document.getElementById('termsPanel');
         panel.classList.toggle('open');
     }
 
+    // ── Sync submit button state ──────────────────────────
     function syncSubmitBtn() {
         const checked = document.getElementById('agreed_terms').checked;
         const btn = document.getElementById('submitBtn');
@@ -1086,23 +1038,127 @@ function bc(array $errors, string $field): string {
         btn.classList.toggle('active', checked);
     }
 
-    document.getElementById('phone').addEventListener('input', function (e) {
-        let value = e.target.value.replace(/\D/g, '');
-        // 011 numbers can be 11 digits (3-4-4). Other 01x numbers should be 10 digits (3-3-4).
-        const is011 = value.startsWith('011');
-        const maxLen = is011 ? 11 : 10;
-        if (value.length > maxLen) value = value.slice(0, maxLen);
-        let formattedValue = '';
-        if (is011) {
-            if (value.length > 3) formattedValue = value.slice(0, 3) + '-' + value.slice(3, 7);
-            else formattedValue = value;
-            if (value.length > 7) formattedValue += ' ' + value.slice(7);
-        } else {
-            if (value.length > 3) formattedValue = value.slice(0, 3) + '-' + value.slice(3, 6);
-            else formattedValue = value;
-            if (value.length > 6) formattedValue += ' ' + value.slice(6);
+
+
+    function updateBankAccHint() {
+        const sel = document.getElementById('bank_name');
+        const hint = document.getElementById('bankAccHint');
+        if (!sel || !hint) return;
+        const expected = bankLengths[sel.value];
+        hint.textContent = expected ? `Expected ${expected} digits` : '';
+    }
+
+    // Update hint when bank selection changes
+    document.addEventListener('DOMContentLoaded', () => {
+        const bn = document.getElementById('bank_name');
+        if (bn) bn.addEventListener('change', updateBankAccHint);
+    });
+
+    // ── Client-side validation (progressive enhancement) ──
+    document.getElementById('vendorForm').addEventListener('submit', function(e) {
+        let valid = true;
+
+        const checks = [
+            { id: 'brand',    test: v => v.trim() !== '',   msg: 'Please enter your brand name.' },
+            { id: 'business_name', test: v => v.trim() !== '',   msg: 'Please enter your business name.' },
+            { id: 'email',         test: v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v), msg: 'Please enter a valid email address.' },
+            { id: 'phone',         test: v => v.trim() !== '',   msg: 'Please enter your contact number.' },
+            { id: 'reg_number',    test: v => v.trim() !== '',   msg: 'Please enter your registration number.' },
+            { id: 'bank_name',     test: v => v !== '',          msg: 'Please select a bank.' },
+            { id: 'bank_acc_no',   test: v => v.trim() !== '' && /^\d+$/.test(v.trim()), msg: 'Please enter a valid account number (digits only).' },
+            { id: 'address',       test: v => v.trim() !== '',   msg: 'Please enter your warehouse address.' },
+        ];
+
+        // Clear previous inline errors
+        document.querySelectorAll('.js-err').forEach(el => el.remove());
+        document.querySelectorAll('.form-control').forEach(el => el.classList.remove('is-invalid'));
+
+        checks.forEach(({ id, test, msg }) => {
+            const el = document.getElementById(id);
+            if (!test(el.value)) {
+                el.classList.add('is-invalid');
+                const err = document.createElement('div');
+                err.className = 'error-msg js-err';
+                err.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/>
+                    <line x1="12" y1="16" x2="12.01" y2="16"/></svg> ${msg}`;
+                el.parentNode.insertBefore(err, el.nextSibling);
+                valid = false;
+            }
+        });
+
+        // File checks
+        ['auth_doc', 'bank_statement'].forEach(id => {
+            const el = document.getElementById(id);
+            const zone = el.closest('.file-zone');
+            if (!el.files || el.files.length === 0) {
+                zone.classList.add('is-invalid');
+                const msgs = { auth_doc: 'Please upload a verification document.', bank_statement: 'Please upload your bank statement.' };
+                const err = document.createElement('div');
+                err.className = 'error-msg js-err';
+                err.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/>
+                    <line x1="12" y1="16" x2="12.01" y2="16"/></svg> ${msgs[id]}`;
+                zone.parentNode.insertBefore(err, zone.nextSibling);
+                valid = false;
+            }
+        });
+
+        // ── Client-side bank account length validation ──
+        const bankSel = document.getElementById('bank_name');
+        const accEl = document.getElementById('bank_acc_no');
+        if (bankSel && accEl) {
+            const expected = bankLengths[bankSel.value];
+            if (expected && accEl.value.trim().length !== expected) {
+                accEl.classList.add('is-invalid');
+                const err = document.createElement('div');
+                err.className = 'error-msg js-err';
+                err.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/>
+                    <line x1="12" y1="16" x2="12.01" y2="16"/></svg> Account number must be ${expected} digits for ${bankSel.value}.`;
+                accEl.parentNode.insertBefore(err, accEl.nextSibling);
+                Swal.fire({icon:'warning', title:'Invalid account number', text:`Account number must be ${expected} digits for ${bankSel.value}.`});
+                valid = false;
+            }
         }
-        e.target.value = formattedValue;
+
+        if (!document.getElementById('agreed_terms').checked) {
+            valid = false;
+            Swal.fire({icon:'warning', title:'Terms required', text:'Please agree to the Terms & Conditions before submitting.'});
+        }
+
+        if (!valid) e.preventDefault();
+    });
+
+    // ── Init on page load ────────────────────────────────
+    window.addEventListener('DOMContentLoaded', () => {
+        syncSubmitBtn();
+        // Re-open terms if server returned errors after T&C was checked
+        <?php if (!empty($errors) && !empty($old['agreed_terms'])): ?>
+        // Keep terms visible if needed
+        <?php endif; ?>
+            <?php if ($success): ?>
+            Swal.fire({
+                icon: 'success',
+                title: 'Application Submitted Successfully!',
+                html: 'Thank you for applying. We will review your application within 2–3 business days and notify you via email.'
+            });
+            <?php endif; ?>
+
+                
+            <?php if (!empty($errors) && !$success): ?>
+            (function(){
+                let errHtml = '<ul style="text-align:left;margin:0;padding-left:1.2rem">';
+                <?php foreach ($errors as $m): ?>
+                errHtml += '<li><?= htmlspecialchars($m, ENT_QUOTES) ?>'; errHtml += '</li>';
+                <?php endforeach; ?>
+                errHtml += '</ul>';
+                Swal.fire({icon:'error', title:'Errors', html: errHtml});
+            })();
+            <?php endif; ?>
     });
 
     // --- 银行账号长度自动限制脚本 ---
@@ -1151,76 +1207,173 @@ function bc(array $errors, string $field): string {
         this.value = this.value.replace(/\D/g, ''); // 强制删除非数字字符
     });
 
-    document.getElementById('vendorForm').addEventListener('submit', function(e) {
-        let valid = true;
-        const checks = [
-            { id: 'business_name', test: v => v.trim() !== '',   msg: 'Please enter your business name.' },
-            { id: 'email',         test: v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v), msg: 'Please enter a valid email address.' },
-            { id: 'phone',         test: v => v.trim() !== '',   msg: 'Please enter your contact number.' },
-            { id: 'reg_number',    test: v => v.trim() !== '',   msg: 'Please enter your registration number.' },
-            { id: 'bank_name',     test: v => v !== '',          msg: 'Please select a bank.' },
-            { id: 'bank_acc_no',   test: v => {const bank = document.getElementById('bank_name').value; const cleanV = v.trim();
-            if (!bank || !bankLengths[bank]) return cleanV !== ''; // 如果没选银行，只检查非空
-            return cleanV.length === bankLengths[bank]; // 检查长度是否完全匹配
-            }, 
-            msg: 'Please enter the correct account number length for the selected bank.' 
-            },
-            { id: 'address',       test: v => v.trim() !== '',   msg: 'Please enter your warehouse address.' },
-        ];
+    // --- SSM (reg_number) 纯数字限制脚本 ---
+const regNumberInput = document.getElementById('reg_number');
 
-        document.querySelectorAll('.js-err').forEach(el => el.remove());
-        document.querySelectorAll('.form-control').forEach(el => el.classList.remove('is-invalid'));
+if (regNumberInput) {
+    regNumberInput.addEventListener('input', function(e) {
+        // 1. 强制删除所有非数字字符 (字母、符号、空格等都会被清空)
+        this.value = this.value.replace(/\D/g, '');
+        
+        // 2. 二次保险：如果超出12位则截断
+        if (this.value.length > 12) {
+            this.value = this.value.slice(0, 12);
+        }
+    });
+}
 
-        checks.forEach(({ id, test, msg }) => {
-            const el = document.getElementById(id);
-            if (!test(el.value)) {
-                el.classList.add('is-invalid');
-                const err = document.createElement('div');
-                err.className = 'error-msg js-err';
-                err.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/>
-                    <line x1="12" y1="16" x2="12.01" y2="16"/></svg> ${msg}`;
-                el.parentNode.insertBefore(err, el.nextSibling);
-                valid = false;
-            }
-        });
+// --- 电话号码智能格式化脚本 ---
+const phoneInput = document.getElementById('phone'); // 确保 ID 对应你的 input
+const form = phoneInput ? phoneInput.closest('form') : null;
 
-        ['auth_doc', 'bank_statement'].forEach(id => {
-            const el = document.getElementById(id);
-            const zone = el.closest('.file-zone');
-            if (!el.files || el.files.length === 0) {
-                zone.classList.add('is-invalid');
-                const msgs = { auth_doc: 'Please upload verification document.', bank_statement: 'Please upload bank statement.' };
-                const err = document.createElement('div');
-                err.className = 'error-msg js-err';
-                err.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/>
-                    <line x1="12" y1="16" x2="12.01" y2="16"/></svg> ${msgs[id]}`;
-                zone.parentNode.insertBefore(err, zone.nextSibling);
-                valid = false;
-            }
-        });
+if (phoneInput) {
+    // 1. 当用户点击输入框时，如果是空的，自动填入 01
+    phoneInput.addEventListener('focus', function() {
+        if (this.value === '') {
+            this.value = '01';
+        }
+    });
 
-        if (!document.getElementById('agreed_terms').checked) {
-            valid = false;
-            // 替换 alert 为 SweetAlert2
-            Swal.fire({
-                title: 'Notice',
-                text: 'Please agree to the Terms & Conditions before submitting.',
-                icon: 'warning',
-                confirmButtonColor: '#FF6B00'
-            });
+    // 2. 监听输入过程，实时格式化
+    phoneInput.addEventListener('input', function(e) {
+        // 提取纯数字 (移除所有非数字字符)
+        let val = this.value.replace(/\D/g, '');
+
+        // 容错处理：如果用户粘贴了 601X，自动转成 01X
+        if (val.startsWith('601')) {
+            val = val.substring(1);
         }
 
-        if (!valid) e.preventDefault();
+        // 强制开头必须是 01
+        if (val.length > 0) {
+            if (!val.startsWith('01')) {
+                if (val.startsWith('1')) val = '0' + val; // 比如直接按1 -> 01
+                else val = '01' + val; // 按了其他数字，直接补01在前面
+            }
+        }
+
+        let formatted = '';
+        
+        // 当长度超过2时 (即 01X...)
+        if (val.length > 2) {
+            // 判断第三个数字是不是 1 (011)
+            if (val[2] === '1') {
+                // 格式：011-XXXX XXXX (最长 11 位数字)
+                val = val.substring(0, 11);
+                if (val.length > 7) {
+                    formatted = val.substring(0, 3) + '-' + val.substring(3, 7) + ' ' + val.substring(7);
+                } else if (val.length > 3) {
+                    formatted = val.substring(0, 3) + '-' + val.substring(3);
+                } else {
+                    formatted = val;
+                }
+            } else {
+                // 格式：01X-XXX XXXX (除了011，其余最长 10 位数字)
+                val = val.substring(0, 10);
+                if (val.length > 6) {
+                    formatted = val.substring(0, 3) + '-' + val.substring(3, 6) + ' ' + val.substring(6);
+                } else if (val.length > 3) {
+                    formatted = val.substring(0, 3) + '-' + val.substring(3);
+                } else {
+                    formatted = val;
+                }
+            }
+        } else {
+            formatted = val; // 只有 0 或 01 的情况
+        }
+
+        this.value = formatted;
     });
 
-    window.addEventListener('DOMContentLoaded', () => {
-        syncSubmitBtn();
+    // 3. 处理 Backspace (如果只剩 01，允许用户按 Backspace 完全清空)
+    phoneInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Backspace' && this.value === '01') {
+            this.value = '';
+            e.preventDefault();
+        }
     });
+}
+
+// 4. 提交表单时，清洗格式符 (-) 和空格
+if (form && phoneInput) {
+    form.addEventListener('submit', function() {
+        // 在发往 PHP 之前，瞬间把值变回纯数字
+        phoneInput.value = phoneInput.value.replace(/\D/g, '');
+    });
+}
+
+// --- 文件上传预览脚本 ---
+function setupFilePreview(inputId, previewId) {
+    const fileInput = document.getElementById(inputId);
+    const previewContainer = document.getElementById(previewId);
+    
+    if (!fileInput || !previewContainer) return;
+
+    // 找到当前 file-zone 里的提示文字 (用来在预览时隐藏文字)
+    const fileZone = fileInput.closest('.file-zone');
+    const textContainer = fileZone.querySelector('.file-text');
+
+    fileInput.addEventListener('change', function() {
+        const file = this.files[0];
+        
+        // 每次重新选择文件时，清空旧的预览
+        previewContainer.innerHTML = '';
+        
+        if (file) {
+            // 显示预览区，隐藏原本的提示文字
+            previewContainer.style.display = 'block';
+            if (textContainer) textContainer.style.display = 'none';
+
+            // 1. 如果是图片 (JPG, PNG) -> 显示照片预览
+            if (file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const img = document.createElement('img');
+                    img.src = e.target.result;
+                    img.style.maxWidth = '100%';
+                    img.style.maxHeight = '200px'; // 限制预览高度
+                    img.style.borderRadius = '8px';
+                    img.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
+                    img.style.objectFit = 'contain';
+                    previewContainer.appendChild(img);
+                }
+                reader.readAsDataURL(file);
+            } 
+            // 2. 如果是 PDF -> 显示 PDF 图标和文件名
+            else if (file.type === 'application/pdf') {
+                previewContainer.innerHTML = `
+                    <div style="padding: 10px; background: #fff; border-radius: 8px; border: 1px solid #e5e7eb; display: inline-block;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#DC3545" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom: 5px;">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="16" y1="13" x2="8" y2="13"></line>
+                            <line x1="16" y1="17" x2="8" y2="17"></line>
+                            <polyline points="10 9 9 9 8 9"></polyline>
+                        </svg>
+                        <p style="margin: 0; font-size: 0.9rem; color: #333; font-weight: 600; word-break: break-all;">${file.name}</p>
+                        <p style="margin: 0; font-size: 0.8rem; color: #666;">${(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                    </div>
+                `;
+            }
+            // 3. 其他不支持的文件类型
+            else {
+                previewContainer.innerHTML = `<p style="color: #DC3545; font-size: 0.9rem;">Unsupported file format.</p>`;
+            }
+        } else {
+            // 如果用户取消选择文件，恢复原状
+            previewContainer.style.display = 'none';
+            if (textContainer) textContainer.style.display = 'block';
+        }
+    });
+}
+
+// 激活两个上传框的预览功能
+setupFilePreview('auth_doc', 'preview_auth_doc');
+setupFilePreview('bank_statement', 'preview_bank_statement');
+
 </script>
+
+
 </body>
 </html>
-<?php require '../includes/footer.php'; ?>
+<?php include '../includes/footer.php'; ?>
