@@ -636,6 +636,5 @@ $where_clause = count($where_clauses) > 0 ? "WHERE " . implode(" AND ", $where_c
         window.addEventListener('DOMContentLoaded', fillColor);
     }
 </script>
-
 </body>
 </html>
