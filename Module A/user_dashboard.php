@@ -249,7 +249,8 @@ include '../includes/header.php';
 
 <style>
 :root { --brand-orange: #FF6B00; }
-body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; }
+body { background-color: #F8F9FA; font-family: 'Segoe UI', Arial, sans-serif; }
+.card, .table, .form-control, .form-select, .nav-tabs .nav-link { font-family: 'Segoe UI', Arial, sans-serif; }
 .card { border: none; border-radius: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); background: #fff; }
 .profile-img-large { 
     width: 150px; height: 150px; 
@@ -466,7 +467,7 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
                                                     <span class="text-dark">ORD#<?php echo sprintf("%06d", $row['Order_Id']); ?></span>
                                                 </td>
                                                 <td><?php echo date("Y-m-d", strtotime($row['Order_Date'])); ?></td>
-                                                <td><?php echo date("h:i A", strtotime($row['Order_Date'])); ?></td>
+                                                <td class="trans-time">--</td>
                                                 <td>RM <?php echo number_format($row['Order_Amount'] ?? 0, 2); ?></td>
                                                 <td>
                                                     <span class="badge rounded-pill <?php echo $badge_color; ?> px-3 py-2">
@@ -474,7 +475,7 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
                                                     </span>
                                                 </td>
                                                 <td class="text-end">
-                                                    <button onclick="showItemPopup('<?php echo $row['Order_Id']; ?>')" class="btn btn-sm btn-outline-dark rounded-pill px-3">Details</button>
+                                                    <a href="order_view.php?order_id=<?php echo (int)$row['Order_Id']; ?>" class="btn btn-sm btn-outline-dark rounded-pill px-3">View Details</a>
                                                 </td>
                                             </tr>
                                         <?php endwhile; ?>
@@ -634,8 +635,17 @@ body { background-color: #F8F9FA; font-family: 'Plus Jakarta Sans', sans-serif; 
         clockEl.innerText = now.toLocaleTimeString('en-US', { hour12: true });
         dateEl.innerText = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
     }
+
+    function updateTransactionTimes() {
+        document.querySelectorAll('.trans-time').forEach(el => {
+            el.textContent = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+        });
+    }
+
     setInterval(updateClock, 1000);
+    setInterval(updateTransactionTimes, 1000);
     updateClock();
+    updateTransactionTimes();
 
     // 密码强度的前端实时验证交互
     const newPassInput = document.getElementById('newPassInput');
