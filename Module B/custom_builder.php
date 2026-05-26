@@ -141,6 +141,103 @@ $color_names = [
     .btn-checkout { width: 100%; background: #111; color: #fff; border: none; padding: 18px; font-weight: bold; font-size: 16px; border-radius: 40px; cursor: pointer; transition: 0.3s; }
     .btn-checkout:hover { background: #333; transform: translateY(-2px); }
 
+    .price-summary-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+    .price-display-group { position: relative; display: inline-flex; align-items: center; gap: 8px; }
+    .price-info-icon {
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        border: 1px solid #ddd;
+        background: #fff;
+        color: #333;
+        font-weight: 900;
+        font-size: 12px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: help;
+        user-select: none;
+        transition: all 0.2s ease;
+    }
+    .price-display-group:hover .price-info-icon,
+    .price-display-group:focus-within .price-info-icon {
+        background: #111;
+        color: #fff;
+        border-color: #111;
+    }
+    .price-info-popover {
+        position: absolute;
+        right: 0;
+        top: calc(100% + 10px);
+        width: 250px;
+        padding: 12px 14px;
+        background: rgba(255, 255, 255, 0.98);
+        border: 1px solid #eee;
+        border-radius: 14px;
+        box-shadow: 0 18px 40px rgba(0, 0, 0, 0.12);
+        z-index: 20;
+        opacity: 0;
+        pointer-events: none;
+        transform: translateY(-4px);
+        transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+    .price-display-group:hover .price-info-popover,
+    .price-display-group:focus-within .price-info-popover {
+        opacity: 1;
+        pointer-events: auto;
+        transform: translateY(0);
+    }
+    .price-breakdown-title {
+        font-size: 12px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #777;
+        margin-bottom: 10px;
+    }
+    .price-breakdown-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 14px;
+        font-size: 13px;
+        color: #333;
+        margin-bottom: 8px;
+    }
+    .price-breakdown-row:last-child {
+        margin-bottom: 0;
+    }
+    .price-breakdown-row.total-row {
+        margin-top: 10px;
+        padding-top: 10px;
+        border-top: 1px solid #eee;
+        font-weight: 800;
+    }
+
+    .ai-input-wrapper { display: flex; gap: 8px; align-items: center; }
+    .ai-tag-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+    .ai-tag-btn {
+        border: 1px solid #e5e5e5;
+        background: linear-gradient(135deg, #ffffff, #f7f7f7);
+        color: #111;
+        border-radius: 999px;
+        padding: 10px 12px;
+        font-size: 12px;
+        font-weight: 800;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        text-align: left;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+    }
+    .ai-tag-btn:hover {
+        border-color: var(--primary-green);
+        color: var(--primary-green);
+        transform: translateY(-1px);
+    }
+    .ai-tag-btn:focus-visible {
+        outline: 2px solid var(--primary-green);
+        outline-offset: 2px;
+    }
+
     /* --- 增强版教学系统样式 --- */
 /* --- 顶级沉浸式教学系统 --- */
 #tutorial-overlay {
@@ -430,9 +527,15 @@ $color_names = [
             </div> </div> </div> <div class="config-panel">
         <div class="fixed-section ai-header">
              <p class="section-title" style="color: #008060;"><i class="bi bi-magic"></i> AI Dream Generator</p>
-            <div style="display: flex; gap: 8px;">
+            <div class="ai-input-wrapper">
                 <input type="text" id="aiStyleInput" class="input-field" placeholder="e.g. Cyberpunk 2077..." style="flex: 1; height: 40px; margin-bottom: 0;">
                 <button type="button" class="nav-btn active" id="aiGenBtn" onclick="generateAIDesign()" style="width: 60px;">Generate</button>
+            </div>
+            <div class="ai-tag-grid">
+                <button type="button" class="ai-tag-btn" onclick="applyInspirationTag('Cyberpunk')">#赛博朋克</button>
+                <button type="button" class="ai-tag-btn" onclick="applyInspirationTag('Harajuku Retro')">#复古原宿</button>
+                <button type="button" class="ai-tag-btn" onclick="applyInspirationTag('Minimalist')">#极简主义</button>
+                <button type="button" class="ai-tag-btn" onclick="applyInspirationTag('Volcanic Lava')">#火山口熔岩</button>
             </div>
         </div>
 
@@ -463,9 +566,27 @@ $color_names = [
         </div>
 
         <div class="builder-footer">
-            <div class="d-flex justify-content-between align-items-center mb-3">
+            <div class="price-summary-row mb-3">
                 <span class="fw-bold">Total Price</span>
-                <span class="h4 fw-bold mb-0" id="totalPriceDisplay">RM 829.00</span>
+                <div class="price-display-group">
+                    <span class="h4 fw-bold mb-0" id="totalPriceDisplay">RM 829.00</span>
+                    <span class="price-info-icon" tabindex="0" aria-label="Price breakdown">i</span>
+                    <div class="price-info-popover" id="priceInfoPopover" role="tooltip">
+                        <div class="price-breakdown-title">Price Breakdown</div>
+                        <div class="price-breakdown-row">
+                            <span id="basePriceLabel">Base Price</span>
+                            <span id="basePriceLine">RM 829.00</span>
+                        </div>
+                        <div class="price-breakdown-row" id="materialBreakdownRow" style="display: none;">
+                            <span id="materialNameLine">Material Upgrade</span>
+                            <span id="materialSurchargeLine">RM 0.00</span>
+                        </div>
+                        <div class="price-breakdown-row total-row">
+                            <span>Total</span>
+                            <span id="breakdownTotalLine">RM 829.00</span>
+                        </div>
+                    </div>
+                </div>
             </div>
             <button type="button" class="btn-checkout" onclick="saveDesign(event)">SAVE DESIGN</button>
         </div>
@@ -491,23 +612,51 @@ $color_names = [
 
 const MATERIAL_SURCHARGES = <?php echo json_encode($MATERIAL_SURCHARGES); ?>;
 const BASE_PRICE = <?php echo BASE_CUSTOM_PRICE; ?>;
+const MATERIAL_DETAIL_LABELS = {
+    '../includes/models/textures/leather_normal.jpg': 'Premium Leather',
+    '../includes/models/textures/jersey_melange_normal.jpg': 'Technical Jersey',
+    '../includes/models/textures/corrugated_iron_normal.jpg': 'Tech Mesh',
+    '../includes/models/textures/crepe_satin_normal.jpg': 'Crepe Satin',
+    '../includes/models/textures/fabric_pattern_07_normal.jpg': 'Textured Fabric',
+    '../includes/models/textures/concrete_tile_facade_normal.jpg': 'Concrete Tile Finish'
+};
 
 function updateTotalPriceUI() {
     let currentSurcharge = 0;
+    let materialLabel = 'Base Material';
     const upperTexture = currentSelections['Outupper'].texture;
     if (upperTexture && MATERIAL_SURCHARGES[upperTexture]) {
         currentSurcharge = MATERIAL_SURCHARGES[upperTexture];
+        materialLabel = MATERIAL_DETAIL_LABELS[upperTexture] || 'Premium Upper Material';
     }
     const finalTotal = BASE_PRICE + currentSurcharge;
-    
-    // 更新 DOM 显示
+
     const displayEl = document.getElementById('totalPriceDisplay');
+    const basePriceLine = document.getElementById('basePriceLine');
+    const materialBreakdownRow = document.getElementById('materialBreakdownRow');
+    const materialNameLine = document.getElementById('materialNameLine');
+    const materialSurchargeLine = document.getElementById('materialSurchargeLine');
+    const breakdownTotalLine = document.getElementById('breakdownTotalLine');
+
     if (displayEl) {
         displayEl.innerText = `RM ${finalTotal.toFixed(2)}`;
-        
-        // 增加一个微小的动画反馈效果
         displayEl.style.transition = 'color 0.3s';
         displayEl.style.color = currentSurcharge > 0 ? 'var(--primary-green)' : '#000';
+    }
+
+    if (basePriceLine) {
+        basePriceLine.innerText = `RM ${BASE_PRICE.toFixed(2)}`;
+    }
+
+    if (materialBreakdownRow && materialNameLine && materialSurchargeLine && breakdownTotalLine) {
+        if (currentSurcharge > 0) {
+            materialBreakdownRow.style.display = 'flex';
+            materialNameLine.innerText = materialLabel;
+            materialSurchargeLine.innerText = `RM ${currentSurcharge.toFixed(2)}`;
+        } else {
+            materialBreakdownRow.style.display = 'none';
+        }
+        breakdownTotalLine.innerText = `RM ${finalTotal.toFixed(2)}`;
     }
 }
 
@@ -792,6 +941,15 @@ async function executeSave(targetId) {
                 });
             });
         }, { once: true });
+    }
+
+    function applyInspirationTag(tag) {
+        const input = document.getElementById('aiStyleInput');
+        if (!input) return;
+
+        input.value = tag;
+        input.focus();
+        input.select();
     }
 
     async function generateAIDesign() {

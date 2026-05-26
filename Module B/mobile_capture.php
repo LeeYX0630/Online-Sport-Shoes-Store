@@ -225,9 +225,15 @@ async function startCamera() {
         function takePhotoBlob() {
             return new Promise((resolve) => {
                 const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
-                canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                ctx.save();
+                ctx.filter = 'contrast(1.4) brightness(1.1)';
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                ctx.restore();
+
                 canvas.toBlob((blob) => { resolve(blob); }, 'image/jpeg', 0.95);
             });
         }

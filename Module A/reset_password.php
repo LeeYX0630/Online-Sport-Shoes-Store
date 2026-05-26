@@ -73,8 +73,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && $token_valid) {
 
             session_unset();
             session_destroy();
-
-            header("refresh:4;url=login.php");
+            
+            // 注释掉原有的 PHP 强制刷新，改用下方的 SweetAlert 处理跳转，体验更佳
+            // header("refresh:4;url=login.php");
 
         } else {
 
@@ -107,6 +108,8 @@ include_once '../includes/header.php';
 
 <link rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+      
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
 <style>
 
@@ -749,6 +752,22 @@ confInput.addEventListener(
 );
 
 </script>
+
+<?php if($success): ?>
+<script>
+    Swal.fire({
+        icon: 'success',
+        title: 'Password Updated!',
+        text: 'Your password was updated successfully!',
+        confirmButtonColor: '#FF6B00',
+        timer: 4000,
+        timerProgressBar: true
+    }).then((result) => {
+        // 当用户点击OK，或者倒计时4秒结束后，跳转至登录页
+        window.location.href = 'login.php';
+    });
+</script>
+<?php endif; ?>
 
 </body>
 </html>

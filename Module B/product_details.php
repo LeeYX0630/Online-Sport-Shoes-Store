@@ -1128,7 +1128,7 @@ async function openARScanner() {
     const sessionToken = 'SS-' + Math.random().toString(36).substr(2, 9);
     await fetch(`init_bridge.php?token=${sessionToken}`);
 
-    const computerIP = "10.83.114.155";
+    const computerIP = "10.17.8.155";
     const folderPath = "Module%20B";
     const mobileURL = `http://${computerIP}/${folderPath}/mobile_capture.php?token=${sessionToken}`;
 
