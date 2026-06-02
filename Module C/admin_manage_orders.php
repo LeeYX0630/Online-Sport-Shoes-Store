@@ -4,6 +4,64 @@ date_default_timezone_set('Asia/Kuala_Lumpur');
 // admin_manage_orders.php
 session_start();
 require_once '../includes/db_connection.php'; 
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\Exception;
+require_once '../includes/PHPMailer/Exception.php';
+require_once '../includes/PHPMailer/PHPMailer.php';
+require_once '../includes/PHPMailer/SMTP.php';
+require_once '../includes/mail_config.php';
+
+// 发送发货通知邮件给用户
+function sendShipmentNotificationEmail($user_email, $user_name, $order_id, $tracking_number, $shipped_date) {
+    $mail = new PHPMailer(true);
+    try {
+        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        $order_link = "http://{$host}/Online-Sport-Shoes-Store/Module A/order_view.php?order_id={$order_id}";
+
+        $mail->isSMTP();
+        $mail->Host       = 'smtp.gmail.com';
+        $mail->SMTPAuth   = true;
+        $mail->Username   = SMTP_EMAIL;
+        $mail->Password   = SMTP_PASS;
+        $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+        $mail->Port       = 587;
+        $mail->CharSet    = 'UTF-8';
+
+        $mail->setFrom('sportshoes.system@gmail.com', 'SS SPORT SHOES STORE');
+        $mail->addAddress($user_email, $user_name);
+
+        $mail->isHTML(true);
+        $mail->Subject = "Your order #{$order_id} has been shipped";
+        $mail->Body = "
+            <div style='font-family: Arial, sans-serif; max-width: 680px; margin: auto; border: 1px solid #e5e5e5; border-radius: 14px; overflow: hidden;'>
+                <div style='background: #111; color: #fff; padding: 24px; text-align: center;'>
+                    <h1 style='margin:0; font-size: 24px;'>Your order is on the way</h1>
+                    <p style='margin:8px 0 0; color:#ddd;'>Order #{$order_id} has been shipped.</p>
+                </div>
+                <div style='padding: 28px;'>
+                    <p style='font-size: 16px; color: #333;'>Hello {$user_name},</p>
+                    <p style='color: #555; line-height: 1.7;'>Good news! Your order has been shipped and is now on its way to you. Please keep the tracking number below for your reference.</p>
+                    <div style='background:#f8f9ff; border:1px solid #dbe4ff; border-radius:12px; padding:18px; margin:20px 0;'>
+                        <p style='margin:0 0 8px; font-size:14px; color:#717171;'>Tracking Number</p>
+                        <h2 style='margin:0; color:#111;'>$tracking_number</h2>
+                        <p style='margin:16px 0 0; color:#555;'>Shipped on: $shipped_date</p>
+                    </div>
+                    <p style='color: #555; line-height: 1.7;'>You can view your order status and delivery details by visiting your account.</p>
+                    <div style='text-align:center; margin-top: 24px;'>
+                        <a href='$order_link' style='display:inline-block; padding: 14px 26px; border-radius: 8px; background:#FF6B00; color:#fff; text-decoration:none; font-weight:700;'>View Order Details</a>
+                    </div>
+                </div>
+                <div style='background:#f2f2f2; padding:18px; text-align:center; color:#777; font-size:12px;'>If you did not request this order or believe this is an error, please contact our support team immediately.</div>
+            </div>
+        ";
+
+        $mail->send();
+        return true;
+    } catch (Exception $e) {
+        error_log('Shipment email failed: ' . $mail->ErrorInfo);
+        return false;
+    }
+}
 
 // 1. 安全检查[cite: 2]
 if (!isset($_SESSION['role'])) {
@@ -117,6 +175,14 @@ if (isset($_POST['update_status'])) {
     $update_sql = "UPDATE `order` SET Order_Status = '$new_status' $extra_query WHERE Order_Id = '$order_id'";
     
     if (mysqli_query($conn, $update_sql)) {
+        if ($new_status == 'Shipped') {
+            $email_query = "SELECT u.User_Email, u.User_Name FROM `order` o JOIN `user` u ON o.User_Id = u.User_Id WHERE o.Order_Id = '$order_id' LIMIT 1";
+            $email_result = mysqli_query($conn, $email_query);
+            if ($email_result && mysqli_num_rows($email_result) > 0) {
+                $email_row = mysqli_fetch_assoc($email_result);
+                sendShipmentNotificationEmail($email_row['User_Email'], $email_row['User_Name'], $order_id, $tracking_number, date('d M Y, h:i A', strtotime($current_time)));
+            }
+        }
         echo json_encode(['status' => 'success']);
     } else {
         echo json_encode(['status' => 'error', 'message' => mysqli_error($conn)]);

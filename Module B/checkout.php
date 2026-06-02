@@ -54,7 +54,7 @@ foreach ($_SESSION['cart'] as $cart_key => $item) {
         $p_data = $res_p->fetch_assoc();
         $p_data['qty'] = $item['qty'];
         $p_data['size'] = $item['size'];
-        $p_data['color'] = $item['color'] ?? 'Default';
+        $p_data['color'] = !empty($item['custom_preview']) ? 'Custom Design' : ($item['color'] ?? 'Default');
         
         // --- 【核心修复：采用与 cart.php 一致的智能搜索逻辑】 ---
         if (!empty($item['custom_preview'])) {
@@ -432,7 +432,8 @@ $conn->begin_transaction();
                 $p_id = $item['pro_id'];
                 $qty = $item['qty'];
                 $size = $conn->real_escape_string($item['size']);
-                $color = $conn->real_escape_string($item['color'] ?? 'Default');
+                $color = !empty($item['custom_preview']) ? 'Custom Design' : ($item['color'] ?? 'Default');
+                $color = $conn->real_escape_string($color);
                 
                 // 获取单价计算小计
                 $v_res = $conn->query("SELECT Pro_Price FROM product WHERE Pro_Id = '$p_id'");

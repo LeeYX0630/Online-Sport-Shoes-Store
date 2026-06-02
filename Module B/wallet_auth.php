@@ -86,7 +86,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['wallet_pin'])) {
                     $item_pid = $item['pro_id'];
                     $item_qty = $item['qty'];
                     $item_size = $conn->real_escape_string($item['size']);
-                    $item_color = $conn->real_escape_string($item['color'] ?? 'Default');
+                    $item_color = !empty($item['custom_preview']) ? 'Custom Design' : ($item['color'] ?? 'Default');
+                    $item_color = $conn->real_escape_string($item_color);
 
                     $res_p = $conn->query("SELECT Pro_Price FROM product WHERE Pro_Id = '$item_pid'");
                     $row_p = $res_p->fetch_assoc();

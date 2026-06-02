@@ -116,11 +116,11 @@ $free_shipping_threshold = 250.00;
                             $pro_id = $item['pro_id'];
                             $size   = $item['size'];
                             $qty    = $item['qty'];
-                            $color_in_session = $item['color'] ?? 'Default';
+                            $color_in_session = !empty($item['custom_preview']) ? 'Custom Design' : ($item['color'] ?? 'Default');
 
                             if ($pro_id == 16 || $pro_id == 17) {
                                 $stock_search_color = 'Default';
-                                $display_color_name = ($color_in_session == 'Custom Design') ? 'Custom Design' : $color_in_session;
+                                $display_color_name = ($color_in_session === 'Custom Design') ? 'Custom Design' : $color_in_session;
                             } else {
                                 $stock_search_color = $color_in_session;
                                 $display_color_name = $color_in_session;
