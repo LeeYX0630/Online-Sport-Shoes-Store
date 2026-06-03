@@ -131,17 +131,60 @@ include '../includes/header.php';
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     
     <style>
+        /* ==========================================
+           1. 全局流云画布背景与毛玻璃变量
+           ========================================== */
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #f8fafc;
+            background-color: #f1f5f9 !important; /* 稍深底色以完美衬托白砂玻璃 */
             color: #1e293b;
             -webkit-font-smoothing: antialiased;
+            position: relative;
+            min-height: 100vh;
+            overflow-x: hidden;
         }
 
+        /* 统一的 STRYDEX 品牌流云微光气泡 */
+        body::before, body::after {
+            content: "";
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(140px);
+            opacity: 0.35;
+            z-index: 0;
+            pointer-events: none;
+            animation: cloudFloat 14s infinite alternate ease-in-out;
+        }
+        /* 气泡 1：STRYDEX 核心暖橙 */
+        body::before {
+            width: 500px;
+            height: 500px;
+            background: #ff6600;
+            top: -10%;
+            right: -5%;
+        }
+        /* 气泡 2：赛博深海蓝（提供高端冷暖渐变对比） */
+        body::after {
+            width: 550px;
+            height: 550px;
+            background: #3b82f6;
+            bottom: 5%;
+            left: -10%;
+            animation-delay: 2.5s;
+        }
+
+        @keyframes cloudFloat {
+            0% { transform: translate(0px, 0px) scale(1); }
+            100% { transform: translate(50px, -40px) scale(1.1); }
+        }
+
+        /* 确保页面核心容器浮在云雾之上 */
         .order-container {
             max-width: 850px;
             margin: 40px auto 80px;
             padding: 0 20px;
+            position: relative;
+            z-index: 10;
         }
 
         .action-bar {
@@ -155,20 +198,29 @@ include '../includes/header.php';
             text-decoration: none;
             font-weight: 600;
             font-size: 0.95rem;
-            transition: color 0.2s ease;
+            transition: all 0.2s ease;
         }
         .back-btn:hover {
             color: #ff6600;
+            transform: translateX(-3px);
         }
 
-        /* TRACKER CARD */
+        /* ==========================================
+           2. 核心卡片升级：悬浮半透明磨砂玻璃
+           ========================================== */
+        .tracker-card, .all-in-one-receipt {
+            background: rgba(255, 255, 255, 0.72) !important; /* 半透明白 */
+            backdrop-filter: blur(25px) saturate(160%) !important; /* 强效毛玻璃 */
+            -webkit-backdrop-filter: blur(25px) saturate(160%) !important;
+            border: 1px solid rgba(255, 255, 255, 0.7) !important; /* 晶莹高光边框 */
+            box-shadow: 0 24px 50px rgba(15, 23, 42, 0.04) !important; /* 柔和空气感阴影 */
+        }
+
+        /* 进度条卡片微调 */
         .tracker-card {
-            background: #ffffff;
-            border: 1px solid #e2e8f0;
-            border-radius: 12px;
+            border-radius: 20px; /* 稍微放大圆角提升现代感 */
             padding: 32px;
             margin-bottom: 28px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
         }
         .tracker-header {
             display: flex;
@@ -187,6 +239,8 @@ include '../includes/header.php';
             color: #64748b;
             margin-top: 2px;
         }
+
+        /* 状态步进器微光处理 */
         .status-stepper {
             position: relative;
             display: flex;
@@ -199,14 +253,14 @@ include '../includes/header.php';
             width: 20px;
             height: 20px;
             border-radius: 50%;
-            background: #e2e8f0;
+            background: rgba(15, 23, 42, 0.08);
             position: relative;
             z-index: 1;
             flex-shrink: 0;
         }
         .status-stepper .step.active {
             background: #ff6600; 
-            box-shadow: 0 0 0 6px rgba(255, 102, 0, 0.2);
+            box-shadow: 0 0 0 6px rgba(255, 102, 0, 0.25);
         }
         .status-stepper::before, .status-progress-fill {
             content: '';
@@ -219,7 +273,7 @@ include '../includes/header.php';
         }
         .status-stepper::before {
             right: 0;
-            background: #e2e8f0;
+            background: rgba(15, 23, 42, 0.05);
             z-index: 0;
         }
         .status-progress-fill {
@@ -241,12 +295,9 @@ include '../includes/header.php';
             text-align: center;
         }
 
-        /* RECEIPT CARD */
+        /* 收据主卡片微调 */
         .all-in-one-receipt {
-            background: #ffffff;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+            border-radius: 20px; /* 统一改为大圆角 */
             padding: 40px;
         }
 
@@ -274,7 +325,7 @@ include '../includes/header.php';
             letter-spacing: 0.05em;
             text-transform: uppercase;
             margin-bottom: 30px;
-            border-bottom: 2px solid #e2e8f0;
+            border-bottom: 2px solid rgba(15, 23, 42, 0.06);
             padding-bottom: 15px;
         }
 
@@ -330,19 +381,24 @@ include '../includes/header.php';
             text-align: right;
         }
 
-        /* Table Style */
+        /* ==========================================
+           3. 表格与财务明细毛玻璃适配
+           ========================================== */
         .receipt-table {
             width: 100%;
             border-collapse: collapse;
             margin-bottom: 30px;
+            background: rgba(255, 255, 255, 0.3); /* 让表格层略微透光 */
+            border-radius: 12px;
+            overflow: hidden;
         }
         .receipt-table th {
             background-color: #ff6600; 
             color: #ffffff;            
-            font-weight: 600;
+            font-weight: 700;
             font-size: 0.85rem;
             text-transform: uppercase;
-            padding: 12px 16px;
+            padding: 14px 16px;
             text-align: left;
             letter-spacing: 0.05em;
         }
@@ -355,7 +411,7 @@ include '../includes/header.php';
         }
         .receipt-table td {
             padding: 16px;
-            border-bottom: 1px solid #e2e8f0;
+            border-bottom: 1px solid rgba(15, 23, 42, 0.05); /* 极淡透明边框替代死板灰色 */
             font-size: 0.95rem;
             color: #0f172a;
             vertical-align: middle;
@@ -366,11 +422,12 @@ include '../includes/header.php';
             gap: 14px;
         }
         .item-thumbnail {
-            width: 50px;
-            height: 50px;
+            width: 55px;
+            height: 55px;
             object-fit: cover;
-            border-radius: 6px;
-            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.03);
             background: #f8fafc;
         }
         .item-details-text {
@@ -389,7 +446,6 @@ include '../includes/header.php';
             color: #0f172a;
         }
 
-        /* Financial Box Alignment Styles */
         .receipt-financials-section {
             display: flex;
             justify-content: flex-end;
@@ -402,6 +458,10 @@ include '../includes/header.php';
             gap: 12px;
             font-size: 0.95rem;
             color: #334155;
+            background: rgba(255, 255, 255, 0.4); /* 财务模块独立微光分块 */
+            padding: 20px;
+            border-radius: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.5);
         }
         .financial-row {
             display: flex;
@@ -434,7 +494,7 @@ include '../includes/header.php';
         }
         
         .receipt-divider {
-            border-top: 1px dashed #cbd5e1;
+            border-top: 1px dashed rgba(15, 23, 42, 0.1);
             margin: 4px 0;
             width: 100%;
         }
@@ -455,7 +515,7 @@ include '../includes/header.php';
             font-size: 0.85rem;
             color: #64748b;
             line-height: 1.6;
-            border-top: 1px solid #e2e8f0;
+            border-top: 1px solid rgba(15, 23, 42, 0.06);
             padding-top: 20px;
         }
         .receipt-footer-notes strong {
@@ -464,6 +524,7 @@ include '../includes/header.php';
             margin-bottom: 4px;
         }
 
+        /* 移动端响应式完美自适应 */
         @media (max-width: 600px) {
             .receipt-meta-container, .receipt-top-profile {
                 flex-direction: column;
@@ -474,7 +535,7 @@ include '../includes/header.php';
                 align-items: flex-start;
             }
             .all-in-one-receipt {
-                padding: 20px;
+                padding: 24px;
             }
             .item-thumbnail {
                 display: none;
@@ -483,7 +544,7 @@ include '../includes/header.php';
                 width: 100%;
             }
         }
-    </style>
+</style>
 </head>
 <body>
 

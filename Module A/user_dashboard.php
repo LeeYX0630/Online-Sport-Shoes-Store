@@ -271,10 +271,77 @@ include '../includes/header.php';
 ?>
 
 <style>
-:root { --brand-orange: #FF6B00; }
-body { background-color: #F8F9FA; font-family: 'Segoe UI', Arial, sans-serif; }
+:root { 
+    --brand-orange: #FF6B00; 
+}
+
+/* ==========================================
+   1. Cloudy Design 全局画布与云雾气泡背景
+   ========================================== */
+body { 
+    background-color: #f1f5f9 !important; /* 换成稍有呼吸感的底色，衬托毛玻璃 */
+    font-family: 'Segoe UI', Arial, sans-serif; 
+    position: relative;
+    min-height: 100vh;
+    overflow-x: hidden;
+}
+
+/* 动态流云气泡 */
+body::before, body::after {
+    content: "";
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(130px);
+    opacity: 0.38;
+    z-index: 0;
+    pointer-events: none;
+    animation: cloudFloat 12s infinite alternate ease-in-out;
+}
+/* 气泡 1：呼应你的品牌橙 */
+body::before {
+    width: 450px;
+    height: 450px;
+    background: var(--brand-orange);
+    top: 5%;
+    left: -8%;
+}
+/* 气泡 2：现代科技蓝（撞色让磨砂更有高级感） */
+body::after {
+    width: 500px;
+    height: 500px;
+    background: #3b82f6;
+    bottom: 12%;
+    right: -8%;
+    animation-delay: 2s;
+}
+
+@keyframes cloudFloat {
+    0% { transform: translate(0px, 0px) scale(1); }
+    100% { transform: translate(40px, -30px) scale(1.08); }
+}
+
+/* 确保页面所有核心内容都在云雾背景的上方 */
+.container {
+    position: relative;
+    z-index: 10;
+}
+
+/* ==========================================
+   2. 核心卡片升级为“磨砂玻璃”质感
+   ========================================== */
+.card { 
+    border: 1px solid rgba(255, 255, 255, 0.7) !important; 
+    border-radius: 20px; 
+    background: rgba(255, 255, 255, 0.68) !important; /* 半透明白 */
+    backdrop-filter: blur(20px) saturate(160%); /* 磨砂玻璃核心属性 */
+    -webkit-backdrop-filter: blur(20px) saturate(160%); 
+    box-shadow: 0 20px 40px rgba(15, 23, 42, 0.04) !important; /* 更柔和的高级阴影 */
+}
+
+/* ==========================================
+   3. 你原本的其他样式（完美保留）
+   ========================================== */
 .card, .table, .form-control, .form-select, .nav-tabs .nav-link { font-family: 'Segoe UI', Arial, sans-serif; }
-.card { border: none; border-radius: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); background: #fff; }
 .profile-img-large { 
     width: 150px; height: 150px; 
     border-radius: 25px; border: 4px solid var(--brand-orange); 
@@ -287,21 +354,32 @@ body { background-color: #F8F9FA; font-family: 'Segoe UI', Arial, sans-serif; }
 .btn-orange:hover { background-color: #E66000; color: white; transform: translateY(-2px); }
 .btn-outline-orange { color: var(--brand-orange); border: 1px solid var(--brand-orange); background: transparent; }
 .btn-outline-orange:hover { background: rgba(255, 107, 0, 0.08); }
-.nav-tabs { border-bottom: 1px solid #eee; }
+.nav-tabs { border-bottom: 1px solid rgba(0,0,0,0.05); }
 .nav-tabs .nav-link { border: none; color: #6c757d; font-weight: 700; padding: 10px 20px; }
 .nav-tabs .nav-link.active { color: var(--brand-orange); border-bottom: 3px solid var(--brand-orange); background: none; }
 .voucher-box { padding: 15px; border-radius: 15px; height: 100%; transition: 0.3s; }
-.voucher-active { border: 2px dashed var(--brand-orange); background: #fff; }
-.voucher-claimed { border: 2px dashed #ced4da; background: #f8f9fa; }
+.voucher-active { border: 2px dashed var(--brand-orange); background: rgba(255, 255, 255, 0.5); }
+.voucher-claimed { border: 2px dashed #ced4da; background: rgba(248, 249, 250, 0.5); }
 .voucher-title { font-weight: 800; color: #333; margin-bottom: 2px; }
 .fw-800 { font-weight: 800; }
 .text-orange { color: var(--brand-orange); }
+
+/* 让输入框在轻量磨砂背景下更显眼 */
+.form-control, .form-select {
+    background-color: rgba(255, 255, 255, 0.6) !important;
+    border: 1px solid rgba(0,0,0,0.05) !important;
+}
+.form-control:focus, .form-select:focus {
+    background-color: #fff !important;
+    border-color: var(--brand-orange) !important;
+    box-shadow: 0 0 0 0.25rem rgba(255, 107, 0, 0.15);
+}
 </style>
 
 <div class="container py-5">
     <div class="mb-5 border-bottom pb-3 d-flex justify-content-between align-items-end">
         <div>
-            <h1 class="fw-800">Online Sport <span class="text-orange">Shoes Store.</span></h1>
+            <h1 class="fw-800">STRYDEX <span class="text-orange">Store.</span></h1>
             <p class="text-muted">Personal locker for performance and SS footwear.</p>
         </div>
         <div class="text-end">
