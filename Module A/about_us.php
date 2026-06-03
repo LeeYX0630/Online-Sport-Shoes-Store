@@ -38,8 +38,7 @@ include_once '../includes/header.php';
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>About Us | Online Sport Shoes Store</title>
-    
+    <title>About Us | STRYDEX Store</title>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 
@@ -141,7 +140,7 @@ include_once '../includes/header.php';
 
     <div class="container">
         <section class="intro-section">
-            <h1 class="section-header" style="background: none; text-shadow: 3px 3px 15px #000;">Welcome to Online Sport Shoes Store</h1>
+            <h1 class="section-header" style="background: none; text-shadow: 3px 3px 15px #000;">Welcome to STRYDEX Store</h1>
             <div class="orange-line" style="margin-bottom: 30px;"></div>
             <p>Your one-stop destination for high-performance athletic footwear in Malacca.</p>
         </section>
@@ -150,7 +149,7 @@ include_once '../includes/header.php';
             <div class="brand-text">
                 <h3>Our Passion for Sport</h3>
                 <p>
-                    Online Sport Shoes Store is a premier online sports destination that combines a passion for fitness 
+                    STRYDEX Store is a premier online sports destination that combines a passion for fitness 
                     with modern convenience. Our mission is to provide runners and athletes with authentic, 
                     high-quality footwear while ensuring ease of use through our user-friendly ordering system.
                 </p>
