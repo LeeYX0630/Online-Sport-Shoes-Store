@@ -15,7 +15,13 @@ if ($order_id <= 0) {
     exit;
 }
 
-$stmt = $conn->prepare("SELECT * FROM `order` WHERE Order_Id = ? AND User_Id = ?");
+// Fixed MySQL reserved words conflict by wrapping tables in backticks ``
+$stmt = $conn->prepare("
+    SELECT o.*, u.`User_Name` 
+    FROM `order` o 
+    JOIN `user` u ON o.`User_Id` = u.`User_Id` 
+    WHERE o.`Order_Id` = ? AND o.`User_Id` = ?
+");
 $stmt->bind_param('ii', $order_id, $user_id);
 $stmt->execute();
 $order = $stmt->get_result()->fetch_assoc();
@@ -25,12 +31,15 @@ if (!$order) {
     exit;
 }
 
+$customer_name = !empty($order['User_Name']) ? trim($order['User_Name']) : 'Customer';
+
+// Fetching order line details safely with backticks
 $detail_stmt = $conn->prepare(
-    "SELECT od.Order_Qty, od.Order_Subtotal, p.Pro_Name, p.Pro_Image, p.Pro_Price, b.Brand_Name
-     FROM order_detail od
-     JOIN product p ON od.Pro_Id = p.Pro_Id
-     LEFT JOIN brand b ON p.Brand_Id = b.Brand_Id
-     WHERE od.Order_Id = ?"
+    "SELECT od.`Order_Qty`, od.`Order_Subtotal`, p.`Pro_Name`, p.`Pro_Image`, p.`Pro_Price`, b.`Brand_Name`
+     FROM `order_detail` od
+     JOIN `product` p ON od.`Pro_Id` = p.`Pro_Id`
+     LEFT JOIN `brand` b ON p.`Brand_Id` = b.`Brand_Id`
+     WHERE od.`Order_Id` = ?"
 );
 $detail_stmt->bind_param('i', $order_id);
 $detail_stmt->execute();
@@ -74,44 +83,70 @@ $order_total = floatval($order['Order_Amount'] ?? 0);
 $adjustment = round($order_total - $products_total, 2);
 $payment_method = !empty($order['Payment_Method']) ? $order['Payment_Method'] : 'Online Payment';
 $payment_status = !empty($order['Payment_Status']) ? strtoupper($order['Payment_Status']) : 'PENDING';
-$shipping_address = !empty($order['Order_Shipping_Addr']) ? $order['Order_Shipping_Addr'] : 'Address not available';
-$order_date = !empty($order['Order_Date']) ? date('d M Y, h:i A', strtotime($order['Order_Date'])) : 'N/A';
+
+// Smart deduplication: structural string cleaning if the username is appended into the address string
+$shipping_address = !empty($order['Order_Shipping_Addr']) ? trim($order['Order_Shipping_Addr']) : 'Address not available';
+if (stripos($shipping_address, $customer_name) === 0) {
+    $shipping_address = ltrim(substr($shipping_address, strlen($customer_name)), " ,，\t\n\r\0\x0B");
+}
+
+$order_date = !empty($order['Order_Date']) ? date('d-m-Y', strtotime($order['Order_Date'])) : 'N/A';
 $tracking_number = !empty($order['Order_Tracking_Num']) ? $order['Order_Tracking_Num'] : 'Not available';
+
+function normalizeOrderStatus(string $status): string {
+    $status = trim($status);
+    if (strcasecmp($status, 'Shipping') === 0) { return 'Shipped'; }
+    if (strcasecmp($status, 'Complete') === 0) { return 'Delivered'; }
+    if (strcasecmp($status, 'Delivered') === 0) { return 'Delivered'; }
+    if (strcasecmp($status, 'Shipped') === 0) { return 'Shipped'; }
+    if (strcasecmp($status, 'Processing') === 0) { return 'Processing'; }
+    return 'Pending';
+}
+
+function getOrderStatusStepLevel(string $status): int {
+    switch (normalizeOrderStatus($status)) {
+        case 'Delivered': return 4;
+        case 'Shipped': return 3;
+        case 'Processing': return 2;
+        case 'Pending': default: return 1;
+    }
+}
+
+$order_status = normalizeOrderStatus($order['Order_Status'] ?? 'Pending');
+$order_status_step = getOrderStatusStepLevel($order_status);
+$order_status_progress = ($order_status_step - 1) * 33.3333333;
 
 include '../includes/header.php';
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Order Details | Online Sport Shoes Store</title>
-    <!-- Google Fonts & Bootstrap Icons for refined look -->
+    <title>Order Details | STRYDEX STORE</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     
     <style>
         body {
-            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-family: 'Inter', sans-serif;
             background-color: #f8fafc;
-            color: #0f172a;
+            color: #1e293b;
             -webkit-font-smoothing: antialiased;
         }
 
         .order-container {
-            max-width: 1200px;
+            max-width: 850px;
             margin: 40px auto 80px;
-            padding: 0 24px;
+            padding: 0 20px;
         }
 
-        /* Top Action Bar */
         .action-bar {
             margin-bottom: 24px;
         }
-
         .back-btn {
             display: inline-flex;
             align-items: center;
@@ -122,279 +157,330 @@ include '../includes/header.php';
             font-size: 0.95rem;
             transition: color 0.2s ease;
         }
-
         .back-btn:hover {
-            color: #0f172a;
+            color: #ff6600;
         }
 
-        /* Header Summary Card */
-        .order-master-header {
+        /* TRACKER CARD */
+        .tracker-card {
             background: #ffffff;
             border: 1px solid #e2e8f0;
-            border-radius: 16px;
-            padding: 28px;
-            margin-bottom: 32px;
-            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+            border-radius: 12px;
+            padding: 32px;
+            margin-bottom: 28px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        }
+        .tracker-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+        .tracker-status {
+            font-size: 1.3rem;
+            font-weight: 800;
+            color: #0f172a;
+        }
+        .tracker-subtext {
+            font-size: 0.85rem;
+            color: #64748b;
+            margin-top: 2px;
+        }
+        .status-stepper {
+            position: relative;
+            display: flex;
+            align-items: center;
+            margin-top: 24px;
+            width: 100%;
+            justify-content: space-between;
+        }
+        .status-stepper .step {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #e2e8f0;
+            position: relative;
+            z-index: 1;
+            flex-shrink: 0;
+        }
+        .status-stepper .step.active {
+            background: #ff6600; 
+            box-shadow: 0 0 0 6px rgba(255, 102, 0, 0.2);
+        }
+        .status-stepper::before, .status-progress-fill {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 0;
+            height: 4px;
+            transform: translateY(-50%);
+            border-radius: 2px;
+        }
+        .status-stepper::before {
+            right: 0;
+            background: #e2e8f0;
+            z-index: 0;
+        }
+        .status-progress-fill {
+            background: #ff6600; 
+            z-index: 0;
+        }
+        .tracker-labels {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 16px;
+            font-size: 0.8rem;
+            color: #1e293b;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-weight: 700;
+        }
+        .tracker-labels span {
+            width: 100%;
+            text-align: center;
+        }
+
+        /* RECEIPT CARD */
+        .all-in-one-receipt {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+            padding: 40px;
+        }
+
+        .receipt-top-profile {
             display: flex;
             justify-content: space-between;
             align-items: flex-start;
-            flex-wrap: wrap;
-            gap: 24px;
+            margin-bottom: 24px;
         }
-
-        .order-title-area h1 {
-            font-size: 1.5rem;
-            font-weight: 800;
-            letter-spacing: -0.02em;
-            margin: 0 0 8px 0;
-            color: #0f172a;
-        }
-
-        .order-id-badge {
-            font-size: 0.85rem;
-            color: #64748b;
-            font-weight: 500;
-        }
-
-        .order-meta-grid {
-            display: flex;
-            gap: 32px;
-            flex-wrap: wrap;
-        }
-
-        .meta-item {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
-
-        .meta-label {
-            font-size: 0.75rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            color: #94a3b8;
-            font-weight: 700;
-        }
-
-        .meta-value {
-            font-size: 0.95rem;
-            font-weight: 600;
-            color: #334155;
-        }
-
-        /* Dynamic Badges styling based on context */
-        .status-pill {
-            display: inline-flex;
-            align-items: center;
-            padding: 4px 12px;
-            border-radius: 9999px;
-            font-size: 0.8rem;
-            font-weight: 700;
-            letter-spacing: 0.02em;
-            text-transform: uppercase;
-            background: #f1f5f9;
-            color: #475569;
-        }
-
-        /* Main Workspace Split Layout */
-        .order-split-layout {
-            display: grid;
-            grid-template-columns: 1fr 380px;
-            gap: 32px;
-            align-items: start;
-        }
-
-        @media (max-width: 992px) {
-            .order-split-layout {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        /* Left Column: Products Card */
-        .main-content-card {
-            background: #ffffff;
-            border: 1px solid #e2e8f0;
-            border-radius: 16px;
-            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
-            overflow: hidden;
-        }
-
-        .card-inner-header {
-            padding: 24px 28px;
-            border-bottom: 1px solid #e2e8f0;
-        }
-
-        .card-inner-header h2 {
-            font-size: 1.15rem;
-            font-weight: 700;
-            margin: 0;
-            color: #0f172a;
-        }
-
-        .items-list {
-            padding: 0 28px;
-        }
-
-        .product-item-row {
-            display: grid;
-            grid-template-columns: 80px 1fr auto;
-            gap: 20px;
-            padding: 24px 0;
-            align-items: center;
-            border-bottom: 1px solid #f1f5f9;
-        }
-
-        .product-item-row:last-child {
-            border-bottom: none;
-        }
-
-        .product-thumbnail {
-            width: 80px;
-            height: 80px;
-            object-fit: cover;
-            border-radius: 12px;
-            background-color: #f8fafc;
-            border: 1px solid #e2e8f0;
-        }
-
-        .product-details {
-            display: flex;
-            flex-direction: column;
-        }
-
-        .brand-tag {
-            font-size: 0.75rem;
-            text-transform: uppercase;
-            font-weight: 700;
-            color: #3b82f6;
-            letter-spacing: 0.05em;
-            margin-bottom: 4px;
-        }
-
-        .product-title {
-            font-weight: 600;
-            font-size: 1rem;
-            color: #0f172a;
-            margin-bottom: 6px;
-            line-height: 1.4;
-        }
-
-        .product-spec {
-            font-size: 0.85rem;
-            color: #64748b;
-        }
-
-        .product-price-final {
-            font-weight: 700;
-            font-size: 1.05rem;
-            color: #0f172a;
-            text-align: right;
-        }
-
-        /* Right Column: Invoice Overview & Shipping */
-        .sidebar-sticky-panel {
-            display: flex;
-            flex-direction: column;
-            gap: 24px;
-            position: sticky;
-            top: 40px;
-        }
-
-        .summary-bill-card {
-            background: #ffffff;
-            border: 1px solid #e2e8f0;
-            border-radius: 16px;
-            padding: 28px;
-            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
-        }
-
-        .summary-bill-card h2 {
-            font-size: 1.15rem;
-            font-weight: 700;
-            margin: 0 0 20px 0;
-            color: #0f172a;
-        }
-
-        .invoice-row {
-            display: flex;
-            justify-content: space-between;
-            font-size: 0.9rem;
-            color: #64748b;
-            margin-bottom: 14px;
-        }
-
-        .invoice-row.adjustment-row {
-            color: #059669;
-        }
-
-        .invoice-row.grand-total-row {
-            margin-top: 20px;
-            padding-top: 18px;
-            border-top: 1px solid #e2e8f0;
-            font-size: 1.15rem;
-            font-weight: 800;
-            color: #0f172a;
-            margin-bottom: 0;
-        }
-
-        .info-block-card {
-            background: #ffffff;
-            border: 1px solid #e2e8f0;
-            border-radius: 16px;
-            padding: 28px;
-            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
-        }
-
-        .info-block-card h3 {
-            font-size: 0.85rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            color: #94a3b8;
-            font-weight: 700;
-            margin: 0 0 16px 0;
-            border-bottom: 1px solid #f1f5f9;
-            padding-bottom: 8px;
-        }
-
-        .shipping-address-text {
+        .company-address-info {
             font-size: 0.9rem;
             color: #334155;
             line-height: 1.6;
-            margin: 0;
-            white-space: pre-line;
+        }
+        .company-address-info strong {
+            font-size: 1.1rem;
+            color: #0f172a;
         }
 
-        .payment-meta-item {
+        .receipt-main-title {
+            text-align: right;
+            font-size: 1.8rem;
+            font-weight: 800;
+            color: #0f172a;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 15px;
+        }
+
+        .receipt-meta-container {
             display: flex;
             justify-content: space-between;
-            font-size: 0.9rem;
-            margin-bottom: 10px;
+            align-items: flex-start;
+            gap: 40px;
+            margin-bottom: 35px;
         }
-        .payment-meta-item:last-child {
-            margin-bottom: 0;
+        .billed-to-box h4 {
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            color: #0f172a;
+            font-weight: 700;
+            margin: 0 0 8px 0;
+            letter-spacing: 0.05em;
         }
-        .payment-meta-item span {
-            color: #64748b;
-        }
-        .payment-meta-item strong {
+        .billed-to-box p {
+            font-size: 0.95rem;
+            margin: 0;
+            line-height: 1.6;
             color: #334155;
-            font-weight: 600;
+        }
+        .billed-to-box strong {
+            color: #0f172a;
+            font-size: 1.05rem;
         }
 
-        @media (max-width: 576px) {
-            .product-item-row {
-                grid-template-columns: 1fr;
-                gap: 12px;
-                text-align: center;
-            }
-            .product-thumbnail {
-                margin: 0 auto;
-            }
-            .product-price-final {
-                text-align: center;
-            }
-            .order-master-header {
+        .receipt-numbers-box {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            align-items: flex-end;
+            min-width: 240px;
+        }
+        .receipt-num-row {
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+            font-size: 0.95rem;
+            white-space: nowrap;
+        }
+        .receipt-num-row span {
+            font-weight: 700;
+            color: #0f172a;
+            margin-right: 15px;
+        }
+        .receipt-num-row var {
+            font-style: normal;
+            color: #334155;
+            font-weight: 500;
+            text-align: right;
+        }
+
+        /* Table Style */
+        .receipt-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 30px;
+        }
+        .receipt-table th {
+            background-color: #ff6600; 
+            color: #ffffff;            
+            font-weight: 600;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            padding: 12px 16px;
+            text-align: left;
+            letter-spacing: 0.05em;
+        }
+        .receipt-table th.num-col, .receipt-table td.num-col {
+            text-align: right;
+        }
+        .receipt-table th.qty-col, .receipt-table td.qty-col {
+            text-align: center;
+            width: 70px;
+        }
+        .receipt-table td {
+            padding: 16px;
+            border-bottom: 1px solid #e2e8f0;
+            font-size: 0.95rem;
+            color: #0f172a;
+            vertical-align: middle;
+        }
+        .item-description-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+        .item-thumbnail {
+            width: 50px;
+            height: 50px;
+            object-fit: cover;
+            border-radius: 6px;
+            border: 1px solid #e2e8f0;
+            background: #f8fafc;
+        }
+        .item-details-text {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .item-brand {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            font-weight: 700;
+            color: #64748b;
+        }
+        .item-name {
+            font-weight: 600;
+            color: #0f172a;
+        }
+
+        /* Financial Box Alignment Styles */
+        .receipt-financials-section {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 40px;
+        }
+        .financials-box {
+            width: 360px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            font-size: 0.95rem;
+            color: #334155;
+        }
+        .financial-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+        }
+        .financial-row label {
+            font-weight: 500;
+            color: #475569;
+            text-align: left;
+            flex-shrink: 0;
+        }
+        .financial-row label.strong-label {
+            font-weight: 700;
+            color: #0f172a;
+        }
+        .financial-row label.subtotal-label {
+            font-weight: 700; 
+            color: #0f172a;
+        }
+        .financial-row span {
+            text-align: right;
+            font-weight: 600;
+            color: #0f172a;
+        }
+        .financial-row span.subtotal-value {
+            font-weight: 800; 
+            color: #0f172a;
+        }
+        
+        .receipt-divider {
+            border-top: 1px dashed #cbd5e1;
+            margin: 4px 0;
+            width: 100%;
+        }
+
+        .grand-total-row {
+            display: flex;
+            justify-content: space-between;
+            border-top: 2px solid #0f172a; 
+            padding-top: 14px;
+            margin-top: 6px;
+            font-size: 1.2rem;
+            font-weight: 800;
+            color: #0f172a;
+            width: 100%;
+        }
+
+        .receipt-footer-notes {
+            font-size: 0.85rem;
+            color: #64748b;
+            line-height: 1.6;
+            border-top: 1px solid #e2e8f0;
+            padding-top: 20px;
+        }
+        .receipt-footer-notes strong {
+            color: #0f172a;
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        @media (max-width: 600px) {
+            .receipt-meta-container, .receipt-top-profile {
                 flex-direction: column;
+                gap: 20px;
+            }
+            .receipt-main-title, .receipt-numbers-box {
+                text-align: left;
+                align-items: flex-start;
+            }
+            .all-in-one-receipt {
+                padding: 20px;
+            }
+            .item-thumbnail {
+                display: none;
+            }
+            .financials-box {
+                width: 100%;
             }
         }
     </style>
@@ -403,122 +489,170 @@ include '../includes/header.php';
 
     <div class="order-container">
         
-        <!-- Top Action Bar -->
         <div class="action-bar">
             <a href="user_dashboard.php" class="back-btn">
                 <i class="bi bi-arrow-left-short fs-4"></i> Back to Dashboard
             </a>
         </div>
 
-        <!-- Header Summary Card -->
-        <div class="order-master-header">
-            <div class="order-title-area">
-                <h1>Order Overview</h1>
-                <div class="order-id-badge">ID: ORD#<?php echo str_pad($order_id, 6, '0', STR_PAD_LEFT); ?></div>
+        <div class="tracker-card">
+            <div class="tracker-header">
+                <div>
+                    <div class="tracker-status">Fulfillment: <?php echo htmlspecialchars($order_status); ?></div>
+                    <div class="tracker-subtext">Order progress tracker</div>
+                </div>
+                <div class="tracker-status" style="font-size: 1rem; opacity: 0.75;">Ref: <?php echo htmlspecialchars($tracking_number); ?></div>
             </div>
-            
-            <div class="order-meta-grid">
-                <div class="meta-item">
-                    <span class="meta-label">Date Placed</span>
-                    <span class="meta-value"><?php echo htmlspecialchars($order_date); ?></span>
-                </div>
-                <div class="meta-item">
-                    <span class="meta-label">Fulfillment</span>
-                    <div>
-                        <span class="status-pill"><?php echo htmlspecialchars($order['Order_Status'] ?? 'Pending'); ?></span>
-                    </div>
-                </div>
-                <div class="meta-item">
-                    <span class="meta-label">Tracking Ref.</span>
-                    <span class="meta-value" style="font-family: monospace; color:#0f172a;"><?php echo htmlspecialchars($tracking_number); ?></span>
-                </div>
+            <div class="status-stepper">
+                <span class="status-progress-fill" style="width: <?php echo $order_status_progress; ?>%;"></span>
+                <div class="step <?php echo $order_status_step >= 1 ? 'active' : ''; ?>" title="Pending"></div>
+                <div class="step <?php echo $order_status_step >= 2 ? 'active' : ''; ?>" title="Processing"></div>
+                <div class="step <?php echo $order_status_step >= 3 ? 'active' : ''; ?>" title="Shipped"></div>
+                <div class="step <?php echo $order_status_step >= 4 ? 'active' : ''; ?>" title="Delivered"></div>
+            </div>
+            <div class="tracker-labels">
+                <span>Pending</span>
+                <span>Processing</span>
+                <span>Shipped</span>
+                <span>Delivered</span>
             </div>
         </div>
 
-        <!-- Split Layout Panel Grid -->
-        <div class="order-split-layout">
+        <div class="all-in-one-receipt">
             
-            <!-- Left Workspace Box: Item list -->
-            <div class="main-content-card">
-                <div class="card-inner-header">
-                    <h2>Purchased Items (<?php echo count($line_items); ?>)</h2>
-                </div>
-                
-                <div class="items-list">
-                    <?php if (!empty($line_items)): ?>
-                        <?php foreach ($line_items as $item): ?>
-                            <div class="product-item-row">
-                                <img class="product-thumbnail" src="<?php echo htmlspecialchars($item['image']); ?>" alt="<?php echo htmlspecialchars($item['name']); ?>" onerror="this.src='../images/brands/placeholder.png'">
-                                <div class="product-details">
-                                    <span class="brand-tag"><?php echo htmlspecialchars($item['brand']); ?></span>
-                                    <span class="product-title"><?php echo htmlspecialchars($item['name']); ?></span>
-                                    <span class="product-spec">Qty: <?php echo (int)$item['qty']; ?> &middot; Unit Price: RM <?php echo number_format($item['unit_price'], 2); ?></span>
-                                </div>
-                                <div class="product-price-final">
-                                    RM <?php echo number_format($item['line_total'], 2); ?>
-                                </div>
-                            </div>
-                        <?php endforeach; ?>
-                    <?php else: ?>
-                        <div style="padding: 40px; text-align: center; color: #94a3b8;">
-                            <i class="bi bi-bag-x fs-1"></i>
-                            <p style="margin-top: 12px; font-weight:500;">No product data linked to this dynamic record.</p>
-                        </div>
-                    <?php endif; ?>
+            <div class="receipt-top-profile">
+                <div class="company-address-info">
+                    <strong>STRYDEX STORE</strong><br>
+                    Multimedia University, Melaka<br>
+                    sportshoes.system@gmail.com<br>
+                    +60 12-345 6789
                 </div>
             </div>
 
-            <!-- Right Workspace Sidebar: Financial Invoice details & Addresses -->
-            <div class="sidebar-sticky-panel">
+            <div class="receipt-main-title">Order Receipt</div>
+
+            <div class="receipt-meta-container">
+                <div class="billed-to-box">
+                    <h4>Billed To</h4>
+                    <p>
+                        <strong><?php echo htmlspecialchars($customer_name); ?></strong><br>
+                        <?php echo nl2br(htmlspecialchars($shipping_address)); ?>
+                    </p>
+                </div>
                 
-                <!-- Financial Breakdown -->
-                <div class="summary-bill-card">
-                    <h2>Payment Summary</h2>
-                    
-                    <div class="invoice-row">
-                        <span>Items Total</span>
-                        <span>RM <?php echo number_format($products_total, 2); ?></span>
+                <div class="receipt-numbers-box">
+                    <div class="receipt-num-row">
+                        <span>Receipt #</span>
+                        <var><?php echo str_pad($order_id, 6, '0', STR_PAD_LEFT); ?></var>
+                    </div>
+                    <div class="receipt-num-row">
+                        <span>Receipt Date</span>
+                        <var><?php echo htmlspecialchars($order_date); ?></var>
+                    </div>
+                </div>
+            </div>
+
+            <table class="receipt-table">
+                <thead>
+                    <tr>
+                        <th class="qty-col">QTY</th>
+                        <th>Description</th>
+                        <th class="num-col">Unit Price</th>
+                        <th class="num-col">Amount</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php if (!empty($line_items)): ?>
+                        <?php foreach ($line_items as $item): ?>
+                            <tr>
+                                <td class="qty-col"><?php echo (int)$item['qty']; ?></td>
+                                <td>
+                                    <div class="item-description-wrapper">
+                                        <img class="item-thumbnail" src="<?php echo htmlspecialchars($item['image']); ?>" alt="" onerror="this.src='../images/brands/placeholder.png'">
+                                        <div class="item-details-text">
+                                            <span class="item-brand"><?php echo htmlspecialchars($item['brand']); ?></span>
+                                            <span class="item-name"><?php echo htmlspecialchars($item['name']); ?></span>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="num-col">RM <?php echo number_format($item['unit_price'], 2); ?></td>
+                                <td class="num-col">RM <?php echo number_format($item['line_total'], 2); ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php else: ?>
+                        <tr>
+                            <td colspan="4" style="text-align: center; padding: 30px; color: #94a3b8;">
+                                No item records linked to this invoice.
+                            </td>
+                        </tr>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+
+            <div class="receipt-financials-section">
+                <div class="financials-box">
+                    <div class="financial-row">
+                        <label class="strong-label">Payment Method :</label>
+                        <span><?php echo htmlspecialchars($payment_method); ?></span>
+                    </div>
+
+                    <div class="financial-row">
+                        <label class="strong-label">Payment Status :</label>
+                        <span style="color: <?php echo $payment_status === 'PAID' ? '#16a34a' : '#d97706'; ?>;">
+                            <?php echo htmlspecialchars($payment_status); ?>
+                        </span>
+                    </div>
+
+                    <div class="receipt-divider"></div>
+
+                    <div class="financial-row">
+                        <label class="subtotal-label">Subtotal</label>
+                        <span class="subtotal-value">RM <?php echo number_format($products_total, 2); ?></span>
                     </div>
                     
                     <?php if (abs($adjustment) >= 0.01): ?>
-                        <div class="invoice-row adjustment-row">
-                            <span>Adjustments / Shipping</span>
-                            <span><?php echo $adjustment >= 0 ? '+' : '-'; ?> RM <?php echo number_format(abs($adjustment), 2); ?></span>
+                        <div class="financial-row">
+                            <label>Shipping / Adjustments</label>
+                            <span>RM <?php echo number_format($adjustment, 2); ?></span>
                         </div>
                     <?php endif; ?>
                     
-                    <div class="invoice-row grand-total-row">
-                        <span>Grand Total</span>
+                    <div class="grand-total-row">
+                        <span>Total (MYR)</span>
                         <span>RM <?php echo number_format($order_total, 2); ?></span>
                     </div>
                 </div>
-
-                <!-- Shipping Destination Block -->
-                <div class="info-block-card">
-                    <h3>Shipping Address</h3>
-                    <p class="shipping-address-text"><?php echo nl2br(htmlspecialchars($shipping_address)); ?></p>
-                </div>
-
-                <!-- Transaction Summary Details Box -->
-                <div class="info-block-card">
-                    <h3>Payment Credentials</h3>
-                    <div class="payment-meta-item">
-                        <span>Method</span>
-                        <strong><?php echo htmlspecialchars($payment_method); ?></strong>
-                    </div>
-                    <div class="payment-meta-item">
-                        <span>Status</span>
-                        <strong style="color: <?php echo $payment_status === 'PAID' ? '#059669' : '#d97706'; ?>;">
-                            <?php echo htmlspecialchars($payment_status); ?>
-                        </strong>
-                    </div>
-                </div>
-
             </div>
+
+            <div class="receipt-footer-notes">
+                <strong>Notes & Information</strong>
+                Thank you for shopping with STRYDEX STORE! All sales are processed safely through our secure order system. Please keep this receipt reference <strong><?php echo htmlspecialchars($tracking_number); ?></strong> handy for your warranty or return records.
+            </div>
+
+            <div class="receipt-actions text-end mt-4">
+                <button type="button" onclick="downloadReceiptPDF()" class="btn btn-dark px-4 py-2">
+                    <i class="bi bi-file-earmark-pdf me-2"></i>Print / Download Receipt
+                </button>
+            </div>
+
         </div>
         
     </div>
 
     <?php include '../includes/footer.php'; ?>
+
+    <script>
+        function downloadReceiptPDF() {
+            const element = document.querySelector('.all-in-one-receipt');
+            const options = {
+                margin:       [10, 10, 10, 10],
+                filename:     'Receipt_Order_#<?php echo $order_id; ?>.pdf',
+                image:        { type: 'jpeg', quality: 0.98 },
+                html2canvas:  { scale: 2, useCORS: true },
+                jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            };
+            html2pdf().set(options).from(element).save();
+        }
+    </script>
 </body>
 </html>

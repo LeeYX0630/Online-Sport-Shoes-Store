@@ -12,6 +12,29 @@ function respondJson(array $payload) {
     exit;
 }
 
+function normalizeOrderStatus(string $status): string {
+    $status = trim($status);
+    if (strcasecmp($status, 'Shipping') === 0) {
+        return 'Shipped';
+    }
+    if (strcasecmp($status, 'Complete') === 0) {
+        return 'Delivered';
+    }
+    if (strcasecmp($status, 'Pending') === 0) {
+        return 'Pending';
+    }
+    if (strcasecmp($status, 'Processing') === 0) {
+        return 'Processing';
+    }
+    if (strcasecmp($status, 'Delivered') === 0) {
+        return 'Delivered';
+    }
+    if (strcasecmp($status, 'Shipped') === 0) {
+        return 'Shipped';
+    }
+    return ucfirst(strtolower($status));
+}
+
 // Check login
 if (!isset($_SESSION['user_id'])) {
     header("Location: login.php");
@@ -384,7 +407,13 @@ body { background-color: #F8F9FA; font-family: 'Segoe UI', Arial, sans-serif; }
                             $query_str .= " AND DATE(o.Order_Date) = '$f_date'";
                         }
                         if ($f_status != '' && $f_status != 'All Status') {
-                            $query_str .= " AND o.Order_Status = '$f_status'";
+                            if ($f_status == 'Shipped') {
+                                $query_str .= " AND o.Order_Status IN ('Shipping','Shipped')";
+                            } elseif ($f_status == 'Delivered') {
+                                $query_str .= " AND o.Order_Status IN ('Complete','Delivered')";
+                            } else {
+                                $query_str .= " AND o.Order_Status = '$f_status'";
+                            }
                         }
 
                         $query_str .= " GROUP BY o.Order_Id ORDER BY o.Order_Id DESC";
@@ -419,9 +448,10 @@ body { background-color: #F8F9FA; font-family: 'Segoe UI', Arial, sans-serif; }
                                     <label class="form-label small fw-bold text-muted text-uppercase">Status</label>
                                     <select name="status" class="form-select form-select-sm border-0 shadow-sm rounded-3">
                                         <option value="">All Status</option>
+                                        <option value="Pending" <?php if($f_status == 'Pending') echo 'selected'; ?>>Pending</option>
                                         <option value="Processing" <?php if($f_status == 'Processing') echo 'selected'; ?>>Processing</option>
-                                        <option value="Shipping" <?php if($f_status == 'Shipping') echo 'selected'; ?>>Shipping</option>
-                                        <option value="Complete" <?php if($f_status == 'Complete') echo 'selected'; ?>>Complete</option>
+                                        <option value="Shipped" <?php if($f_status == 'Shipped') echo 'selected'; ?>>Shipped</option>
+                                        <option value="Delivered" <?php if($f_status == 'Delivered') echo 'selected'; ?>>Delivered</option>
                                     </select>
                                 </div>
                                 <div class="col-md-1">
@@ -447,8 +477,15 @@ body { background-color: #F8F9FA; font-family: 'Segoe UI', Arial, sans-serif; }
                                 <tbody class="fw-semibold">
                                     <?php if($purchased_data && $purchased_data->num_rows > 0): ?>
                                         <?php while($row = $purchased_data->fetch_assoc()): 
-                                            $status = $row['Order_Status'] ?? 'Complete';
-                                            $badge_color = ($status == 'Processing') ? "bg-warning-subtle text-warning" : (($status == 'Shipping') ? "bg-info-subtle text-info" : "bg-success-subtle text-success");
+                                            $status = normalizeOrderStatus($row['Order_Status'] ?? 'Pending');
+                                            $badge_color = 'bg-secondary-subtle text-secondary';
+                                            if ($status == 'Processing') {
+                                                $badge_color = "bg-warning-subtle text-warning";
+                                            } elseif ($status == 'Shipped') {
+                                                $badge_color = "bg-info-subtle text-info";
+                                            } elseif ($status == 'Delivered') {
+                                                $badge_color = "bg-success-subtle text-success";
+                                            }
                                             $product_image = "../images/brands/placeholder.png"; 
                                             
                                             if (!empty($row['Pro_Image'])) {
