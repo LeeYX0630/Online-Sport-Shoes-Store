@@ -697,7 +697,7 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
                         <div style="display: flex; align-items: center; gap: 12px;">
                             <div style="font-size: 24px;">👟</div>
                             <div style="flex: 1;">
-                                <div style="font-weight: 800; font-size: 14px; color: #e67e22;">Shoe Health Check</div>
+                                <div style="font-weight: 800; font-size: 14px; color: #e67e22;">Not sure about your shoe health?</div>
                                 <div style="font-size: 12px; color: #666;">Upload a photo of your worn sole for AI-powered wear assessment and safety insights.</div>
                             </div>
                             <button type="button" onclick="openWearScanner()" 
@@ -1638,7 +1638,7 @@ async function submitMultiViewAnalysis() {
                     </div>
                 </div>
             `,
-            confirmButtonText: '确定',
+            confirmButtonText: 'Got It',
             confirmButtonColor: '#008060'
         });
         
