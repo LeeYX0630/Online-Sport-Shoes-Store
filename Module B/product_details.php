@@ -693,6 +693,19 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
                             </button>
                         </div>
                     </div>
+                    <div style="background: #fff9f0; border: 1px dashed #e67e22; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <div style="font-size: 24px;">👟</div>
+                            <div style="flex: 1;">
+                                <div style="font-weight: 800; font-size: 14px; color: #e67e22;">Shoe Health Check</div>
+                                <div style="font-size: 12px; color: #666;">Upload a photo of your worn sole for AI-powered wear assessment and safety insights.</div>
+                            </div>
+                            <button type="button" onclick="openWearScanner()" 
+                                    style="background: #e67e22; color: #fff; border: none; padding: 8px 15px; border-radius: 20px; font-weight: bold; font-size: 12px; cursor: pointer;">
+                                Start Assessment
+                            </button>
+                        </div>
+                    </div>
 
                     <div class="info-label">Select Size (UK) <span id="sizeError" style="color:red; font-size:12px; display:none; margin-left:10px;">*Required</span></div>
                     <div class="size-selector">
@@ -1123,7 +1136,6 @@ document.getElementById('rvSlider').addEventListener('wheel', (evt) => {
     slider.scrollLeft += evt.deltaY; // 将垂直滚动的偏移量应用到横向滚动上
 });
 
-// --- 升级版：支持扫码/本地上传双模式的弹窗 ---
 async function openARScanner() {
     const sessionToken = 'SS-' + Math.random().toString(36).substr(2, 9);
     await fetch(`init_bridge.php?token=${sessionToken}`);
@@ -1151,15 +1163,15 @@ async function openARScanner() {
                     <div style="flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; padding-left: 10px;">
                         <h6 style="font-weight: 800; color: #333; margin: 0 0 20px 0; font-size: 14px;">Option 2: Upload from Current Device</h6>
                         
-                        <button type="button" onclick="document.getElementById('localImageInput').click()" 
+                        <button type="button" onclick="document.getElementById('select_image_input').click()" 
                                 style="background: #008060; color: #fff; border: none; padding: 12px 25px; border-radius: 30px; font-weight: bold; font-size: 13px; cursor: pointer; box-shadow: 0 4px 12px rgba(0,128,96,0.2); display: flex; align-items: center; gap: 8px;">
                             <i class="bi bi-upload"></i> SELECT IMAGE
                         </button>
                         
-                        <input type="file" id="localImageInput" accept="image/*" style="display: none;" onchange="handleLocalUpload(this, '${sessionToken}')">
+                        <input type="file" id="select_image_input" accept="image/*" style="display: none;" onchange="handleLocalUpload(this, '${sessionToken}')">
                         
                         <p style="font-size: 11px; color: #999; margin-top: 15px; line-height: 1.4; max-width: 180px;">
-                            Ensure both your <strong>bare foot</strong> and <strong>A4 paper</strong> reference are fully visible.
+                            Ensure both your <strong>foot</strong> and <strong>A4 paper</strong> reference are fully visible.
                         </p>
                     </div>
                     
@@ -1175,15 +1187,14 @@ async function openARScanner() {
                 width: 150,
                 height: 150
             });
-            startPolling(sessionToken); // 启动统一轮询机制
+            startPolling(sessionToken);
         }
     });
 }
 
-// --- 全新追加：处理本地上传文件的控制器 ---
 async function handleLocalUpload(input, token) {
     if (!input.files || input.files.length === 0) return;
-    
+
     const file = input.files[0];
     const syncStatus = document.getElementById('sync-status');
     if (syncStatus) syncStatus.innerText = "Optimizing image for AI Sizer...";
@@ -1263,15 +1274,15 @@ function triggerFlashEffect() {
     }
 }
 
-// 替换第 1177 行附近的 processMeasurement 函数
+// 升级版：直接调用 Module B 保存的物理照片，附加缓存击穿机制
 async function processMeasurement(imagePath) {
+    // 1. 弹出等待动画
     Swal.fire({
         title: 'AI Neural Analysis...',
         html: `
             <div style="padding: 20px;">
                 <div class="spinner-border text-success" role="status"></div>
-                <p style="margin-top: 15px; font-weight: bold;">Detecting foot contours & A4 reference...</p>
-                <div style="font-size: 11px; color: #888;">AI is measuring your foot...</div>
+                <p style="margin-top: 15px; font-weight: bold;">正在提取脚部拓扑骨架与解剖轴线...</p>
             </div>
         `,
         allowOutsideClick: false,
@@ -1280,6 +1291,14 @@ async function processMeasurement(imagePath) {
     });
 
     try {
+        // 【核心修复】：构建绝对正确的图片显示路径
+        let displaySrc = imagePath;
+        // 如果是数据库传来的路径 (uploads/xxx.jpg)，则补全相对路径并加上时间戳防止黑屏缓存
+        if (!imagePath.startsWith('data:') && !imagePath.startsWith('http')) {
+            displaySrc = '../Module B/' + imagePath + '?t=' + new Date().getTime(); 
+        }
+
+        // 2. 将原始图片路径发给后端 Gemini 进行分析
         const response = await fetch('gemini_handler.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1290,33 +1309,54 @@ async function processMeasurement(imagePath) {
         });
 
         const data = await response.json();
-        const aiReply = data.reply ? data.reply.trim() : "";
-
-        // --- 核心修复：增加准确度校验逻辑 ---
-        if (aiReply === "ERROR" || isNaN(parseFloat(aiReply))) {
-            throw new Error("No foot or A4 paper detected. Please ensure your foot is centered on the paper.");
+        
+        if (!data.measured_length_cm || isNaN(parseFloat(data.measured_length_cm))) {
+            throw new Error("未能精准识别到脚部，请确保脚平放在 A4 纸张中心并重新上传。");
         }
 
-        const realFootLength = parseFloat(aiReply);
-        const recommendedUK = calculateUKSize(realFootLength); // 调用尺码计算算法
+        const realFootLength = parseFloat(data.measured_length_cm);
+        const recommendedUK = calculateUKSize(realFootLength); 
         
+        const footShape = data.foot_shape_zh || "未知脚型";
+        const shapeDesc = data.description || "未检测到明显特征";
+        const landmarks = data.landmarks || null;
+
+        // 3. 渲染最终报告（直接调用 displaySrc 物理路径显示图片）
         Swal.fire({
             icon: 'success',
-            title: 'Scan Successful!',
+            title: 'AI Analysis Complete!',
+            width: '550px',
             html: `
-                <div style="background: #f8f9fa; padding: 15px; border-radius: 10px; text-align: center;">
-                    <p style="margin: 0; color: #666; font-size: 14px;">AI Measured Length:</p>
-                    <h2 style="color: #008060; margin: 5px 0; font-weight: 800;">${realFootLength} cm</h2>
-                    <hr style="border: none; border-top: 1px solid #eee; margin: 10px 0;">
-                    <p style="font-weight: bold; margin-bottom: 10px; font-size: 16px;">Perfect Fit: UK ${recommendedUK}</p>
+                <div style="background: #f8f9fa; padding: 15px; border-radius: 10px; text-align: left; font-family: sans-serif;">
                     
-                    <div style="font-size: 11px; color: #999; line-height: 1.5; margin-top: 15px; padding-top: 10px; border-top: 1px dashed #ddd; text-align: left;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; background: #008060; color:#fff; padding:12px; border-radius:8px; margin-bottom:15px;">
+                        <div>
+                            <span style="font-size:12px; opacity:0.9;">Measured Foot Length</span>
+                            <h2 style="margin:0; font-weight:800;">${realFootLength} cm</h2>
+                        </div>
+                        <div style="text-align: right;">
+                            <span style="font-size:12px; opacity:0.9;">Recommended Size</span>
+                            <h2 style="margin:0; font-weight:800; color:#ffeb3b;">UK ${recommendedUK}</h2>
+                        </div>
+                    </div>
+
+                    <div style="position: relative; width: 100%; min-height: 250px; background: #111; border-radius: 8px; overflow: hidden; margin-bottom: 15px; display: flex; align-items: center; justify-content: center;">
+                        <img id="analyzedFootImg" src="${displaySrc}" style="width:100%; max-height: 450px; object-fit: contain; display: block;" onerror="this.src='../images/placeholder.png'; console.error('Image load failed:', this.src);">
+                        <canvas id="analysisOverlayCanvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></canvas>
+                    </div>
+
+                    <div style="border-left: 4px solid #008060; padding-left: 12px; margin-top: 15px;">
+                        <h4 style="margin: 0 0 5px 0; color: #333; font-weight: bold;">Your Foot Shape：<span style="color:#008060;">${footShape}</span></h4>
+                        <p style="margin: 0; font-size: 13px; color: #666; line-height: 1.4;">${shapeDesc}</p>
+                    </div>
+
+                    <div style="font-size: 11px; color: #999; line-height: 1.5; margin-top: 15px; padding-top: 10px; border-top: 1px dashed #ddd;">
                         <i class="bi bi-exclamation-triangle-fill" style="color: #e67e22;"></i> 
-                        <strong>Disclaimer:</strong> AI Measured Length may have some inaccuracies and the response may not be completely accurate.
+                        <strong>Technical Tip:</strong> The green circles are AI-detected key points, and the red line represents the measured anatomical axis.
                     </div>
                 </div>
             `,
-            confirmButtonText: 'Apply to My Order',
+            confirmButtonText: 'Select This Size and Lock Order',
             confirmButtonColor: '#008060'
         }).then((result) => {
             if (result.isConfirmed) {
@@ -1324,15 +1364,109 @@ async function processMeasurement(imagePath) {
             }
         });
 
+        // 4. 精确监听图片加载状态，加载完成后再绘制 AI 坐标线
+        const footImg = document.getElementById('analyzedFootImg');
+        if (footImg) {
+            footImg.onload = function() {
+                drawAnalysisLines(landmarks);
+            };
+            // 应对图片已被浏览器秒级缓存的情况
+            if (footImg.complete && footImg.naturalHeight !== 0) {
+                drawAnalysisLines(landmarks);
+            }
+        }
+
     } catch (error) {
         console.error(error);
         Swal.fire({
             icon: 'error',
-            title: 'Measurement Failed',
-            text: error.message || 'AI could not analyze the photo. Please try again.'
+            title: 'Analysis Interrupted',
+            text: error.message || 'System error, unable to fetch image. Please try again.'
         });
     }
 }
+
+function drawAnalysisLines(landmarks) {
+    const canvas = document.getElementById('analysisOverlayCanvas');
+    const img = document.getElementById('analyzedFootImg');
+    if (!canvas || !img || !landmarks) return;
+
+    // 1. 让 Canvas 的画布分辨率与它的显示区域大小完美一致
+    canvas.width = canvas.clientWidth;
+    canvas.height = canvas.clientHeight;
+    
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height); // 清空旧画布
+
+    // 2. 获取图片在 object-fit: contain 规则下在屏幕上的绝对绘制边界
+    const imgW = img.naturalWidth;
+    const imgH = img.naturalHeight;
+    const canvasW = canvas.width;
+    const canvasH = canvas.height;
+
+    const imgScale = Math.min(canvasW / imgW, canvasH / imgH);
+    
+    // 计算出图片在容器内居中显示后的实际左上角起点 (x, y) 以及实际宽高
+    const realWidth = imgW * imgScale;
+    const realHeight = imgH * imgScale;
+    const startX = (canvasW - realWidth) / 2;
+    const startY = (canvasH - realHeight) / 2;
+
+    // 3. 将 AI 返回的 0~1 相对坐标映射到图片实际渲染出的像素坐标上
+    const pHeel = { 
+        x: startX + (landmarks.heel_center.x * realWidth), 
+        y: startY + (landmarks.heel_center.y * realHeight) 
+    };
+    const pToe = { 
+        x: startX + (landmarks.longest_toe_tip.x * realWidth), 
+        y: startY + (landmarks.longest_toe_tip.y * realHeight) 
+    };
+    const pWidth = landmarks.forefoot_width_outer ? { 
+        x: startX + (landmarks.forefoot_width_outer.x * realWidth), 
+        y: startY + (landmarks.forefoot_width_outer.y * realHeight) 
+    } : null;
+
+    // 4. 绘制高能科技感红线（纵向解剖轴线）
+    ctx.strokeStyle = '#ff3b30'; // 苹果高能红
+    ctx.lineWidth = 3;
+    ctx.shadowBlur = 8;
+    ctx.shadowColor = 'rgba(255, 59, 48, 0.8)';
+    
+    ctx.beginPath();
+    ctx.moveTo(pHeel.x, pHeel.y);
+    ctx.lineTo(pToe.x, pToe.y);
+    ctx.stroke();
+
+    // 5. 绘制横向测量范围虚线（前掌脚宽）
+    if (pWidth) {
+        ctx.strokeStyle = '#ffcc00'; // 警告黄
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath();
+        ctx.moveTo(pToe.x, pToe.y);
+        ctx.lineTo(pWidth.x, pWidth.y);
+        ctx.stroke();
+        ctx.setLineDash([]); // 恢复实线
+    }
+
+    // 6. 绘制激光雷达定位点（绿色双环靶心）
+    ctx.shadowBlur = 0; // 关闭阴影避免模糊
+    [pHeel, pToe].forEach(p => {
+        // 内实心圆
+        ctx.fillStyle = '#00ff9d'; 
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 5, 0, 2 * Math.PI);
+        ctx.fill();
+        
+        // 外准星圈
+        ctx.strokeStyle = '#00ff9d';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 12, 0, 2 * Math.PI);
+        ctx.stroke();
+    });
+}
+
 function toggleWishlist(event, btn) {
     event.preventDefault();
     // 1. 登录检查
@@ -1363,6 +1497,159 @@ function toggleWishlist(event, btn) {
         }
     })
     .catch(err => console.error('Wishlist Error:', err));
+}
+
+// 在你的 <script> 标签中更新前端代码
+let wearImages = { front: null, left: null, right: null };
+
+async function openWearScanner() {
+    Swal.fire({
+        title: 'Upload Three Views for Deep Analysis',
+        width: '700px',
+        html: `
+            <div style="display: flex; justify-content: space-between; gap: 10px; margin-top: 15px;">
+                ${['front', 'left', 'right'].map(view => `
+                    <div style="flex:1; border:2px dashed #ccc; padding:15px; border-radius:8px; cursor:pointer;" onclick="document.getElementById('upload_${view}').click()">
+                        <div id="preview_${view}" style="font-size:24px; color:#999; margin-bottom:10px;">
+                            <i class="bi bi-camera"></i>
+                        </div>
+                        <div style="font-size:12px; font-weight:bold;">${view.toUpperCase()} VIEW</div>
+                        <input type="file" id="upload_${view}" accept="image/*" style="display:none;" onchange="handleViewUpload(this, '${view}')">
+                    </div>
+                `).join('')}
+            </div>
+            <button id="startAiBtn" disabled onclick="submitMultiViewAnalysis()" style="margin-top:20px; width:100%; padding:12px; background:#e67e22; color:#fff; border:none; border-radius:8px; font-weight:bold; cursor:not-allowed; opacity:0.5;">
+                Upload Complete, Start AI Deep Analysis
+            </button>
+        `,
+        showConfirmButton: false,
+        showCloseButton: true
+    });
+}
+
+async function handleViewUpload(input, view) {
+    if (!input.files || input.files.length === 0) return;
+    const file = input.files[0];
+    
+    // 1. 预览图片
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        document.getElementById(`preview_${view}`).innerHTML = `<img src="${e.target.result}" style="width:100%; height:80px; object-fit:cover; border-radius:4px;">`;
+    }
+    reader.readAsDataURL(file);
+
+    // 2. 状态提示
+    const btn = document.getElementById('startAiBtn');
+    btn.innerText = `Processing ${view.toUpperCase()} View...`;
+
+    // 3. 生成临时前缀
+    const token = 'WEAR_' + view + '_' + Date.now();
+
+    try {
+        // 【核心修复 1】：先呼叫 init_bridge 写入数据库，防止 upload_bridge 更新失败
+        await fetch(`init_bridge.php?token=${token}`);
+
+        // 自动上传到临时目录
+        const formData = new FormData();
+        // 【核心修复 2】：强制指定文件名为 'capture.jpg'，确保后端生成的文件名完全可控
+        formData.append('image', file, 'capture.jpg');
+        formData.append('token', token);
+        
+        const res = await fetch('upload_bridge.php', { method: 'POST', body: formData });
+        const data = await res.json();
+        
+        // 【核心修复 3】：后端不返回 file_path，我们根据后端拼接规则手动组装物理路径
+        if (data.success || !data.error.includes("Failed to move")) {
+            wearImages[view] = `uploads/${token}_capture.jpg`; 
+        }
+
+        // 恢复按钮文字
+        btn.innerText = 'Upload Complete, Start AI Deep Analysis';
+
+        // 检查是否三张都传完了 (确保对象里不为空且不是 undefined)
+        if (wearImages.front && wearImages.left && wearImages.right) {
+            btn.disabled = false;
+            btn.style.opacity = '1';
+            btn.style.cursor = 'pointer';
+            btn.style.background = '#008060'; // 亮起绿色表示可以点击
+        }
+    } catch (err) {
+        console.error("Upload error: ", err);
+        Swal.fire('Upload Error', 'An network error occurred while processing the image. Please try again.', 'error');
+    }
+}
+
+async function submitMultiViewAnalysis() {
+    Swal.fire({ title: 'AI Triple View Analysis...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+
+    try {
+        const res = await fetch('gemini_handler.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: 'wear_detector', images: wearImages })
+        });
+        
+        // 【防崩溃核心】：先作为普通文本读取，防止非 JSON 格式直接引发代码崩溃
+        const rawText = await res.text();
+        let data;
+        
+        try {
+            data = JSON.parse(rawText);
+        } catch (parseError) {
+            console.error("【Format Error】:", rawText);
+            throw new Error("AI analysis returned an unexpected format. Please ensure the images are clear and try again.");
+        }
+
+        // 拦截 PHP 层面拦截到的图片丢失等错误
+        if (data.error) {
+            throw new Error(data.message || data.error);
+        }
+
+        // 拦截 AI 未按要求返回 JSON 字段的情况
+        if (!data.overall_level_zh || !data.front) {
+            console.error("【AI Error】:", data);
+            throw new Error("AI analysis failed to return expected results. Please ensure the images are clear and try again.");
+        }
+
+        // 渲染极度细节的结果面板 (原有渲染代码保持不变)
+        Swal.fire({
+            title: '👟 Deep Wear Report',
+            width: '600px',
+            html: `
+                <div style="text-align: left; font-size: 13px;">
+                    <div style="background:#333; color:#fff; padding:10px; border-radius:6px; margin-bottom:15px; text-align:center;">
+                        <strong>Overall Rating: ${data.overall_level_zh}</strong>
+                    </div>
+                    
+                    <div style="display:flex; flex-direction:column; gap:10px;">
+                        ${['front', 'left', 'right'].map(v => `
+                            <div style="border-left: 4px solid ${data[v].wear_percent > 70 ? '#e74c3c' : '#f1c40f'}; padding-left:10px; background:#f9f9f9; padding:10px; border-radius:0 6px 6px 0;">
+                                <div style="display:flex; justify-content:space-between; font-weight:bold;">
+                                    <span>${v.toUpperCase()} View</span>
+                                    <span style="color:${data[v].wear_percent > 70 ? '#e74c3c' : '#333'}">Wear ${data[v].wear_percent}%</span>
+                                </div>
+                                <p style="margin:5px 0 0 0; color:#555;">${data[v].detail}</p>
+                            </div>
+                        `).join('')}
+                    </div>
+
+                    <div style="margin-top:15px; padding:10px; background:#e8f8f5; color:#008060; border-radius:6px;">
+                        <strong>💡 AI Final Recommendation:</strong> ${data.final_advice}
+                    </div>
+                </div>
+            `,
+            confirmButtonText: '确定',
+            confirmButtonColor: '#008060'
+        });
+        
+    } catch (e) {
+        // 现在这里弹出的将是真实的错误原因，而不是泛泛的“分析失败”
+        Swal.fire({
+            icon: 'error',
+            title: 'Analysis Interrupted',
+            text: e.message || 'System busy, please try again later'
+        });
+    }
 }
 </script>
 

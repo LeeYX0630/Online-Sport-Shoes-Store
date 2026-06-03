@@ -474,6 +474,7 @@ $color_names = [
                         <div class="swatch" title="White" style="background: #ffffff;" onclick="changePartColor('Style', '#ffffff', this)"></div>
                         <div class="swatch" title="University Gold" style="background: #FFD700;" onclick="changePartColor('Style', '#FFD700', this)"></div>
                         <div class="swatch" title="Volt Green" style="background: #008060;" onclick="changePartColor('Style', '#008060', this)"></div>
+                        <div class="swatch" title="Blue Fury" style="background: #55acee;" onclick="changePartColor('Style', '#55acee', this)"></div>
                     </div>
                     <p class="selected-color-name">Black</p>
                 </div>
@@ -486,6 +487,7 @@ $color_names = [
                         <div class="swatch" title="Bright Crimson" style="background: #E7352B;" onclick="changePartColor('Laces', '#E7352B', this)"></div>
                         <div class="swatch" title="Blue Fury" style="background: #55acee;" onclick="changePartColor('Laces', '#55acee', this)"></div>
                         <div class="swatch" title="Total Orange" style="background: #FF6B00;" onclick="changePartColor('Laces', '#FF6B00', this)"></div>
+                        <div class="swatch" title="Cool Grey" style="background: #888888;" onclick="changePartColor('Laces', '#888888', this)"></div>
                     </div>
                     <p class="selected-color-name">White</p>
                 </div>
@@ -510,6 +512,8 @@ $color_names = [
                         <div class="swatch" title="Black" style="background: #000000;" onclick="changePartColor('Midsole', '#000000', this)"></div>
                         <div class="swatch" title="Pure Platinum" style="background: #eeeeee;" onclick="changePartColor('Midsole', '#eeeeee', this)"></div>
                         <div class="swatch" title="University Gold" style="background: #FFD700;" onclick="changePartColor('Midsole', '#FFD700', this)"></div>
+                        <div class="swatch" title="Cool Grey" style="background: #888888;" onclick="changePartColor('Midsole', '#888888', this)"></div>
+                        <div class="swatch" title="Total Orange" style="background: #FF6B00;" onclick="changePartColor('Midsole', '#FF6B00', this)"></div>
                     </div>
                     <p class="selected-color-name">White</p>
                 </div>
@@ -521,6 +525,8 @@ $color_names = [
                         <div class="swatch" title="Volt Green" style="background: #008060;" onclick="changePartColor('Outsole', '#008060', this)"></div>
                         <div class="swatch" title="Bright Crimson" style="background: #E7352B;" onclick="changePartColor('Outsole', '#E7352B', this)"></div>
                         <div class="swatch" title="Cool Grey" style="background: #888888;" onclick="changePartColor('Outsole', '#888888', this)"></div>
+                        <div class="swatch" title="University Gold" style="background: #FFD700;" onclick="changePartColor('Outsole', '#FFD700', this)"></div>
+                        <div class="swatch" title="White" style="background: #ffffff;" onclick="changePartColor('Outsole', '#ffffff', this)"></div>
                     </div>
                     <p class="selected-color-name">Black</p>
                 </div>
@@ -532,10 +538,10 @@ $color_names = [
                 <button type="button" class="nav-btn active" id="aiGenBtn" onclick="generateAIDesign()" style="width: 60px;">Generate</button>
             </div>
             <div class="ai-tag-grid">
-                <button type="button" class="ai-tag-btn" onclick="applyInspirationTag('Cyberpunk')">#赛博朋克</button>
-                <button type="button" class="ai-tag-btn" onclick="applyInspirationTag('Harajuku Retro')">#复古原宿</button>
-                <button type="button" class="ai-tag-btn" onclick="applyInspirationTag('Minimalist')">#极简主义</button>
-                <button type="button" class="ai-tag-btn" onclick="applyInspirationTag('Volcanic Lava')">#火山口熔岩</button>
+                <button type="button" class="ai-tag-btn" onclick="applyInspirationTag('Cyberpunk')">#Cyberpunk</button>
+                <button type="button" class="ai-tag-btn" onclick="applyInspirationTag('Harajuku Retro')">#Harajuku Retro</button>
+                <button type="button" class="ai-tag-btn" onclick="applyInspirationTag('Minimalist')">#Minimalist</button>
+                <button type="button" class="ai-tag-btn" onclick="applyInspirationTag('Volcanic Lava')">#Volcanic Lava</button>
             </div>
         </div>
 
