@@ -44,10 +44,10 @@ if ($current_admin_level == 2 || $current_admin_level == 3) {
 // -------------------------------------------------------------------------
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
-    // 1. 创建优惠券 (Add Promo)
+    // 1. Add Promo
     if (isset($_POST['add_promo'])) {
-        if ($current_admin_level != 1) {
-            $msg = "<script>window.onload = () => { Swal.fire('Denied', 'Only Super Admin can manage promos.', 'error'); }</script>";
+        if ($current_admin_level != 1 && $current_admin_level != 2) {
+            $msg = "<script>window.onload = () => { Swal.fire('Denied', 'Only Super Admin and Level 2 admins can manage promos.', 'error'); }</script>";
         } else {
             $name = $conn->real_escape_string($_POST['promo_name']);
             $code = strtoupper(trim($_POST['promo_code'])); 
@@ -75,10 +75,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    // 2. 启禁用状态切换 (Toggle Promo Status)
+    // 2. Toggle Promo Status
     if (isset($_POST['toggle_status_promo'])) {
-        if ($current_admin_level != 1) {
-            $msg = "<script>window.onload = () => { Swal.fire('Denied', 'Only Super Admin can toggle status.', 'error'); }</script>";
+        if ($current_admin_level != 1 && $current_admin_level != 2) {
+            $msg = "<script>window.onload = () => { Swal.fire('Denied', 'Only Super Admin and Level 2 admins can toggle status.', 'error'); }</script>";
         } else {
             $p_id = intval($_POST['promo_id']);
             $new_status = $_POST['new_status'];
@@ -101,7 +101,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $has_permission = false;
         $promo_check = $conn->query("SELECT Brand_Id FROM promo WHERE Promo_Id = $target_promo_id")->fetch_assoc();
         
-        if ($current_admin_level == 1) {
+        if ($current_admin_level == 1 || $current_admin_level == 2) {
             $has_permission = true;
         } else {
             if ($promo_check && in_array($promo_check['Brand_Id'], $managed_brand_ids)) {
@@ -243,14 +243,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// -------------------------------------------------------------------------
-// 获取最新渲染数据（必须置于 POST 处理之后，以确保群组更新后实时刷新下拉）
-// -------------------------------------------------------------------------
 $all_brands = $conn->query("SELECT Brand_Id, Brand_Name FROM brand ORDER BY Brand_Name ASC");
 $all_users = $conn->query("SELECT User_Id, User_Name, User_Email FROM user WHERE User_Status = 'Active' ORDER BY User_Name ASC");
 $all_groups = $conn->query("SHOW TABLES LIKE 'user_groups'")->num_rows > 0 ? $conn->query("SELECT * FROM user_groups ORDER BY Group_Name ASC") : false;
 
-if ($current_admin_level == 1) {
+if ($current_admin_level == 1 || $current_admin_level == 2) {
     $active_promos = $conn->query("SELECT Promo_Id, Promo_Code, Promo_Name FROM promo WHERE Promo_Status = 'Active' ORDER BY Promo_Name ASC");
 } else {
     if (count($managed_brand_ids) > 0) {

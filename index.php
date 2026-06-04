@@ -2,6 +2,7 @@
 session_start();
 require_once 'includes/db_connection.php';
 
+
 $sql = "SELECT * FROM product ORDER BY Pro_Id DESC LIMIT 6";
 $result = $conn->query($sql);
 ?>
@@ -577,49 +578,6 @@ if (isset($_SESSION['user_id'])) {
     </div>
 </section>
 
-<!-- ========== FOOTER ========== -->
-<footer class="ss-footer">
-    <div class="ss-footer-grid">
-        <div>
-            <div class="ss-footer-brand">Sole 2 <span>Soul.</span></div>
-            <p class="ss-footer-desc">Empowering your every step with premium quality and performance. Your ultimate destination for professional sports footwear in Malaysia.</p>
-            <div class="ss-footer-social">
-                <a class="ss-social-btn" href="#" title="Facebook"><i class="bi bi-facebook"></i></a>
-                <a class="ss-social-btn" href="#" title="Instagram"><i class="bi bi-instagram"></i></a>
-                <a class="ss-social-btn" href="#" title="Twitter"><i class="bi bi-twitter-x"></i></a>
-            </div>
-        </div>
-        <div class="ss-footer-col">
-            <h4>Explore</h4>
-            <a href="index.php">Home</a>
-            <a href="<?= $path_mod_b ?>catalogue.php">Shoe Catalogue</a>
-            <a href="<?= $path_mod_a ?>about_us.php">About Us</a>
-            <a href="<?= $path_mod_a ?>about_us.php#contact">Support Center</a>
-        </div>
-        <div class="ss-footer-col">
-            <h4>Account</h4>
-            <?php if ($nav_is_logged_in): ?>
-                <a href="<?= $path_mod_a ?>user_dashboard.php">My Profile</a>
-                <a href="<?= $path_mod_a ?>logout.php">Sign Out</a>
-            <?php else: ?>
-                <a href="<?= $path_mod_a ?>login.php">Customer Login</a>
-                <a href="<?= $path_mod_a ?>register.php">Register</a>
-                <a href="<?= $path_mod_c ?>admin_login.php">Admin Portal</a>
-            <?php endif; ?>
-        </div>
-        <div class="ss-footer-col">
-            <h4>Contact Us</h4>
-            <a href="#">📍 Multimedia University, Melaka</a>
-            <a href="mailto:sportshoes.system@gmail.com">✉️ sportshoes.system@gmail.com</a>
-            <a href="tel:+60123456789">📞 +60 12-345 6789</a>
-        </div>
-    </div>
-    <div class="ss-footer-bottom">
-        <p>© <?= date("Y") ?> Online Sport Shoes Store. All Rights Reserved.</p>
-        <span class="ss-footer-badge">TFP4224 Final Year Project</span>
-    </div>
-</footer>
-
 <!-- ========== CHATBOT ========== -->
 <div class="chatbot-toggler" onclick="toggleChatbot()">
     <i class="bi bi-chat-dots-fill"></i>
@@ -792,4 +750,5 @@ async function sendMessage() {
 }
 </script>
 </body>
+<?php include 'includes/footer.php'; ?>
 </html>

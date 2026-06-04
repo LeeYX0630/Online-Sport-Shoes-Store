@@ -608,6 +608,41 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
     0% { opacity: 1; }
     100% { opacity: 0; }
 }
+
+/* --- Mobile Responsive Optimizations --- */
+@media (max-width: 768px) {
+    /* 1. 缩小整体容器的内外边距，节省屏幕空间 */
+    .detail-container { 
+        margin: 15px auto; 
+        padding: 15px; 
+    }
+    
+    /* 2. 缩小标题和价格字体 */
+    .product-title { font-size: 24px; margin-bottom: 10px; }
+    .current-price { font-size: 22px; margin-bottom: 15px; }
+    
+    /* 3. 颜色选择框稍微缩小，确保一行能排下更多 */
+    .color-variant-box { width: 60px; height: 60px; }
+    
+    /* 4. 优化底部悬浮购物车，使其适配屏幕宽度并分行显示 */
+    .floating-mini-cart { 
+        width: 90%; 
+        bottom: 15px; 
+        flex-direction: column; 
+        gap: 12px; 
+        padding: 15px;
+    }
+    .fmc-info { width: 100%; justify-content: space-between; }
+    .fmc-actions { width: 100%; justify-content: space-between; gap: 8px; }
+    .fmc-btn-view, .fmc-btn-checkout { flex: 1; text-align: center; padding: 10px 0; }
+    
+    /* 5. 调整数量选择器和添加购物车按钮为垂直排列 (可选，防止拥挤) */
+    .product-info > form > div:nth-of-type(4) {
+        flex-direction: column;
+        align-items: stretch !important;
+    }
+    .quantity-selector { width: 100%; justify-content: center; margin-bottom: 10px; }
+}
     </style>
 </head>
 <body>
@@ -1146,10 +1181,11 @@ async function openARScanner() {
 
     Swal.fire({
         title: 'AI Foot Sizer Scanner',
-        width: '650px',
+        width: window.innerWidth < 768 ? '95%' : '650px',
         html: `
             <div style="padding: 10px; font-family: 'Segoe UI', sans-serif;">
-                <div style="display: flex; gap: 20px; justify-content: center; align-items: stretch; text-align: center;">
+                <div style="display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; align-items: center; text-align: center;">
+                    <div style="flex: 1; min-width: 250px; border-bottom: ${window.innerWidth < 768 ? '1px solid #eee' : 'none'}; padding-bottom: ${window.innerWidth < 768 ? '15px' : '0'}; border-right: ${window.innerWidth >= 768 ? '1px solid #eee' : 'none'};">
                     
                     <div style="flex: 1; border-right: 1px solid #eee; padding-right: 20px;">
                         <h6 style="font-weight: 800; color: #333; margin: 0 0 15px 0; font-size: 14px;">Option 1: Scan via Mobile</h6>
@@ -1499,32 +1535,133 @@ function toggleWishlist(event, btn) {
     .catch(err => console.error('Wishlist Error:', err));
 }
 
-// 在你的 <script> 标签中更新前端代码
+// 存储 3 张图片的路径
 let wearImages = { front: null, left: null, right: null };
+// 【核心修复 1】：在全局声明定时器变量，方便随时销毁
+let wearPollingTimer = null; 
 
 async function openWearScanner() {
+    // 每次打开前重置数据
+    wearImages = { front: null, left: null, right: null };
+    
+    // 1. 生成磨损检测的专属主令牌
+    const sessionToken = 'WEAR-' + Math.random().toString(36).substr(2, 9);
+    await fetch(`init_bridge.php?token=${sessionToken}`);
+
+    // 2. 组装手机端 URL（注意 IP 地址在上线时记得换成正式域名）
+    const computerIP = "10.17.8.155";
+    const folderPath = "Module%20B";
+    const mobileURL = `http://${computerIP}/${folderPath}/mobile_capture.php?token=${sessionToken}&mode=wear`;
+
     Swal.fire({
-        title: 'Upload Three Views for Deep Analysis',
-        width: '700px',
+        title: '上传三视角进行深度检测',
+        width: window.innerWidth < 768 ? '95%' : '780px',
         html: `
-            <div style="display: flex; justify-content: space-between; gap: 10px; margin-top: 15px;">
-                ${['front', 'left', 'right'].map(view => `
-                    <div style="flex:1; border:2px dashed #ccc; padding:15px; border-radius:8px; cursor:pointer;" onclick="document.getElementById('upload_${view}').click()">
-                        <div id="preview_${view}" style="font-size:24px; color:#999; margin-bottom:10px;">
-                            <i class="bi bi-camera"></i>
-                        </div>
-                        <div style="font-size:12px; font-weight:bold;">${view.toUpperCase()} VIEW</div>
-                        <input type="file" id="upload_${view}" accept="image/*" style="display:none;" onchange="handleViewUpload(this, '${view}')">
+            <div style="display: flex; flex-wrap: wrap; gap: 25px; align-items: center; text-align: left;">
+                    <div style="flex: 1; min-width: 250px; border-bottom: ${window.innerWidth < 768 ? '1px solid #eee' : 'none'}; padding-bottom: ${window.innerWidth < 768 ? '15px' : '0'}; border-right: ${window.innerWidth >= 768 ? '1px solid #eee' : 'none'}; display: flex; flex-direction: column; align-items: center;">
+                    <h6 style="font-weight: 800; color: #333; margin: 0 0 15px 0;">Option A: Scan QR Code with Phone, Take Three Photos</h6>
+                    <div id="wear_qrcode" style="display:flex; justify-content:center; margin-bottom: 15px; padding: 10px; background: #fff; border: 1px solid #ddd; border-radius: 8px;"></div>
+                    <div id="wear_status" style="display: flex; align-items: center; gap: 8px; background: #fff9f0; padding: 5px 15px; border-radius: 20px; border: 1px solid #e67e22;">
+                        <div class="spinner-border text-warning" role="status" style="width:1rem; height:1rem;"></div>
+                        <span style="font-size: 12px; color: #e67e22; font-weight: bold;">Waiting for phone synchronization...</span>
                     </div>
-                `).join('')}
+                </div>
+                
+                <div style="flex: 2; display: flex; flex-direction: column; justify-content: center;">
+                    <h6 style="font-weight: 800; color: #333; margin: 0 0 15px 0; text-align: center;">Option B: Manually Select Local Images</h6>
+                    <div style="display: flex; justify-content: space-between; gap: 10px;">
+                        ${['front', 'left', 'right'].map(view => `
+                            <div style="flex:1; border:2px dashed #ccc; padding:10px; border-radius:8px; cursor:pointer; text-align:center; background: #f9f9f9; transition: 0.3s;" 
+                                 onclick="document.getElementById('upload_${view}').click()" onmouseover="this.style.borderColor='#e67e22'" onmouseout="this.style.borderColor='#ccc'">
+                                <div id="preview_${view}" style="font-size:24px; color:#999; margin-bottom:5px; height: 80px; display: flex; align-items: center; justify-content: center;">
+                                    <i class="bi bi-camera"></i>
+                                </div>
+                                <div style="font-size:11px; font-weight:bold; color: #555;">${view.toUpperCase()} VIEW</div>
+                                <input type="file" id="upload_${view}" accept="image/*" style="display:none;" onchange="handleViewUpload(this, '${view}')">
+                            </div>
+                        `).join('')}
+                    </div>
+                    <button id="startAiBtn" disabled onclick="submitMultiViewAnalysis()" 
+                            style="margin-top:20px; width:100%; padding:14px; background:#e67e22; color:#fff; border:none; border-radius:8px; font-weight:bold; cursor:not-allowed; opacity:0.5; transition: 0.3s;">
+                        Waiting for images to be ready...
+                    </button>
+                </div>
             </div>
-            <button id="startAiBtn" disabled onclick="submitMultiViewAnalysis()" style="margin-top:20px; width:100%; padding:12px; background:#e67e22; color:#fff; border:none; border-radius:8px; font-weight:bold; cursor:not-allowed; opacity:0.5;">
-                Upload Complete, Start AI Deep Analysis
-            </button>
         `,
         showConfirmButton: false,
-        showCloseButton: true
+        showCloseButton: true,
+        didOpen: () => {
+            // 渲染二维码
+            new QRCode(document.getElementById("wear_qrcode"), { text: mobileURL, width: 130, height: 130 });
+            // 开启轮询，等待手机端传回数据
+            startWearPolling(sessionToken);
+        },
+        willClose: () => {
+            // 【核心修复 2】：生命周期管理。弹窗关闭时，必须强制销毁轮询！
+            if (wearPollingTimer) {
+                clearInterval(wearPollingTimer);
+                wearPollingTimer = null;
+            }
+        }
     });
+}
+
+// 轮询监听器（手机端 3 张图片全部就位后触发）
+function startWearPolling(token) {
+    // 确保如果多次调用，先清除旧的定时器
+    if (wearPollingTimer) clearInterval(wearPollingTimer);
+
+    wearPollingTimer = setInterval(async () => {
+        // 【核心修复 3】：如果在执行过程中弹窗被意外销毁，立即中断并停止轮询
+        if (!document.getElementById('wear_status')) {
+            clearInterval(wearPollingTimer);
+            return;
+        }
+
+        try {
+            const response = await fetch(`check_bridge.php?token=${token}`);
+            const data = await response.json();
+            
+            // 当手机端主令牌激活时，说明 3 张附图已经全部传好了
+            if (data.status === 'captured') {
+                clearInterval(wearPollingTimer);
+                
+                // 1. 自动拼接 3 张图片的物理路径并装载到对象中
+                const views = ['front', 'left', 'right'];
+                views.forEach(view => {
+                    const dbPath = `uploads/${token}_${view}_capture.jpg`; 
+                    wearImages[view] = dbPath;
+                    
+                    // 渲染到电脑端方格中 (加入时间戳防止缓存)
+                    const displayPath = `../Module B/${dbPath}?t=${Date.now()}`;
+                    const previewEl = document.getElementById(`preview_${view}`);
+                    if (previewEl) {
+                        previewEl.innerHTML = `<img src="${displayPath}" style="width:100%; height:80px; object-fit:contain; border-radius:4px;">`;
+                    }
+                });
+
+                // 2. 更新状态 UI 并解锁按钮
+                const statusEl = document.getElementById('wear_status');
+                if (statusEl) {
+                    statusEl.innerHTML = '<i class="bi bi-check-circle-fill"></i> <span style="font-weight:bold;">同步完成！</span>';
+                    statusEl.style.background = '#e8f8f5';
+                    statusEl.style.borderColor = '#008060';
+                    statusEl.style.color = '#008060';
+                }
+                
+                const btn = document.getElementById('startAiBtn');
+                if (btn) {
+                    btn.disabled = false;
+                    btn.style.opacity = '1';
+                    btn.style.cursor = 'pointer';
+                    btn.style.background = '#008060';
+                    btn.innerText = 'Start AI Deep Analysis';
+                }
+            }
+        } catch (e) { 
+            console.warn("Polling wait...", e); 
+        }
+    }, 2000);
 }
 
 async function handleViewUpload(input, view) {
