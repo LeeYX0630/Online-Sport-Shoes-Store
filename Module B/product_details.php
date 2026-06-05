@@ -8,13 +8,29 @@ $uid = $is_logged_in ? $_SESSION['user_id'] : null;
 
 include '../includes/db_connection.php';
 require_once '../includes/material_configs.php';
+require_once '../includes/config.php';
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_to_cart'])) {
-    $add_pro_id = intval($_POST['pro_id']);
-    $add_size = $_POST['selected_size'];
-    $add_qty = intval($_POST['quantity']);
-    $add_color = $_POST['selected_color'];
-    $design_id = isset($_POST['custom_design_id']) ? $_POST['custom_design_id'] : '';
+    // Validate CSRF token
+    if (!isset($_SESSION['csrf_token']) || $_SESSION['csrf_token'] !== ($_POST['csrf_token'] ?? '')) {
+        http_response_code(403);
+        echo json_encode(['error' => 'CSRF validation failed']);
+        exit;
+    }
+
+    // Validate and sanitize input
+    $add_pro_id = isset($_POST['pro_id']) ? intval($_POST['pro_id']) : 0;
+    $add_size = isset($_POST['selected_size']) ? trim($_POST['selected_size']) : '';
+    $add_qty = isset($_POST['quantity']) ? intval($_POST['quantity']) : 1;
+    $add_color = isset($_POST['selected_color']) ? trim($_POST['selected_color']) : '';
+    $design_id = isset($_POST['custom_design_id']) ? trim($_POST['custom_design_id']) : '';
+
+    // Validate required fields
+    if ($add_pro_id <= 0 || empty($add_size) || $add_qty <= 0) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Invalid input parameters']);
+        exit;
+    }
 
     if (!empty($add_pro_id) && !empty($add_size)) {
         if ($add_pro_id == 16 || $add_pro_id == 17) {
@@ -96,6 +112,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_to_cart'])) {
     }
 }
 
+// Generate CSRF token if not exists
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
 include '../includes/header.php';
 
 // 1. 检查 URL 是否带了产品 ID
@@ -149,8 +170,6 @@ foreach($raw_colors as $rc) {
 if (empty($colors)) $colors[] = "Default";
 
 $stmt_stock = $conn->prepare("SELECT Pro_Size, Pro_Colour, Quantity FROM product_stock WHERE Pro_Id = ?");
-
-$stmt_stock = $conn->prepare("SELECT Pro_Size, Pro_Colour, Quantity FROM PRODUCT_STOCK WHERE Pro_Id = ?");
 $stmt_stock->bind_param("i", $pro_id);
 $stmt_stock->execute();
 $res_stock = $stmt_stock->get_result();
@@ -281,27 +300,44 @@ $mini_cart_total = 0;
 $mini_cart_count = 0;
 $mini_cart_items = [];
 if (!empty($_SESSION['cart'])) {
-    $stmt_mini = $conn->prepare("SELECT Pro_Name, Pro_Price, Pro_Image FROM product WHERE Pro_Id = ?");
-    foreach ($_SESSION['cart'] as $cart_key => $c_item) {
-        $c_pro_id = intval($c_item['pro_id']);
-        $stmt_mini->bind_param("i", $c_pro_id);
+    // Batch query instead of N+1 queries for better performance
+    $pro_ids = array_unique(array_map(function($item) { return intval($item['pro_id']); }, $_SESSION['cart']));
+    
+    if (!empty($pro_ids)) {
+        $placeholders = implode(',', array_fill(0, count($pro_ids), '?'));
+        $stmt_mini = $conn->prepare("SELECT Pro_Id, Pro_Name, Pro_Price, Pro_Image FROM product WHERE Pro_Id IN ($placeholders)");
+        
+        // Bind parameters dynamically
+        $types = str_repeat('i', count($pro_ids));
+        $stmt_mini->bind_param($types, ...$pro_ids);
         $stmt_mini->execute();
         $c_res = $stmt_mini->get_result();
-        if ($c_res && $c_res->num_rows > 0) {
-            $c_row = $c_res->fetch_assoc();
-            if (isset($c_item['price'])) {
-                $c_row['Pro_Price'] = $c_item['price'];
-            }
-            $c_row['qty'] = (int)$c_item['qty'];
-            $c_row['subtotal'] = $c_row['qty'] * (float)$c_row['Pro_Price'];
-            $c_row['custom_preview'] = $c_item['custom_preview'] ?? '';
-            
-            $mini_cart_total += $c_row['subtotal'];
-            $mini_cart_count += $c_row['qty'];
-            $mini_cart_items[] = $c_row;
+        
+        $products_map = [];
+        while ($row = $c_res->fetch_assoc()) {
+            $products_map[$row['Pro_Id']] = $row;
         }
+        
+        // Now build mini cart from session
+        foreach ($_SESSION['cart'] as $cart_key => $c_item) {
+            $c_pro_id = intval($c_item['pro_id']);
+            
+            if (isset($products_map[$c_pro_id])) {
+                $c_row = $products_map[$c_pro_id];
+                if (isset($c_item['price'])) {
+                    $c_row['Pro_Price'] = $c_item['price'];
+                }
+                $c_row['qty'] = (int)$c_item['qty'];
+                $c_row['subtotal'] = $c_row['qty'] * (float)$c_row['Pro_Price'];
+                $c_row['custom_preview'] = $c_item['custom_preview'] ?? '';
+                
+                $mini_cart_total += $c_row['subtotal'];
+                $mini_cart_count += $c_row['qty'];
+                $mini_cart_items[] = $c_row;
+            }
+        }
+        $stmt_mini->close();
     }
-    $stmt_mini->close();
 }
 
 $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
@@ -388,82 +424,6 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
         .btn-wishlist-main { background: none; border: none; font-size: 24px; cursor: pointer; float: right; color: #999; }
     
         /* AI Chatbot Styles */
-.ai-assistant-container {
-    max-width: 1300px;
-    margin: 40px auto;
-    padding: 0 30px;
-}
-.assistant-header {
-    background: #008060;
-    color: white;
-    padding: 15px 25px;
-    border-radius: 12px 12px 0 0;
-    font-weight: bold;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-.ai-chat-box {
-    background: #fff;
-    border: 1px solid #eee;
-    border-radius: 0 0 12px 12px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.05);
-    overflow: hidden;
-}
-.chat-messages {
-    height: 250px;
-    overflow-y: auto;
-    padding: 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 15px;
-    background: #f9f9f9;
-}
-.msg {
-    max-width: 80%;
-    padding: 12px 18px;
-    border-radius: 15px;
-    font-size: 14px;
-    line-height: 1.5;
-}
-.msg.ai {
-    align-self: flex-start;
-    background: #fff;
-    color: #333;
-    border: 1px solid #eee;
-    border-bottom-left-radius: 2px;
-}
-.msg.user {
-    align-self: flex-end;
-    background: #333;
-    color: #fff;
-    border-bottom-right-radius: 2px;
-}
-.chat-input-area {
-    padding: 20px;
-    display: flex;
-    gap: 10px;
-    border-top: 1px solid #eee;
-}
-.chat-input-area input {
-    flex: 1;
-    padding: 12px;
-    border: 1px solid #ddd;
-    border-radius: 6px;
-    outline: none;
-}
-.chat-input-area button {
-    background: #008060;
-    color: white;
-    border: none;
-    padding: 0 25px;
-    border-radius: 6px;
-    font-weight: bold;
-    cursor: pointer;
-    transition: 0.3s;
-}
-.chat-input-area button:hover { background: #00664c; }
-
 .apply-size-btn {
     background: #ffeb3b;
     border: 1px solid #000;
@@ -680,8 +640,8 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
                     <div class="color-variants-container">
                         <?php foreach($colors as $idx => $c): ?>
                             <div class="color-variant-box <?php echo $idx==0 ? 'active' : ''; ?>" 
-                                onclick="selectColor(this, '<?php echo htmlspecialchars($c); ?>')" 
-                                title="<?php echo htmlspecialchars($c); ?>">
+                                onclick="selectColor(this, '<?php echo htmlspecialchars($c, ENT_QUOTES, 'UTF-8'); ?>')" 
+                                title="<?php echo htmlspecialchars($c, ENT_QUOTES, 'UTF-8'); ?>">
                                 <img src="<?php echo $color_galleries[$c][0]; ?>">
                             </div>
                         <?php endforeach; ?>
@@ -693,9 +653,9 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
                     <div class="color-variants-container">
                         <?php foreach($all_designs as $d_id => $design): ?>
                             <div class="color-variant-box custom-design-thumb">
-                                <img src="<?php echo $design['custom_preview']; ?>" 
-                                     onclick="selectCustomDesign('<?php echo $d_id; ?>', '<?php echo $design['custom_preview']; ?>', this.parentElement)">
-                                <a href="custom_builder.php?pro_id=<?php echo $pro_id; ?>&edit_design=<?php echo $d_id; ?>" 
+                                <img src="<?php echo htmlspecialchars($design['custom_preview'], ENT_QUOTES, 'UTF-8'); ?>" 
+                                     onclick="selectCustomDesign('<?php echo htmlspecialchars($d_id, ENT_QUOTES, 'UTF-8'); ?>', '<?php echo htmlspecialchars($design['custom_preview'], ENT_QUOTES, 'UTF-8'); ?>', this.parentElement)">
+                                <a href="custom_builder.php?pro_id=<?php echo $pro_id; ?>&edit_design=<?php echo htmlspecialchars($d_id, ENT_QUOTES, 'UTF-8'); ?>" 
                                    style="position:absolute; top:-10px; right:-10px; background:#000; color:#fff; border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; text-decoration:none; font-size:12px; border:2px solid #fff; z-index:10;">
                                     <i class="bi bi-pencil-fill"></i>
                                 </a>
@@ -709,10 +669,11 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
                 <?php endif; ?>
 
                 <form action="product_details.php?pro_id=<?php echo $product['Pro_Id']; ?>" method="POST" id="addToCartForm">
+                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES, 'UTF-8'); ?>">
                     <input type="hidden" name="custom_design_id" id="customDesignIdInput" value="">
                     <input type="hidden" name="pro_id" value="<?php echo $product['Pro_Id']; ?>">
                     <input type="hidden" name="selected_size" id="selectedSizeInput" value="">
-                    <input type="hidden" name="selected_color" id="selectedColorInput" value="<?php echo htmlspecialchars($colors[0]); ?>">
+                    <input type="hidden" name="selected_color" id="selectedColorInput" value="<?php echo htmlspecialchars($colors[0], ENT_QUOTES, 'UTF-8'); ?>">
                     
                     <!-- AR 尺码扫描入口 -->
                     <div style="background: #f0f7f4; border: 1px dashed #008060; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
@@ -796,7 +757,6 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
             </div>
         <?php endforeach; ?>
     </div>
-</div>
 </div>
 
 <?php if ($mini_cart_count > 0): ?>
@@ -1065,7 +1025,7 @@ function addToCartAndOpen() {
         refreshSizeButtons();
     });
 
-    async function askAI() {
+/*    async function askAI() {
     const input = document.getElementById('aiInput');
     const btn = document.getElementById('aiSendBtn');
     const container = document.getElementById('chatMessages');
@@ -1112,7 +1072,7 @@ function addToCartAndOpen() {
         btn.disabled = false;
         input.focus();
     }
-}
+}*/
 
 function appendMessage(type, text) {
     const container = document.getElementById('chatMessages');
@@ -1172,10 +1132,13 @@ document.getElementById('rvSlider').addEventListener('wheel', (evt) => {
 });
 
 async function openARScanner() {
-    const sessionToken = 'SS-' + Math.random().toString(36).substr(2, 9);
+    // Generate cryptographically secure token using crypto API
+    const tokenArray = new Uint8Array(16);
+    crypto.getRandomValues(tokenArray);
+    const sessionToken = 'SS-' + Array.from(tokenArray, byte => byte.toString(16).padStart(2, '0')).join('');
     await fetch(`init_bridge.php?token=${sessionToken}`);
 
-    const computerIP = "10.17.8.155";
+    const computerIP = "<?php echo htmlspecialchars(MOBILE_DEVICE_IP, ENT_QUOTES, 'UTF-8'); ?>";
     const folderPath = "Module%20B";
     const mobileURL = `http://${computerIP}/${folderPath}/mobile_capture.php?token=${sessionToken}`;
 
@@ -1240,30 +1203,29 @@ async function handleLocalUpload(input, token) {
     img.src = URL.createObjectURL(file);
     
     img.onload = async function() {
-        // 创建虚拟画布，强制将分辨率标准化为 1280x720（与手机摄像头完全对齐）
+        // Create canvas with standard resolution using config
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         
-        // 智能判断横竖屏，计算缩放比例
-        let targetWidth = 1280;
-        let targetHeight = 720;
+        // Smart portrait/landscape detection
+        let targetWidth = <?php echo IMAGE_RESOLUTION_WIDTH; ?>;
+        let targetHeight = <?php echo IMAGE_RESOLUTION_HEIGHT; ?>;
         
-        // 如果用户传的是标准的竖版照片，自动调换画布轴向，防止画面被压扁变形
+        // Swap axes for portrait-oriented uploads
         if (img.height > img.width) {
-            targetWidth = 720;
-            targetHeight = 1280;
+            targetWidth = <?php echo IMAGE_RESOLUTION_HEIGHT; ?>;
+            targetHeight = <?php echo IMAGE_RESOLUTION_WIDTH; ?>;
         }
         
         canvas.width = targetWidth;
         canvas.height = targetHeight;
         
-        // 将高像素原图高质量平滑绘制入标准规格画布中
+        // Draw image with high quality
         ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
         
-        // 转换为二进制 Blob 流
+        // Convert to binary blob stream
         canvas.toBlob(async (blob) => {
             const formData = new FormData();
-            // 包装和手机同步流一模一样的文件名，彻底消除 AI 的格式歧义
             formData.append('image', blob, 'capture.jpg'); 
             formData.append('token', token);
 
@@ -1279,7 +1241,7 @@ async function handleLocalUpload(input, token) {
                 console.error('Processing error:', error);
                 Swal.fire({ icon: 'error', title: 'Analysis Failed', text: 'Image resolution too high or layout clear cutoff.' });
             }
-        }, 'image/jpeg', 0.90); // 适度压缩体积，保障网速和 AI 读取响应率
+        }, 'image/jpeg', <?php echo IMAGE_COMPRESSION_QUALITY; ?>);
     };
 }
 
@@ -1347,14 +1309,14 @@ async function processMeasurement(imagePath) {
         const data = await response.json();
         
         if (!data.measured_length_cm || isNaN(parseFloat(data.measured_length_cm))) {
-            throw new Error("未能精准识别到脚部，请确保脚平放在 A4 纸张中心并重新上传。");
+            throw new Error("Invalid measurement data received from AI.");
         }
 
         const realFootLength = parseFloat(data.measured_length_cm);
         const recommendedUK = calculateUKSize(realFootLength); 
         
-        const footShape = data.foot_shape_zh || "未知脚型";
-        const shapeDesc = data.description || "未检测到明显特征";
+        const footShape = data.foot_shape_type || "unknown";
+        const shapeDesc = data.description || "No detailed description available.";
         const landmarks = data.landmarks || null;
 
         // 3. 渲染最终报告（直接调用 displaySrc 物理路径显示图片）
@@ -1382,7 +1344,7 @@ async function processMeasurement(imagePath) {
                     </div>
 
                     <div style="border-left: 4px solid #008060; padding-left: 12px; margin-top: 15px;">
-                        <h4 style="margin: 0 0 5px 0; color: #333; font-weight: bold;">Your Foot Shape：<span style="color:#008060;">${footShape}</span></h4>
+                        <h4 style="margin: 0 0 5px 0; color: #333; font-weight: bold;">Your Foot Shape: <span style="color:#008060;">${footShape}</span></h4>
                         <p style="margin: 0; font-size: 13px; color: #666; line-height: 1.4;">${shapeDesc}</p>
                     </div>
 
@@ -1537,19 +1499,21 @@ function toggleWishlist(event, btn) {
 
 // 存储 3 张图片的路径
 let wearImages = { front: null, left: null, right: null };
-// 【核心修复 1】：在全局声明定时器变量，方便随时销毁
-let wearPollingTimer = null; 
+let wearPollingTimer = null;
+let sessionToken = null;
 
 async function openWearScanner() {
-    // 每次打开前重置数据
+    // Every time open, reset data
     wearImages = { front: null, left: null, right: null };
     
-    // 1. 生成磨损检测的专属主令牌
-    const sessionToken = 'WEAR-' + Math.random().toString(36).substr(2, 9);
+    // Generate cryptographically secure token
+    const tokenArray = new Uint8Array(16);
+    crypto.getRandomValues(tokenArray);
+    sessionToken = 'WEAR-' + Array.from(tokenArray, byte => byte.toString(16).padStart(2, '0')).join('');
     await fetch(`init_bridge.php?token=${sessionToken}`);
 
-    // 2. 组装手机端 URL（注意 IP 地址在上线时记得换成正式域名）
-    const computerIP = "10.17.8.155";
+    // Assemble mobile URL (use config for IP address)
+    const computerIP = "<?php echo htmlspecialchars(MOBILE_DEVICE_IP, ENT_QUOTES, 'UTF-8'); ?>";
     const folderPath = "Module%20B";
     const mobileURL = `http://${computerIP}/${folderPath}/mobile_capture.php?token=${sessionToken}&mode=wear`;
 
@@ -1695,9 +1659,8 @@ async function handleViewUpload(input, view) {
         const res = await fetch('upload_bridge.php', { method: 'POST', body: formData });
         const data = await res.json();
         
-        // 【核心修复 3】：后端不返回 file_path，我们根据后端拼接规则手动组装物理路径
-        if (data.success || !data.error.includes("Failed to move")) {
-            wearImages[view] = `uploads/${token}_capture.jpg`; 
+        if (data.success) {
+            wearImages[view] = `uploads/${token}_capture.jpg`;
         }
 
         // 恢复按钮文字
@@ -1725,8 +1688,96 @@ async function submitMultiViewAnalysis() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ mode: 'wear_detector', images: wearImages })
         });
+
+        const rawText = await res.text();
+        let data;
+        try {
+            data = JSON.parse(rawText);
+        } catch (parseError) {
+            console.error("【Format Error】:", rawText);
+            throw new Error("AI returned an unexpected format. Please try again.");
+        }
+
+        if (wearPollingTimer) { clearInterval(wearPollingTimer); wearPollingTimer = null; }
+
+        if (data.error) {
+            throw new Error(data.message || 'AI analysis returned an error.');
+        }
+
+        // ✅ Bug 1 Fix: 字段名从 overall_level_zh 改为 overall_level
+        if (!data.overall_level || !data.front) {
+            throw new Error('AI analysis failed to return expected results. Please ensure the images are clear and try again.');
+        }
+
+        Swal.fire({
+            title: '👟 Deep Wear Report',
+            width: '780px',
+            html: generateWearReportHTML(data)
+        });
+
+    } catch (err) {
+        console.error("Analysis error:", err);
+        Swal.fire('Analysis Failed', err.message || 'An error occurred. Please try again.', 'error');
+    }
+}
+
+function generateWearReportHTML(data) {
+    return `
+        <div style="text-align: left; font-size: 13px;">
+            <div style="background:#333; color:#fff; padding:12px; border-radius:6px; margin-bottom:15px; text-align:center;">
+                <!-- ✅ Bug 2 Fix: overall_level_zh → overall_level -->
+                <strong style="font-size: 15px;">Overall Rating: ${data.overall_level}</strong>
+            </div>
+            
+            <div style="display:flex; flex-direction:column; gap:12px;">
+                ${['front', 'left', 'right'].map(v => {
+                    const percent = data[v].wear_percent;
+                    const hue = Math.max(0, (100 - percent) * 1.2);
+                    const overlayColor = `hsla(${hue}, 85%, 50%, 0.55)`;
+                    const borderColor = `hsl(${hue}, 80%, 45%)`;
+                    const textColor = percent > 70 ? '#e74c3c' : (percent > 40 ? '#f39c12' : '#27ae60');
+                    const imgPath = `../Module B/${wearImages[v]}?t=${Date.now()}`;
+
+                    return `
+                    <div style="display:flex; gap:18px; border-left: 5px solid ${borderColor}; background:#f9f9f9; padding:12px; border-radius:0 8px 8px 0; align-items:stretch;">
+                        <div style="position:relative; width:140px; height:110px; border-radius:6px; overflow:hidden; flex-shrink:0; box-shadow:0 4px 10px rgba(0,0,0,0.1);">
+                            <img src="${imgPath}" style="width:100%; height:100%; object-fit:cover; display:block; filter:grayscale(20%);">
+                            <div style="position:absolute; inset:0; background-color:${overlayColor}; mix-blend-mode:multiply;"></div>
+                            <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:30px; font-weight:900; color:#fff; text-shadow:0px 2px 8px rgba(0,0,0,0.9);">
+                                ${percent}%
+                            </div>
+                        </div>
+                        <div style="flex:1; display:flex; flex-direction:column; justify-content:center;">
+                            <div style="display:flex; justify-content:space-between; font-weight:bold; margin-bottom:8px; font-size:14px;">
+                                <span style="color:#333;">${v.toUpperCase()} VIEW</span>
+                                <span style="color:${textColor}; background:#fff; padding:2px 8px; border-radius:4px; border:1px solid #ddd;">Wear ${percent}%</span>
+                            </div>
+                            <p style="margin:0; color:#555; line-height:1.5; text-align:justify;">${data[v].detail}</p>
+                        </div>
+                    </div>`;
+                }).join('')}
+            </div>
+
+            <!-- ✅ Bug 2 Fix: 恢复 final_advice 建议显示 -->
+            <div style="margin-top:15px; padding:12px; background:#e8f8f5; color:#008060; border-radius:6px; line-height:1.6; border:1px solid #c3e6cb;">
+                <strong>💡 AI Final Recommendation:</strong><br>
+                ${data.final_advice}
+            </div>
+        </div>
+    `;
+}
+
+/*async function submitMultiViewAnalysis() {
+    Swal.fire({ title: 'AI Triple View Analysis...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+
+    try {
+        const res = await fetch('gemini_handler.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: 'wear_detector', images: wearImages })
+        });
         
-        // 【防崩溃核心】：先作为普通文本读取，防止非 JSON 格式直接引发代码崩溃
+        // 先作为普通文本读取，防止非 JSON 格式直接引发代码崩溃
         const rawText = await res.text();
         let data;
         
@@ -1748,30 +1799,59 @@ async function submitMultiViewAnalysis() {
             throw new Error("AI analysis failed to return expected results. Please ensure the images are clear and try again.");
         }
 
-        // 渲染极度细节的结果面板 (原有渲染代码保持不变)
         Swal.fire({
             title: '👟 Deep Wear Report',
-            width: '600px',
+            width: '780px',
             html: `
                 <div style="text-align: left; font-size: 13px;">
-                    <div style="background:#333; color:#fff; padding:10px; border-radius:6px; margin-bottom:15px; text-align:center;">
-                        <strong>Overall Rating: ${data.overall_level_zh}</strong>
+                    <div style="background:#333; color:#fff; padding:12px; border-radius:6px; margin-bottom:15px; text-align:center;">
+                        <strong style="font-size: 15px;">Overall Rating: ${data.overall_level_zh}</strong>
                     </div>
                     
-                    <div style="display:flex; flex-direction:column; gap:10px;">
-                        ${['front', 'left', 'right'].map(v => `
-                            <div style="border-left: 4px solid ${data[v].wear_percent > 70 ? '#e74c3c' : '#f1c40f'}; padding-left:10px; background:#f9f9f9; padding:10px; border-radius:0 6px 6px 0;">
-                                <div style="display:flex; justify-content:space-between; font-weight:bold;">
-                                    <span>${v.toUpperCase()} View</span>
-                                    <span style="color:${data[v].wear_percent > 70 ? '#e74c3c' : '#333'}">Wear ${data[v].wear_percent}%</span>
+                    <div style="display:flex; flex-direction:column; gap:12px;">
+                        ${['front', 'left', 'right'].map(v => {
+                            const percent = data[v].wear_percent;
+                            
+                            // 💡 核心算法：利用 HSL 色彩空间动态生成青(绿)到红的颜色
+                            const hue = Math.max(0, (100 - percent) * 1.2); 
+                            const overlayColor = \`hsla(${hue}, 85%, 50%, 0.55)\`; // 半透明彩色遮罩
+                            const borderColor = \`hsl(${hue}, 80%, 45%)\`; // 边框颜色同步
+                            const textColor = percent > 70 ? '#e74c3c' : (percent > 40 ? '#f39c12' : '#27ae60');
+                            
+                            // 彻底去除了反斜杠，变量现在可以完美加载真实的图片路径！
+                            const imgPath = \`../Module B/${wearImages[v]}?t=${Date.now()}\`;
+
+                            return \`
+                            <div style="display:flex; gap:18px; border-left: 5px solid ${borderColor}; background:#f9f9f9; padding:12px; border-radius:0 8px 8px 0; align-items: stretch;">
+                                
+                                <div style="position: relative; width: 140px; height: 110px; border-radius: 6px; overflow: hidden; flex-shrink: 0; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
+                                    <img src="${imgPath}" style="width: 100%; height: 100%; object-fit: cover; display: block; filter: grayscale(20%);">
+                                    
+                                    <div style="position: absolute; inset: 0; background-color: ${overlayColor}; mix-blend-mode: multiply;"></div>
+                                    
+                                    <div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 30px; font-weight: 900; color: #fff; text-shadow: 0px 2px 8px rgba(0,0,0,0.9), 0px 0px 3px rgba(0,0,0,0.6);">
+                                        ${percent}%
+                                    </div>
                                 </div>
-                                <p style="margin:5px 0 0 0; color:#555;">${data[v].detail}</p>
+                                
+                                <div style="flex: 1; display: flex; flex-direction: column; justify-content: center;">
+                                    <div style="display:flex; justify-content:space-between; font-weight:bold; margin-bottom: 8px; font-size: 14px;">
+                                        <span style="color: #333;">${v.toUpperCase()} VIEW</span>
+                                        <span style="color: ${textColor}; background: #fff; padding: 2px 8px; border-radius: 4px; border: 1px solid #ddd;">
+                                            Wear ${percent}%
+                                        </span>
+                                    </div>
+                                    <p style="margin:0; color:#555; line-height: 1.5; text-align: justify;">${data[v].detail}</p>
+                                </div>
+
                             </div>
-                        `).join('')}
+                            \`;
+                        }).join('')}
                     </div>
 
-                    <div style="margin-top:15px; padding:10px; background:#e8f8f5; color:#008060; border-radius:6px;">
-                        <strong>💡 AI Final Recommendation:</strong> ${data.final_advice}
+                    <div style="margin-top:15px; padding:12px; background:#e8f8f5; color:#008060; border-radius:6px; line-height: 1.6; border: 1px solid #c3e6cb;">
+                        <strong>💡 AI Final Recommendation:</strong><br>
+                        ${data.final_advice}
                     </div>
                 </div>
             `,
@@ -1780,14 +1860,13 @@ async function submitMultiViewAnalysis() {
         });
         
     } catch (e) {
-        // 现在这里弹出的将是真实的错误原因，而不是泛泛的“分析失败”
         Swal.fire({
             icon: 'error',
             title: 'Analysis Interrupted',
             text: e.message || 'System busy, please try again later'
         });
     }
-}
+}*/
 </script>
 
 </body>

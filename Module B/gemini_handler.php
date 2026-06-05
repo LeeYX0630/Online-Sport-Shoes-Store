@@ -62,7 +62,6 @@ if ($mode === 'sizer' && $image_path) {
     {
       \"measured_length_cm\": 26.5,
       \"foot_shape_type\": \"Egyptian Foot\",
-      \"foot_shape_zh\": \"Egyptian Foot\",
       \"description\": \"Big toe is the longest, others taper down like a staircase.\",
       \"landmarks\": {
         \"heel_center\": {\"x\": 0.51, \"y\": 0.85},
@@ -109,7 +108,7 @@ elseif ($mode === 'designer') {
 // ==========================================
 // 💥 业务模式 3: 智能实时库存客服助手 (Chat)
 // ==========================================
-else {
+elseif ($mode === 'chat') {
     $sql = "SELECT p.Pro_Name, p.Pro_Description, p.Pro_Price, s.Pro_Size, s.Pro_Colour, s.Quantity 
             FROM product p 
             JOIN product_stock s ON p.Pro_Id = s.Pro_Id 
@@ -144,7 +143,7 @@ else {
 // ==========================================
 // 💥 业务模式 4: 三视角深度磨损分析 (Wear Sole Detector - 3 Views)
 // ==========================================
-if ($mode === 'wear_detector' && isset($input['images'])) {
+elseif ($mode === 'wear_detector' && isset($input['images'])) {
     $images = $input['images']; // 期望接收关联数组: ['front' => path, 'left' => path, 'right' => path]
     
     $parts = [];
@@ -172,24 +171,25 @@ if ($mode === 'wear_detector' && isset($input['images'])) {
       \"left\": { \"wear_percent\": 80, \"detail\": \"Left side reveals deep compression in the midsole and significant tread wear on the outsole.\" },
       \"right\": { \"wear_percent\": 75, \"detail\": \"Right side displays pronounced wear on the heel counter and uneven tread pattern.\" },
       \"overall_level\": \"Critical\",
-      \"overall_level_zh\": \"Critical\",
       \"final_advice\": \"Your shoes are showing critical wear and should be replaced soon.\"
     }";
 
     $parts[] = ["text" => $wearPrompt];
 
     $payload = [
-      "contents" => [[
-          "parts" => [
-              ["text" => $wearPrompt],
-              ["inline_data" => ["mime_type" => "image/jpeg", "data" => $imgData]]
-          ]
-      ]],
-      "generationConfig" => [
-          "temperature" => 0.2,
-          "responseMimeType" => "application/json"
-      ]
+        "contents" => [[
+            "parts" => $parts
+        ]],
+        "generationConfig" => [
+            "temperature" => 0.2,
+            "responseMimeType" => "application/json"
+        ]
     ];
+}
+
+else {
+    echo json_encode(['reply' => 'Invalid mode or missing image for sizer/wear_detector']);
+    exit;
 }
 // 2. 统一分流发送 cURL 事务给 Google 骨干网络
 $ch = curl_init($apiUrl);
