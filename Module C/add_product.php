@@ -2,11 +2,124 @@
 session_start();
 require_once '../includes/db_connection.php';
 
+// ── 读取 .env 文件 ────────────────────────────────────────────────────────────
+function loadEnv($path) {
+    if (!file_exists($path)) return;
+    $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    foreach ($lines as $line) {
+        if (strpos(trim($line), '#') === 0) continue; // 跳过注释行
+        if (strpos($line, '=') === false) continue;
+        [$key, $value] = explode('=', $line, 2);
+        $key   = trim($key);
+        $value = trim($value);
+        if (!empty($key)) {
+            putenv("$key=$value");
+            $_ENV[$key] = $value;
+        }
+    }
+}
+
+loadEnv(__DIR__ . '/../includes/Tung_Gemini_API.env');
+
+
 // 1. 安全检查
 if (!isset($_SESSION['role'])) {
     header("Location: admin_login.php");
     exit();
 }
+
+// 处理 AJAX：AI 生成描述
+// 处理 AJAX：Gemini AI 生成描述
+if (isset($_POST['action']) && $_POST['action'] === 'generate_desc') {
+    header('Content-Type: application/json');
+
+    $pro_name  = trim($_POST['pro_name']  ?? '');
+    $brand     = trim($_POST['brand']     ?? '');
+    $category  = trim($_POST['category']  ?? '');
+    $gender    = trim($_POST['gender']    ?? '');
+    $age_group = trim($_POST['age_group'] ?? '');
+
+    if (empty($pro_name)) {
+        echo json_encode(['error' => 'Product name is required.']);
+        exit();
+    }
+
+    // 构建发给 Gemini 的提示词
+    $prompt = "Write a compelling product description for an online sports shoe store. \n"
+            . "Product: {$pro_name}\n"
+            . "Brand: {$brand}\n"
+            . "Category: {$category}\n"
+            . "Gender: {$gender}\n"
+            . "Age Group: {$age_group}\n\n"
+            . "Requirements:\n"
+            . "- 2-3 sentences only\n"
+            . "- Professional and persuasive tone\n"
+            . "- Highlight performance, comfort, and style\n"
+            . "- Do NOT use bullet points\n"
+            . "- Do NOT start with 'Introducing'\n"
+            . "- Output the description text only, no extra commentary";
+
+    // 组织 Gemini API 所需的 JSON Payload 结构
+    $payload = json_encode([
+        'contents' => [
+            [
+                'parts' => [
+                    ['text' => $prompt]
+                ]
+            ]
+        ],
+        'generationConfig' => [
+            'maxOutputTokens' => 200
+        ]
+    ]);
+
+
+    $apiKey = getenv('GEMINI_API_KEY');
+
+    if (empty($apiKey)) {
+        echo json_encode(['error' => 'API key not found. Please check your .env file.']);
+        exit();
+    }
+
+    
+    // Gemini 2.5 Flash 的标准 API 请求端点
+    $apiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=' . $apiKey;
+
+    $ch = curl_init($apiUrl);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST           => true,
+        CURLOPT_POSTFIELDS     => $payload,
+        CURLOPT_HTTPHEADER     => [
+            'Content-Type: application/json'
+        ]
+    ]);
+
+    $response = curl_exec($ch);
+    
+    // 检查是否有网络层面的错误
+    if (curl_errno($ch)) {
+        echo json_encode(['error' => 'Curl error: ' . curl_error($ch)]);
+        curl_close($ch);
+        exit();
+    }
+    curl_close($ch);
+
+    $data = json_decode($response, true);
+    
+    // 解析 Gemini 返回的 JSON 数据层级
+    $text = $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
+
+    if ($text) {
+        echo json_encode(['description' => trim($text)]);
+    } else {
+        // 如果出错，把原始错误信息吐出来，方便你排查（比如 Key 填错或配额问题）
+        $errMsg = $data['error']['message'] ?? 'Failed to generate description.';
+        echo json_encode(['error' => $errMsg]);
+    }
+    exit();
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 // --- 1. 后端处理逻辑 ---
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_product'])) {
@@ -260,6 +373,28 @@ $categories = $conn->query("SELECT * FROM category");
         .stock-input::placeholder {
             color: rgba(255, 255, 255, 0.7);
         }
+
+
+        /* Typing dots animation */
+        .typing-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: #FF8C00;
+            animation: typingBounce 0.6s infinite alternate;
+        }
+        @keyframes typingBounce {
+            from { transform: translateY(0); opacity: 0.5; }
+            to   { transform: translateY(-6px); opacity: 1; }
+        }
+
+        #generateDescBtn:hover {
+            background: linear-gradient(135deg, #e67e00, #c94d00) !important;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(255, 140, 0, 0.35);
+        }
+        #generateDescBtn:disabled {
+            opacity: 0.7; cursor: not-allowed; transform: none;
+        }
+
         
         @media (max-width: 991px) { .main-content { margin-left: 0; padding: 15px; } }
     </style>
@@ -333,9 +468,32 @@ $categories = $conn->query("SELECT * FROM category");
                         <label class="form-label">New Category (Optional)</label>
                         <input type="text" name="new_category" id="new_category_input" class="form-control" placeholder="Add custom category">
                     </div>
+
+                    <!-- 替换成这段 (修复后) — 把 <label> 改成 <div>，单独加一个 <label> -->
                     <div class="col-md-12">
-                        <label class="form-label">Description</label>
-                        <textarea name="description" class="form-control" rows="3" placeholder="Enter product details..."></textarea>
+                        <div class="form-label d-flex justify-content-between align-items-center">
+                            <label for="descriptionTextarea" style="margin:0; font-weight:600; font-size:0.9rem; color:#475569;">Description</label>
+                            <button type="button" class="btn btn-sm d-flex align-items-center gap-2" id="generateDescBtn"
+                                style="background: linear-gradient(135deg, #FF8C00, #e05a00); color: white; border: none; border-radius: 10px; padding: 6px 14px; font-size: 12px; font-weight: 600; transition: all 0.2s;">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"/>
+                                </svg>
+                                <span id="generateBtnText">Generate with AI</span>
+                            </button>
+                        </div>
+                        <div style="position: relative;">
+                            <textarea name="description" id="descriptionTextarea" class="form-control" rows="3"
+                                placeholder="Enter product details, or click 'Generate with AI' above..."></textarea>
+                            <div id="typingOverlay" style="display:none; position:absolute; inset:0; background: rgba(255,255,255,0.85); border-radius: 12px; align-items:center; justify-content:center; gap: 8px; flex-direction: column;">
+                                <div style="display:flex; gap:5px; align-items:center;">
+                                    <div class="typing-dot"></div>
+                                    <div class="typing-dot" style="animation-delay: 0.15s;"></div>
+                                    <div class="typing-dot" style="animation-delay: 0.3s;"></div>
+                                </div>
+                                <span style="font-size: 12px; color: #FF8C00; font-weight: 600;">AI is writing...</span>
+                            </div>
+                        </div>
+                        <div id="aiDescError" class="text-danger small mt-1" style="display:none;"></div>
                     </div>
                 </div>
             </div>
@@ -635,6 +793,114 @@ document.addEventListener('input', function(e) {
 
 // 修正价格输入框的最小属性 (在原有HTML中找到该行并确保有 min="1")
 document.querySelector('input[name="selling_price"]').setAttribute('min', '1');
+
+
+// AI Description Generation
+
+document.getElementById('generateDescBtn').addEventListener('click', async function () {
+    const btn      = this;
+    const btnText  = document.getElementById('generateBtnText');
+    const textarea = document.getElementById('descriptionTextarea');
+    const overlay  = document.getElementById('typingOverlay');
+    const errBox   = document.getElementById('aiDescError');
+
+    // Collect form values
+    const proName  = document.querySelector('input[name="product_name"]').value.trim();
+    const gender   = document.querySelector('select[name="gender"]').value;
+    const ageGroup = document.querySelector('select[name="age_group"]').value;
+
+    const brandSel  = document.querySelector('select[name="brand"]');
+    const brandName = brandSel ? (brandSel.options[brandSel.selectedIndex]?.text ?? '') : '';
+
+    const catSel  = document.getElementById('category_select');
+    const newCat  = document.getElementById('new_category_input').value.trim();
+    const catName = newCat || (catSel ? (catSel.options[catSel.selectedIndex]?.text ?? '') : '');
+
+    if (!proName) {
+        errBox.textContent = 'Please enter a product name first.';
+        errBox.style.display = 'block';
+        return;
+    }
+
+    // ── SweetAlert2 确认 Gender & Age ─────────────────────────────────────
+    const confirm = await Swal.fire({
+        title: 'Confirm Details',
+        html: `
+            <p style="color:#64748b; font-size:14px; margin-bottom:16px;">
+                Please confirm these details are correct before generating the description.
+            </p>
+            <div style="display:flex; gap:12px; justify-content:center;">
+                <div style="background:#fff4e6; border:1px solid #ffe0b2; border-radius:12px; padding:14px 24px; text-align:center; min-width:110px;">
+                    <div style="font-size:11px; color:#aaa; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">Gender</div>
+                    <div style="font-size:18px; font-weight:700; color:#FF8C00;">${gender}</div>
+                </div>
+                <div style="background:#fff4e6; border:1px solid #ffe0b2; border-radius:12px; padding:14px 24px; text-align:center; min-width:110px;">
+                    <div style="font-size:11px; color:#aaa; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">Age Group</div>
+                    <div style="font-size:18px; font-weight:700; color:#FF8C00;">${ageGroup}</div>
+                </div>
+            </div>
+        `,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#FF8C00',
+        cancelButtonColor: '#e2e8f0',
+        confirmButtonText: '✓ Yes, Generate',
+        cancelButtonText: 'Go back & edit',
+        customClass: {
+            cancelButton: 'text-dark'
+        }
+    });
+
+    if (!confirm.isConfirmed) return; // 用户取消，停止生成
+    // ──────────────────────────────────────────────────────────────────────
+
+    // UI: loading state
+    errBox.style.display = 'none';
+    btn.disabled   = true;
+    btnText.textContent = 'Generating...';
+    overlay.style.display = 'flex';
+    textarea.value = '';
+
+    try {
+        const fd = new FormData();
+        fd.append('action',    'generate_desc');
+        fd.append('pro_name',  proName);
+        fd.append('brand',     brandName);
+        fd.append('category',  catName);
+        fd.append('gender',    gender);
+        fd.append('age_group', ageGroup);
+
+        const res  = await fetch('add_product.php', { method: 'POST', body: fd });
+        const data = await res.json();
+
+        overlay.style.display = 'none';
+
+        if (data.error) {
+            errBox.textContent = data.error;
+            errBox.style.display = 'block';
+        } else {
+            // Typewriter effect
+            const text = data.description;
+            textarea.value = '';
+            let i = 0;
+            const timer = setInterval(() => {
+                if (i < text.length) {
+                    textarea.value += text[i++];
+                } else {
+                    clearInterval(timer);
+                }
+            }, 18);
+        }
+    } catch (err) {
+        overlay.style.display = 'none';
+        errBox.textContent = 'Network error. Please try again.';
+        errBox.style.display = 'block';
+    } finally {
+        btn.disabled = false;
+        btnText.textContent = 'Generate with AI';
+    }
+});
+
 </script>
 </body>
 </html>

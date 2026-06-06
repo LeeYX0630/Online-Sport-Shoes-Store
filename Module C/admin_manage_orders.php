@@ -180,7 +180,7 @@ if (isset($_POST['update_status'])) {
     // 最后，只更新 order 表中的 Status（以及 Processing 时的处理时间）
     $update_sql = "UPDATE `order` SET Order_Status = '$new_status' $extra_query WHERE Order_Id = '$order_id'";
     
-<<<<<<< HEAD
+
 if (mysqli_query($conn, $update_sql)) {
         
         // ── 🌟 自动触发状态变更通知（精准路由给对应品牌的 Level 3 管理员） ──
@@ -239,18 +239,6 @@ if (mysqli_query($conn, $update_sql)) {
             $stmt_global->close();
         }
         // ──────────────────────────────────────────────
-
-=======
-    if (mysqli_query($conn, $update_sql)) {
-        if ($new_status == 'Shipped') {
-            $email_query = "SELECT u.User_Email, u.User_Name FROM `order` o JOIN `user` u ON o.User_Id = u.User_Id WHERE o.Order_Id = '$order_id' LIMIT 1";
-            $email_result = mysqli_query($conn, $email_query);
-            if ($email_result && mysqli_num_rows($email_result) > 0) {
-                $email_row = mysqli_fetch_assoc($email_result);
-                sendShipmentNotificationEmail($email_row['User_Email'], $email_row['User_Name'], $order_id, $tracking_number, date('d M Y, h:i A', strtotime($current_time)));
-            }
-        }
->>>>>>> 330cc9704e9e7ad497114887c300b2df0124da97
         echo json_encode(['status' => 'success']);
     } else {
         echo json_encode(['status' => 'error', 'message' => mysqli_error($conn)]);
