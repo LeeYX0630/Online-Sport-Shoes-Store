@@ -65,7 +65,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Login - SS Sport</title>
+    <title>Admin Login - STRYDEX Sport</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <style>
@@ -117,10 +117,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 <div class="row g-0">
                     <div class="col-md-5 brand-section text-center">
                         <img src="../images/picture/Logo 2.png" alt="Logo" style="width: 120px;" class="mb-4">
-                        <h2 class="fw-bold text-black  mb-3">SS Sport</h2>
+                        <h2 class="fw-bold text-black  mb-3">STRYDEX Sport</h2>
                         <p class="text-black-50">Management Dashboard Access</p>
                         <div class="mt-auto small text-black-50">
-                            &copy; 2026 SS Sport Co.
+                            &copy; 2026 STRYDEX Sport Co.
                         </div>
                     </div>
                     

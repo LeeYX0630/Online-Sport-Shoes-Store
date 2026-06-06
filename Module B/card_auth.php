@@ -89,7 +89,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_card_pay'])) {
                 $item_pid = $item['pro_id'];
                 $item_qty = $item['qty'];
                 $item_size = $conn->real_escape_string($item['size']);
-                $item_color = $conn->real_escape_string($item['color'] ?? 'Default');
+                $item_color = !empty($item['custom_preview']) ? 'Custom Design' : ($item['color'] ?? 'Default');
+                $item_color = $conn->real_escape_string($item_color);
 
                 $res_p = $conn->query("SELECT Pro_Price FROM product WHERE Pro_Id = '$item_pid'");
                 $row_p = $res_p->fetch_assoc();
@@ -135,7 +136,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_card_pay'])) {
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Secure Card Payment - Sole 2 Soul</title>
+    <title>Secure Card Payment - STRYDEX Sport Shoe Store</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <style>

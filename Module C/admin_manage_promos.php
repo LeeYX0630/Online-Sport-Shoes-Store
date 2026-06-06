@@ -28,187 +28,237 @@ $today_date = date('Y-m-d');
 $conn->query("UPDATE promo SET Promo_Status = 'Inactive' WHERE Expired_Date < '$today_date' AND Promo_Status = 'Active'");
 $msg = "";
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if ($current_admin_level != 1) {
-        $msg = "<script>window.onload = () => { Swal.fire('Denied', 'Only Super Admin can manage promos.', 'error'); }</script>";
-    } else {
-        // Add Promo
-    if (isset($_POST['add_promo'])) {
-        $name = $conn->real_escape_string($_POST['promo_name']);
-        $code = strtoupper(trim($_POST['promo_code'])); 
-        $value = floatval($_POST['promo_value']);
-        $expiry = $_POST['Expired_Date'];
-        $status = $_POST['promo_status'];
-        
-        // 获取今天的日期
-        $today = date('Y-m-d');
+// 获取当前 Level 2/3 管理员所负责的 Brand_Id (如果有的话)
+$managed_brand_ids = [];
+if ($current_admin_level == 2 || $current_admin_level == 3) {
+    $brand_q = $conn->query("SELECT Brand_Id FROM brand WHERE Admin_Id = $admin_id");
+    if($brand_q) {
+        while($b = $brand_q->fetch_assoc()) {
+            $managed_brand_ids[] = $b['Brand_Id'];
+        }
+    }
+}
 
-        if ($expiry < $today) {
-            // 如果选择的日期早于今天，直接拦截并报错
-            $msg = "<script>window.onload = () => { Swal.fire('Invalid Date', 'Expired date cannot be in the past!', 'error'); }</script>";
+// -------------------------------------------------------------------------
+// 后端 POST 请求处理中心
+// -------------------------------------------------------------------------
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    
+    // 1. Add Promo
+    if (isset($_POST['add_promo'])) {
+        if ($current_admin_level != 1 && $current_admin_level != 2) {
+            $msg = "<script>window.onload = () => { Swal.fire('Denied', 'Only Super Admin and Level 2 admins can manage promos.', 'error'); }</script>";
         } else {
-            // 原有的重复检查逻辑
-            $check = $conn->query("SELECT * FROM promo WHERE Promo_Code = '$code'");
-            if ($check->num_rows > 0) {
-                $msg = "<script>window.onload = () => { Swal.fire('Error', 'Promo code already exists!', 'error'); }</script>";
+            $name = $conn->real_escape_string($_POST['promo_name']);
+            $code = strtoupper(trim($_POST['promo_code'])); 
+            $value = floatval($_POST['promo_value']);
+            $expiry = $_POST['Expired_Date'];
+            $status = $_POST['promo_status'];
+            $brand_id_insert = ($_POST['brand_id'] !== 'NULL') ? intval($_POST['brand_id']) : "NULL";
+            
+            $today = date('Y-m-d');
+
+            if ($expiry < $today) {
+                $msg = "<script>window.onload = () => { Swal.fire('Invalid Date', 'Expired date cannot be in the past!', 'error'); }</script>";
             } else {
-                $sql = "INSERT INTO promo (Promo_Name, Promo_Code, Promo_Value, Expired_Date, Promo_Status) 
-                        VALUES ('$name', '$code', $value, '$expiry', '$status')";
-                if ($conn->query($sql)) {
-                    $msg = "<script>window.onload = () => { Swal.fire('Success', 'Promo created successfully!', 'success'); }</script>";
+                $check = $conn->query("SELECT * FROM promo WHERE Promo_Code = '$code'");
+                if ($check->num_rows > 0) {
+                    $msg = "<script>window.onload = () => { Swal.fire('Error', 'Promo code already exists!', 'error'); }</script>";
+                } else {
+                    $sql = "INSERT INTO promo (Brand_Id, Promo_Name, Promo_Code, Promo_Value, Expired_Date, Promo_Status) 
+                            VALUES ($brand_id_insert, '$name', '$code', $value, '$expiry', '$status')";
+                    if ($conn->query($sql)) {
+                        $msg = "<script>window.onload = () => { Swal.fire('Success', 'Promo created successfully!', 'success'); }</script>";
+                    }
                 }
             }
         }
     }
 
-        // Delete Promo
-        if (isset($_POST['toggle_status_promo'])) {
+    // 2. Toggle Promo Status
+    if (isset($_POST['toggle_status_promo'])) {
+        if ($current_admin_level != 1 && $current_admin_level != 2) {
+            $msg = "<script>window.onload = () => { Swal.fire('Denied', 'Only Super Admin and Level 2 admins can toggle status.', 'error'); }</script>";
+        } else {
             $p_id = intval($_POST['promo_id']);
             $new_status = $_POST['new_status'];
-            
-            // 将 DELETE 改为 UPDATE 状态
             $stmt = $conn->prepare("UPDATE promo SET Promo_Status = ? WHERE Promo_Id = ?");
             $stmt->bind_param("si", $new_status, $p_id);
-            
             if ($stmt->execute()) {
                 $action_text = ($new_status === 'Inactive') ? 'Deactivated' : 'Activated';
                 $msg = "<script>window.onload = () => { Swal.fire('$action_text!', 'Promo status has been updated.', 'success'); }</script>";
             }
             $stmt->close();
         }
+    }
 
-        // Auto-Issue Birthday Promos
-        if (isset($_POST['auto_birthday_promo'])) {
-            $current_month = date('m'); // Get current month (01-12)
-            $current_year = date('Y');
-            
-            // Get all users with birthday in current month
-            $birthday_users = $conn->query("
-                SELECT User_Id, User_Name, User_Email, User_DateOfBirth 
-                FROM user 
-                WHERE MONTH(User_DateOfBirth) = '$current_month' 
-                AND User_Status = 'Active'
-            ");
-            
-            $count_issued = 0;
-            $count_already_exists = 0;
-            
-            if ($birthday_users && $birthday_users->num_rows > 0) {
-                while ($user = $birthday_users->fetch_assoc()) {
-                    $user_id = $user['User_Id'];
-                    $user_name = $user['User_Name'];
-                    $birth_day = date('d', strtotime($user['User_DateOfBirth']));
-                    
-                    // Create unique promo code: BDAY_userid_month_day (e.g., BDAY_5_0512)
-                    $month_day = $current_month . $birth_day;
-                    $promo_code = "BDAY{$user_id}{$month_day}";
-                    
-                    // Check if this birthday promo already exists for this user in this month
-                    $check_existing = $conn->query("
-                        SELECT Promo_Id FROM promo 
-                        WHERE Promo_Code = '$promo_code' 
-                        OR (Promo_Name LIKE '%Birthday%' AND Promo_Code LIKE '%{$user_id}%')
-                        LIMIT 1
-                    ");
-                    
-                    if ($check_existing && $check_existing->num_rows > 0) {
-                        $count_already_exists++;
-                    } else {
-                        // Create new birthday promo: 15% off
-                        $promo_name = "Birthday Special - {$user_name} 15% Off";
-                        $promo_value = 15.00;
-                        $promo_type = 'Percentage';
-                        $promo_status = 'Active';
-                        $promo_expiry = date('Y-m-d', strtotime('+30 days')); // Valid for 30 days
-                        
-                        $insert_stmt = $conn->prepare("
-                            INSERT INTO promo 
-                            (Promo_Name, Promo_Code, Promo_Value, Expired_Date, Promo_Status, Promo_Type) 
-                            VALUES (?, ?, ?, ?, ?, ?)
-                        ");
-                        
-                        if ($insert_stmt) {
-                            $insert_stmt->bind_param('sddsss', $promo_name, $promo_code, $promo_value, $promo_expiry, $promo_status, $promo_type);
-                            if ($insert_stmt->execute()) {
-                                $count_issued++;
-                            }
-                            $insert_stmt->close();
-                        }
-                    }
-                }
-                
-                $msg = "<script>window.onload = () => { Swal.fire('Birthday Promos Generated!', 'Issued: {$count_issued} new promos | Already existing: {$count_already_exists}', 'success'); }</script>";
-            } else {
-                $msg = "<script>window.onload = () => { Swal.fire('No Birthday Users', 'No active users with birthdays this month.', 'info'); }</script>";
+    // 3. 分发优惠券给指定目标 (Distribute Promo)
+    if (isset($_POST['assign_promo_to_user'])) {
+        $dist_type = $_POST['distribution_type']; 
+        $target_promo_id = intval($_POST['target_promo_id']);
+        
+        // 权限越权校验
+        $has_permission = false;
+        $promo_check = $conn->query("SELECT Brand_Id FROM promo WHERE Promo_Id = $target_promo_id")->fetch_assoc();
+        
+        if ($current_admin_level == 1 || $current_admin_level == 2) {
+            $has_permission = true;
+        } else {
+            if ($promo_check && in_array($promo_check['Brand_Id'], $managed_brand_ids)) {
+                $has_permission = true;
             }
         }
 
-    if (isset($_POST['assign_promo_to_user'])) {
-        $target_user_id = intval($_POST['target_user_id']);
-        $target_promo_id = intval($_POST['target_promo_id']);
-
-        // 1. 检查该用户是否已经拥有此优惠券且尚未使用
-        $check_exists = $conn->query("SELECT * FROM user_promo WHERE User_Id = $target_user_id AND Promo_Id = $target_promo_id AND Is_Used = 'No'");
-        
-        if ($check_exists->num_rows > 0) {
-            $msg = "<script>window.onload = () => { Swal.fire('Notice', 'This user already has this active promo.', 'info'); }</script>";
+        if (!$has_permission) {
+            $msg = "<script>window.onload = () => { Swal.fire('Denied', 'You do not have permission to distribute this brand\'s promo.', 'error'); }</script>";
         } else {
-            // 2. 插入 user_promo 表进行绑定
-            $sql_assign = "INSERT INTO user_promo (User_Id, Promo_Id, Is_Used) VALUES ($target_user_id, $target_promo_id, 'No')";
+            $target_users = [];
             
-            if ($conn->query($sql_assign)) {
-                // --- 发送邮件通知流程 ---
-                require_once '../includes/PHPMailer/Exception.php';
-                require_once '../includes/PHPMailer/PHPMailer.php';
-                require_once '../includes/PHPMailer/SMTP.php';
-                require_once '../includes/mail_config.php'; // 确保此文件已配置
+            if ($dist_type === 'single') {
+                $target_users[] = intval($_POST['target_user_id']);
+            } elseif ($dist_type === 'all') {
+                $res = $conn->query("SELECT User_Id FROM user WHERE User_Status = 'Active'");
+                while($u = $res->fetch_assoc()) $target_users[] = $u['User_Id'];
+            } elseif ($dist_type === 'group') {
+                $gid = intval($_POST['target_group_id']);
+                $res = $conn->query("SELECT User_Id FROM user_group_members WHERE Group_Id = $gid");
+                while($u = $res->fetch_assoc()) $target_users[] = $u['User_Id'];
+            }
+
+            if(empty($target_users)) {
+                $msg = "<script>window.onload = () => { Swal.fire('Notice', 'No users found in the selected target.', 'info'); }</script>";
+            } else {
+                $success_count = 0;
+                $email_list = [];
+
+                foreach ($target_users as $uid) {
+                    $check_exists = $conn->query("SELECT * FROM user_promo WHERE User_Id = $uid AND Promo_Id = $target_promo_id AND Is_Used = 'No'");
+                    if ($check_exists->num_rows == 0) {
+                        if($conn->query("INSERT INTO user_promo (User_Id, Promo_Id, Is_Used) VALUES ($uid, $target_promo_id, 'No')")) {
+                            $success_count++;
+                            $umail = $conn->query("SELECT User_Email FROM user WHERE User_Id = $uid")->fetch_assoc();
+                            if ($umail) $email_list[] = $umail['User_Email'];
+                        }
+                    }
+                }
+
+                if ($success_count > 0) {
+                    require_once '../includes/PHPMailer/Exception.php';
+                    require_once '../includes/PHPMailer/PHPMailer.php';
+                    require_once '../includes/PHPMailer/SMTP.php';
+                    require_once '../includes/mail_config.php';
+                    
+                    $promo_data = $conn->query("SELECT Promo_Code, Promo_Name, Promo_Value, Promo_Type FROM promo WHERE Promo_Id = $target_promo_id")->fetch_assoc();
+                    $discount_text = ($promo_data['Promo_Type'] === 'Percentage') ? intval($promo_data['Promo_Value'])."% OFF" : "RM ".number_format($promo_data['Promo_Value'], 2)." OFF";
+
+                    $mail = new PHPMailer\PHPMailer\PHPMailer(true);
+                    try {
+                        $mail->isSMTP();
+                        $mail->Host       = 'smtp.gmail.com';
+                        $mail->SMTPAuth   = true;
+                        $mail->Username   = SMTP_EMAIL; 
+                        $mail->Password   = SMTP_PASS;
+                        $mail->SMTPSecure = PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
+                        $mail->Port       = 587;
+                        $mail->setFrom(SMTP_EMAIL, 'STRYDEX SPORT SHOES STORE');
+                        
+                        foreach($email_list as $em) {
+                            $mail->addBCC($em);
+                        }
+
+                        $mail->isHTML(true);
+                        $mail->Subject = "A New Reward for You: " . $promo_data['Promo_Name'];
+                        $mail->Body    = "
+                            <div style='font-family: Arial, sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px;'>
+                                <h2 style='color: #FF8C00;'>Great News!</h2>
+                                <p>We have added a special discount to your account.</p>
+                                <div style='background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center;'>
+                                    <p style='margin: 0; font-size: 14px; color: #666;'>Your Exclusive Code:</p>
+                                    <h1 style='margin: 10px 0; color: #333;'>{$promo_data['Promo_Code']}</h1>
+                                    <p style='margin: 0; font-size: 18px; color: #FF8C00; font-weight: bold;'>Value: $discount_text</p>
+                                </div>
+                                <p style='margin-top: 20px;'>Login to your Dashboard to view all your rewards.</p>
+                                <hr>
+                                <p style='font-size: 12px; color: #999;'>Thank you for shopping with STRYDEX Sports Shoes Store.</p>
+                            </div>";
+
+                        $mail->send();
+                        $msg = "<script>window.onload = () => { Swal.fire('Success!', 'Promo assigned to $success_count user(s) and email sent.', 'success'); }</script>";
+                    } catch (Exception $e) {
+                        $msg = "<script>window.onload = () => { Swal.fire('Assigned with Warning', 'Promo assigned, but email failed.', 'warning'); }</script>";
+                    }
+                } else {
+                    $msg = "<script>window.onload = () => { Swal.fire('Notice', 'All selected targets already have this active promo.', 'info'); }</script>";
+                }
+            }
+        }
+    }
+
+    // 4. 【新增功能】创建群组 (Create Group)
+    if (isset($_POST['create_group'])) {
+        if ($current_admin_level != 1) {
+            $msg = "<script>window.onload = () => { Swal.fire('Denied', 'Only Super Admin can create groups.', 'error'); }</script>";
+        } else {
+            $gname = $conn->real_escape_string(trim($_POST['group_name']));
+            if (!empty($gname)) {
+                $check_g = $conn->query("SELECT * FROM user_groups WHERE Group_Name = '$gname'");
+                if ($check_g->num_rows > 0) {
+                    $msg = "<script>window.onload = () => { Swal.fire('Error', 'Group name already exists!', 'error'); }</script>";
+                } else {
+                    if ($conn->query("INSERT INTO user_groups (Group_Name) VALUES ('$gname')")) {
+                        $msg = "<script>window.onload = () => { Swal.fire('Success', 'Group created successfully!', 'success'); }</script>";
+                    }
+                }
+            }
+        }
+    }
+
+    // 5. 【优化版】将用户批量移入群组 (Bulk Add Users to Group)
+    if (isset($_POST['add_user_to_group'])) {
+        if ($current_admin_level != 1) {
+            $msg = "<script>window.onload = () => { Swal.fire('Denied', 'Only Super Admin can manage members.', 'error'); }</script>";
+        } else {
+            $gid = intval($_POST['assoc_group_id']);
+            $uids = $_POST['assoc_user_ids'] ?? []; // 接收的是一个包含多个ID的数组
+            
+            if (empty($uids)) {
+                $msg = "<script>window.onload = () => { Swal.fire('Notice', 'Please select at least one user.', 'info'); }</script>";
+            } else {
+                $values = [];
+                foreach ($uids as $uid) {
+                    $values[] = "($gid, " . intval($uid) . ")";
+                }
                 
-                // 获取用户及优惠券详情
-                $user_data = $conn->query("SELECT User_Name, User_Email FROM user WHERE User_Id = $target_user_id")->fetch_assoc();
-                $promo_data = $conn->query("SELECT Promo_Code, Promo_Name, Promo_Value, Promo_Type FROM promo WHERE Promo_Id = $target_promo_id")->fetch_assoc();
+                // 使用 INSERT IGNORE 拼接成一条大 SQL 执行，自动忽略已存在于该群组的记录，性能极高
+                $sql_bulk = "INSERT IGNORE INTO user_group_members (Group_Id, User_Id) VALUES " . implode(',', $values);
                 
-                $discount_text = ($promo_data['Promo_Type'] === 'Percentage') ? intval($promo_data['Promo_Value'])."% OFF" : "RM ".number_format($promo_data['Promo_Value'], 2)." OFF";
-
-                $mail = new PHPMailer\PHPMailer\PHPMailer(true);
-                try {
-                    $mail->isSMTP();
-                    $mail->Host       = 'smtp.gmail.com';
-                    $mail->SMTPAuth   = true;
-                    $mail->Username   = SMTP_EMAIL; 
-                    $mail->Password   = SMTP_PASS;
-                    $mail->SMTPSecure = PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
-                    $mail->Port       = 587;
-
-                    $mail->setFrom(SMTP_EMAIL, 'Sole 2 Soul Shoes Store');
-                    $mail->addAddress($user_data['User_Email'], $user_data['User_Name']);
-                    $mail->isHTML(true);
-                    $mail->Subject = "A New Reward for You: " . $promo_data['Promo_Name'];
-                    $mail->Body    = "
-                        <div style='font-family: Arial, sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px;'>
-                            <h2 style='color: #FF8C00;'>Congratulations, {$user_data['User_Name']}!</h2>
-                            <p>We have added a special discount to your account.</p>
-                            <div style='background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center;'>
-                                <p style='margin: 0; font-size: 14px; color: #666;'>Your Exclusive Code:</p>
-                                <h1 style='margin: 10px 0; color: #333;'>{$promo_data['Promo_Code']}</h1>
-                                <p style='margin: 0; font-size: 18px; color: #FF8C00; font-weight: bold;'>Value: $discount_text</p>
-                            </div>
-                            <p style='margin-top: 20px;'>Login to your <a href='http://localhost/SS_Sports_Shoes/Module%20A/user_dashboard.php'>Dashboard</a> to view all your rewards.</p>
-                            <hr>
-                            <p style='font-size: 12px; color: #999;'>Thank you for shopping with SS Sports Shoes Store.</p>
-                        </div>";
-
-                    $mail->send();
-                    $msg = "<script>window.onload = () => { Swal.fire('Success!', 'Promo assigned and notification email sent to {$user_data['User_Email']}.', 'success'); }</script>";
-                } catch (Exception $e) {
-                    $msg = "<script>window.onload = () => { Swal.fire('Assigned with Warning', 'Promo assigned, but email failed: {$mail->ErrorInfo}', 'warning'); }</script>";
+                if ($conn->query($sql_bulk)) {
+                    $affected = $conn->affected_rows;
+                    $msg = "<script>window.onload = () => { Swal.fire('Success', 'Successfully processed " . count($uids) . " users into the group!', 'success'); }</script>";
+                } else {
+                    $msg = "<script>window.onload = () => { Swal.fire('Error', 'Failed to add users.', 'error'); }</script>";
                 }
             }
         }
     }
 }
+
+$all_brands = $conn->query("SELECT Brand_Id, Brand_Name FROM brand ORDER BY Brand_Name ASC");
+$all_users = $conn->query("SELECT User_Id, User_Name, User_Email FROM user WHERE User_Status = 'Active' ORDER BY User_Name ASC");
+$all_groups = $conn->query("SHOW TABLES LIKE 'user_groups'")->num_rows > 0 ? $conn->query("SELECT * FROM user_groups ORDER BY Group_Name ASC") : false;
+
+if ($current_admin_level == 1 || $current_admin_level == 2) {
+    $active_promos = $conn->query("SELECT Promo_Id, Promo_Code, Promo_Name FROM promo WHERE Promo_Status = 'Active' ORDER BY Promo_Name ASC");
+} else {
+    if (count($managed_brand_ids) > 0) {
+        $brand_ids_str = implode(',', $managed_brand_ids);
+        $active_promos = $conn->query("SELECT Promo_Id, Promo_Code, Promo_Name FROM promo WHERE Promo_Status = 'Active' AND Brand_Id IN ($brand_ids_str) ORDER BY Promo_Name ASC");
+    } else {
+        $active_promos = false; 
+    }
 }
 
-$promos = $conn->query("SELECT * FROM promo ORDER BY Promo_Id DESC");
+$promos = $conn->query("SELECT p.*, b.Brand_Name FROM promo p LEFT JOIN brand b ON p.Brand_Id = b.Brand_Id ORDER BY p.Promo_Id DESC");
 ?>
 
 <!DOCTYPE html>
@@ -258,7 +308,7 @@ $promos = $conn->query("SELECT * FROM promo ORDER BY Promo_Id DESC");
             <div class="d-flex align-items-center">
                 <div class="text-end me-3 text-dark">
                     <div class="fw-bold"><?php echo htmlspecialchars($admin_name); ?></div>
-                    <small class="text-muted"><?php echo ($current_admin_level == 1) ? 'Super Admin' : 'Manager'; ?></small>
+                    <small class="text-muted"><?php echo ($current_admin_level == 1) ? 'Super Admin' : 'Brand Manager'; ?></small>
                 </div>
                 <img src="../uploads/admin/<?php echo $admin_image; ?>?t=<?php echo time(); ?>" class="admin-profile-img">
             </div>
@@ -272,6 +322,17 @@ $promos = $conn->query("SELECT * FROM promo ORDER BY Promo_Id DESC");
                     <div class="card p-4">
                         <h5 class="fw-bold mb-4" style="color: var(--orange-primary);">Create New Promo</h5>
                         <form action="" method="POST">
+                            <?php if ($current_admin_level == 1): ?>
+                            <div class="mb-3">
+                                <label class="form-label small fw-bold">LINK TO BRAND</label>
+                                <select name="brand_id" class="form-select">
+                                    <option value="NULL">Global (All Brands)</option>
+                                    <?php while($b = $all_brands->fetch_assoc()): ?>
+                                        <option value="<?php echo $b['Brand_Id']; ?>"><?php echo htmlspecialchars($b['Brand_Name']); ?></option>
+                                    <?php endwhile; ?>
+                                </select>
+                            </div>
+                            <?php endif; ?>
                             <div class="mb-3">
                                 <label class="form-label small fw-bold">PROMO NAME</label>
                                 <input type="text" name="promo_name" class="form-control" placeholder="e.g. Summer Sale 2026" required <?php echo ($current_admin_level != 1) ? 'disabled' : ''; ?>>
@@ -286,12 +347,7 @@ $promos = $conn->query("SELECT * FROM promo ORDER BY Promo_Id DESC");
                             </div>
                             <div class="mb-3">
                                 <label class="form-label small fw-bold">EXPIRED DATE</label>
-                                <input type="date" 
-                                    name="Expired_Date" 
-                                    class="form-control" 
-                                    min="<?php echo date('Y-m-d'); ?>" 
-                                    required 
-                                    <?php echo ($current_admin_level != 1) ? 'disabled' : ''; ?>>
+                                <input type="date" name="Expired_Date" class="form-control" min="<?php echo date('Y-m-d'); ?>" required <?php echo ($current_admin_level != 1) ? 'disabled' : ''; ?>>
                             </div>
                             <div class="mb-4">
                                 <label class="form-label small fw-bold">STATUS</label>
@@ -300,59 +356,145 @@ $promos = $conn->query("SELECT * FROM promo ORDER BY Promo_Id DESC");
                                     <option value="Inactive">Inactive</option>
                                 </select>
                             </div>
-                            <button type="submit" name="add_promo" class="btn btn-orange w-100 py-2 fw-bold shadow-sm <?php echo ($current_admin_level != 1) ? 'disabled' : ''; ?>" <?php echo ($current_admin_level != 1) ? 'disabled' : ''; ?>>
-                                <i class="bi <?php echo ($current_admin_level != 1) ? 'bi-lock-fill' : 'bi-plus-circle'; ?> me-2"></i>
-                                <?php echo ($current_admin_level != 1) ? 'Super Admin Only' : 'Add Promo Code'; ?>
+                            <button type="submit" name="add_promo" class="btn btn-orange w-100 py-2 fw-bold shadow-sm <?php echo ($current_admin_level != 1) ? 'disabled' : ''; ?>">
+                                <i class="bi <?php echo ($current_admin_level != 1) ? 'bi-lock-fill' : 'bi-plus-circle'; ?> me-2"></i> Add Promo Code
                             </button>
                         </form>
                     </div>
 
-                    <?php 
-                        $all_users = $conn->query("SELECT User_Id, User_Name, User_Email FROM user WHERE User_Status = 'Active' ORDER BY User_Name ASC");
-                        $active_promos = $conn->query("SELECT Promo_Id, Promo_Code, Promo_Name FROM promo WHERE Promo_Status = 'Active' ORDER BY Promo_Name ASC");
-                    ?>
-
                     <div class="card p-4 mt-4">
                         <h5 class="fw-bold mb-4" style="color: var(--orange-primary);"><i class="bi bi-person-plus me-2"></i>Distribute to User</h5>
-                        <p class="text-muted small mb-4">Directly assign a specific promo code to an individual customer.</p>
                         
                         <form action="" method="POST">
                             <div class="mb-3">
+                                <label class="form-label small fw-bold">DISTRIBUTION TYPE</label>
+                                <select name="distribution_type" id="dist_type" class="form-select" onchange="toggleDistributionType()" required>
+                                    <option value="single">Single User</option>
+                                    <option value="all">All Active Users</option>
+                                    <option value="group">User Group</option>
+                                </select>
+                            </div>
+
+                            <div class="mb-3" id="div_single_user">
                                 <label class="form-label small fw-bold">SELECT CUSTOMER</label>
-                                <select name="target_user_id" class="form-select" required <?php echo ($current_admin_level != 1) ? 'disabled' : ''; ?>>
+                                <select name="target_user_id" id="select_single_user" class="form-select" required>
                                     <option value="" disabled selected>-- Select User --</option>
-                                    <?php while($u = $all_users->fetch_assoc()): ?>
+                                    <?php 
+                                    $all_users->data_seek(0);
+                                    while($u = $all_users->fetch_assoc()): 
+                                    ?>
                                         <option value="<?php echo $u['User_Id']; ?>"><?php echo htmlspecialchars($u['User_Name']); ?> (<?php echo $u['User_Email']; ?>)</option>
                                     <?php endwhile; ?>
                                 </select>
                             </div>
 
-                            <div class="mb-3">
-                                <label class="form-label small fw-bold">SELECT PROMO CODE</label>
-                                <select name="target_promo_id" class="form-select" required <?php echo ($current_admin_level != 1) ? 'disabled' : ''; ?>>
-                                    <option value="" disabled selected>-- Select Promo --</option>
-                                    <?php while($p = $active_promos->fetch_assoc()): ?>
-                                        <option value="<?php echo $p['Promo_Id']; ?>">[<?php echo $p['Promo_Code']; ?>] <?php echo htmlspecialchars($p['Promo_Name']); ?></option>
-                                    <?php endwhile; ?>
+                            <div class="mb-3" id="div_group_user" style="display: none;">
+                                <label class="form-label small fw-bold">SELECT GROUP</label>
+                                <select name="target_group_id" id="select_group_user" class="form-select">
+                                    <option value="" disabled selected>-- Select Group --</option>
+                                    <?php if($all_groups && $all_groups->num_rows > 0): ?>
+                                        <?php 
+                                        $all_groups->data_seek(0);
+                                        while($g = $all_groups->fetch_assoc()): 
+                                        ?>
+                                            <option value="<?php echo $g['Group_Id']; ?>"><?php echo htmlspecialchars($g['Group_Name']); ?></option>
+                                        <?php endwhile; ?>
+                                    <?php else: ?>
+                                        <option value="" disabled>No groups created yet</option>
+                                    <?php endif; ?>
                                 </select>
                             </div>
 
-                            <button type="submit" name="assign_promo_to_user" class="btn btn-orange w-100 py-2 fw-bold shadow-sm <?php echo ($current_admin_level != 1) ? 'disabled' : ''; ?>">
+                            <div class="mb-3">
+                                <label class="form-label small fw-bold">SELECT PROMO CODE</label>
+                                <select name="target_promo_id" class="form-select" required>
+                                    <option value="" disabled selected>-- Select Promo --</option>
+                                    <?php if($active_promos && $active_promos->num_rows > 0): ?>
+                                        <?php 
+                                        $active_promos->data_seek(0);
+                                        while($p = $active_promos->fetch_assoc()): 
+                                        ?>
+                                            <option value="<?php echo $p['Promo_Id']; ?>">[<?php echo $p['Promo_Code']; ?>] <?php echo htmlspecialchars($p['Promo_Name']); ?></option>
+                                        <?php endwhile; ?>
+                                    <?php else: ?>
+                                        <option value="" disabled>No active promos available</option>
+                                    <?php endif; ?>
+                                </select>
+                            </div>
+
+                            <button type="submit" name="assign_promo_to_user" class="btn btn-orange w-100 py-2 fw-bold shadow-sm" <?php if(!$active_promos || $active_promos->num_rows == 0) echo 'disabled'; ?>>
                                 <i class="bi bi-send-fill me-2"></i> Distribute Promo
                             </button>
                         </form>
                     </div>
 
-                    <div class="card p-4 mt-4">
-                        <h5 class="fw-bold mb-4" style="color: var(--orange-primary);"><i class="bi bi-cake2 me-2"></i>Birthday Promo Manager</h5>
-                        <p class="text-muted small mb-4">Auto-generate 15% off promo codes for users with birthdays this month.</p>
+                    <?php if ($current_admin_level == 1): ?>
+                    <div class="card p-4 mt-4" style="border: 1px solid #ffd099; background-color: #fffdfa;">
+                        <h5 class="fw-bold mb-3" style="color: var(--orange-primary);"><i class="bi bi-tags-fill me-2"></i>Group Manager Center</h5>
+                        <p class="text-muted small mb-3">Create clusters and bind customers into custom target segments.</p>
+                        
+                        <form action="" method="POST" class="border-bottom pb-3 mb-3">
+                            <div class="mb-2">
+                                <label class="form-label small fw-bold text-secondary">1. CREATE NEW GROUP</label>
+                                <input type="text" name="group_name" class="form-control form-control-sm" placeholder="e.g. Nike Fans / VIP Cluster" required>
+                            </div>
+                            <button type="submit" name="create_group" class="btn btn-sm btn-orange w-100 fw-bold">
+                                <i class="bi bi-plus-square me-1"></i> Create Group
+                            </button>
+                        </form>
+
+                        <!-- B表单: 批量把用户加进群组内 -->
                         <form action="" method="POST">
-                            <button type="submit" name="auto_birthday_promo" class="btn btn-orange w-100 py-2 fw-bold shadow-sm <?php echo ($current_admin_level != 1) ? 'disabled' : ''; ?>" <?php echo ($current_admin_level != 1) ? 'disabled' : ''; ?>>
-                                <i class="bi <?php echo ($current_admin_level != 1) ? 'bi-lock-fill' : 'bi-gift'; ?> me-2"></i>
-                                <?php echo ($current_admin_level != 1) ? 'Super Admin Only' : 'Generate Birthday Promos'; ?>
+                            <label class="form-label small fw-bold text-secondary">2. BATCH ASSIGN CUSTOMERS TO GROUP</label>
+                            
+                            <!-- 选择目标群组 -->
+                            <div class="mb-2">
+                                <select name="assoc_group_id" class="form-select form-select-sm" required>
+                                    <option value="" disabled selected>-- Target Group --</option>
+                                    <?php 
+                                    if ($all_groups && $all_groups->num_rows > 0) {
+                                        $all_groups->data_seek(0);
+                                        while($g = $all_groups->fetch_assoc()): 
+                                    ?>
+                                        <option value="<?php echo $g['Group_Id']; ?>"><?php echo htmlspecialchars($g['Group_Name']); ?></option>
+                                    <?php 
+                                        endwhile; 
+                                    } 
+                                    ?>
+                                </select>
+                            </div>
+
+                            <!-- 实时搜索输入框 -->
+                            <div class="mb-2">
+                                <div class="input-group input-group-sm">
+                                    <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
+                                    <input type="text" id="userSearchInput" class="form-control" placeholder="Type name or email to filter..." onkeyup="filterGroupUsers()">
+                                </div>
+                            </div>
+
+                            <!-- 可滚动的多选复选框区域 -->
+                            <div class="mb-3" id="userCheckboxList" style="max-height: 220px; overflow-y: auto; border: 1px solid #ced4da; padding: 10px; background: #fff; border-radius: 6px;">
+                                <?php 
+                                $all_users->data_seek(0);
+                                while($u = $all_users->fetch_assoc()): 
+                                ?>
+                                    <div class="form-check user-item mb-1">
+                                        <input class="form-check-input" type="checkbox" name="assoc_user_ids[]" value="<?php echo $u['User_Id']; ?>" id="chk_u_<?php echo $u['User_Id']; ?>">
+                                        <label class="form-check-label small text-dark d-block cursor-pointer" for="chk_u_<?php echo $u['User_Id']; ?>">
+                                            <strong><?php echo htmlspecialchars($u['User_Name']); ?></strong> 
+                                            <br><span class="text-muted text-xs"><?php echo $u['User_Email']; ?></span>
+                                        </label>
+                                    </div>
+                                <?php endwhile; ?>
+                            </div>
+
+                            <button type="submit" name="add_user_to_group" class="btn btn-sm btn-outline-dark w-100 fw-bold">
+                                <i class="bi bi-person-plus-fill me-1"></i> Link Selected Users to Group
                             </button>
                         </form>
                     </div>
+                    <?php endif; ?>
+
                 </div>
 
                 <div class="col-lg-8">
@@ -366,6 +508,7 @@ $promos = $conn->query("SELECT * FROM promo ORDER BY Promo_Id DESC");
                                     <thead>
                                         <tr>
                                             <th class="ps-4">Promo Info</th>
+                                            <th>Brand</th>
                                             <th>Value</th>
                                             <th>Expired Date</th>
                                             <th>Status</th>
@@ -380,6 +523,9 @@ $promos = $conn->query("SELECT * FROM promo ORDER BY Promo_Id DESC");
                                                         <div class="fw-bold text-dark"><?php echo $row['Promo_Code']; ?></div>
                                                         <div class="text-muted small"><?php echo htmlspecialchars($row['Promo_Name']); ?></div>
                                                     </td>
+                                                    <td>
+                                                        <span class="badge bg-info text-dark"><?php echo $row['Brand_Name'] ?? 'Global'; ?></span>
+                                                    </td>
                                                     <td class="text-success fw-bold">RM <?php echo number_format($row['Promo_Value'], 2); ?></td>
                                                     <td><?php echo date('d M Y', strtotime($row['Expired_Date'])); ?></td>
                                                     <td>
@@ -390,16 +536,13 @@ $promos = $conn->query("SELECT * FROM promo ORDER BY Promo_Id DESC");
                                                     <td class="text-center">
                                                         <?php if ($current_admin_level == 1): ?>
                                                             <?php if ($row['Promo_Status'] == 'Active'): ?>
-                                                                <!-- 激活状态显示禁用按钮 -->
-                                                                <button type="button" class="btn btn-sm btn-outline-danger" 
-                                                                        onclick="confirmStatusChange(<?php echo $row['Promo_Id']; ?>, '<?php echo $row['Promo_Code']; ?>', 'Inactive')">
-                                                                    <i class="bi bi-pause-circle-fill me-1"></i> Deactivate
+                                                                <button type="button" class="btn btn-sm btn-outline-danger" onclick="confirmStatusChange(<?php echo $row['Promo_Id']; ?>, '<?php echo $row['Promo_Code']; ?>', 'Inactive')">
+                                                                    <i class="bi bi-pause-circle-fill"></i>
                                                                 </button>
                                                             <?php else: ?>
-                                                            <button type="button" class="btn btn-sm btn-outline-success" 
-                                                                    onclick="confirmStatusChange(<?php echo $row['Promo_Id']; ?>, '<?php echo $row['Promo_Code']; ?>', 'Active', '<?php echo $row['Expired_Date']; ?>')">
-                                                                <i class="bi bi-play-circle-fill me-1"></i> Activate
-                                                            </button>
+                                                                <button type="button" class="btn btn-sm btn-outline-success" onclick="confirmStatusChange(<?php echo $row['Promo_Id']; ?>, '<?php echo $row['Promo_Code']; ?>', 'Active', '<?php echo $row['Expired_Date']; ?>')">
+                                                                    <i class="bi bi-play-circle-fill"></i>
+                                                                </button>
                                                             <?php endif; ?>
                                                         <?php else: ?>
                                                             <i class="bi bi-lock-fill text-muted"></i>
@@ -408,7 +551,7 @@ $promos = $conn->query("SELECT * FROM promo ORDER BY Promo_Id DESC");
                                                 </tr>
                                             <?php endwhile; ?>
                                         <?php else: ?>
-                                            <tr><td colspan="5" class="text-center py-5 text-muted">No promos found.</td></tr>
+                                            <tr><td colspan="6" class="text-center py-5 text-muted">No promos found.</td></tr>
                                         <?php endif; ?>
                                     </tbody>
                                 </table>
@@ -422,23 +565,44 @@ $promos = $conn->query("SELECT * FROM promo ORDER BY Promo_Id DESC");
 </div>
 
 <script>
+function toggleDistributionType() {
+    var type = document.getElementById('dist_type').value;
+    var singleDiv = document.getElementById('div_single_user');
+    var groupDiv = document.getElementById('div_group_user');
+    var singleSelect = document.getElementById('select_single_user');
+    var groupSelect = document.getElementById('select_group_user');
+
+    if (type === 'single') {
+        singleDiv.style.display = 'block';
+        groupDiv.style.display = 'none';
+        singleSelect.required = true;
+        groupSelect.required = false;
+    } else if (type === 'group') {
+        singleDiv.style.display = 'none';
+        groupDiv.style.display = 'block';
+        singleSelect.required = false;
+        groupSelect.required = true;
+    } else if (type === 'all') {
+        singleDiv.style.display = 'none';
+        groupDiv.style.display = 'none';
+        singleSelect.required = false;
+        groupSelect.required = false;
+    }
+}
+
 function confirmStatusChange(id, code, targetStatus, expiredDate = null) {
     let title = targetStatus === 'Inactive' ? 'Deactivate Promo?' : 'Activate Promo?';
-    let text = targetStatus === 'Inactive' 
-        ? `This will prevent users from using ${code}.` 
-        : `This will allow users to use ${code} again.`;
+    let text = targetStatus === 'Inactive' ? `This will prevent users from using ${code}.` : `This will allow users to use ${code} again.`;
     let icon = targetStatus === 'Inactive' ? 'warning' : 'info';
     let confirmBtnColor = targetStatus === 'Inactive' ? '#d33' : '#17735b';
 
-    // --- 【新增逻辑】：检查激活操作是否涉及过期代码 ---
     if (targetStatus === 'Active' && expiredDate) {
-        const today = new Date().toISOString().split('T')[0]; // 获取格式为 YYYY-MM-DD 的今天日期
-        
+        const today = new Date().toISOString().split('T')[0];
         if (expiredDate < today) {
             title = '⚠️ Re-activate Expired Code?';
-            text = `Warning: The promo code "${code}" expired on ${expiredDate}. Re-activating it will allow users to use it despite the expiry date. Do you wish to proceed?`;
+            text = `Warning: The promo code "${code}" expired on ${expiredDate}. Proceeding will override expiry check.`;
             icon = 'warning';
-            confirmBtnColor = '#FF8C00'; // 使用橙色表示警告
+            confirmBtnColor = '#FF8C00'; 
         }
     }
 
@@ -458,8 +622,20 @@ function confirmStatusChange(id, code, targetStatus, expiredDate = null) {
         }
     });
 }
+function filterGroupUsers() {
+    var input = document.getElementById('userSearchInput').value.toLowerCase();
+    var items = document.querySelectorAll('#userCheckboxList .user-item');
+    
+    items.forEach(function(item) {
+        var text = item.innerText.toLowerCase();
+        if (text.indexOf(input) > -1) {
+            item.setAttribute('style', 'display: block !important');
+        } else {
+            item.setAttribute('style', 'display: none !important');
+        }
+    });
+}
 </script>
-
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

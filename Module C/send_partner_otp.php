@@ -41,7 +41,7 @@ function sendPartnerOTP($recipientEmail) {
         $mail->Port       = 587;
         
         // --- 收件人 ---
-        $mail->setFrom('sportshoes.system@gmail.com', 'SS SPORT SHOES STORE');
+        $mail->setFrom('sportshoes.system@gmail.com', 'STRYDEX SPORT SHOES STORE');
         $mail->addAddress($recipientEmail);
 
         // --- 内容 (🌟 修改为 Partner 专属的话术) ---
@@ -51,7 +51,7 @@ function sendPartnerOTP($recipientEmail) {
             <div style='font-family: 'Segoe UI', 'Inter', sans-serif; border: 1px solid #eee; padding: 20px; border-radius: 10px;'>
                 <h2 style='color: #FF8C00;'>Partner Application Verification</h2>
                 <p>Hello,</p>
-                <p>Thank you for applying to partner with SS Sport Shoes Store.</p>
+                <p>Thank you for applying to partner with STRYDEX Sport Shoes Store.</p>
                 <p>Your one-time password (OTP) to verify your application is:</p>
                 <div style='background: #f8f9fa; padding: 15px; text-align: center; font-size: 24px; font-weight: bold; color: #333; letter-spacing: 5px; border: 1px dashed #FF6B00;'>
                     $otp

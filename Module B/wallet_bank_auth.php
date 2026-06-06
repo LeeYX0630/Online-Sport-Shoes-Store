@@ -46,7 +46,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['confirm_fpx_topup'])) 
     <div class="card-body p-4 text-center">
         <p class="text-muted small">Please verify details below for <strong><?php echo $bank; ?></strong></p>
         <div class="p-3 bg-light rounded-3 mb-4 text-start small">
-            <div class="d-flex justify-content-between mb-1"><span>Merchant:</span><strong>SS SPORT SHOES</strong></div>
+            <div class="d-flex justify-content-between mb-1"><span>Merchant:</span><strong>STRYDEX SPORT SHOES</strong></div>
             <div class="d-flex justify-content-between mb-1"><span>Account ID:</span><strong><?php echo $fpx_user; ?></strong></div>
             <div class="d-flex justify-content-between text-danger"><span>Amount:</span><strong>RM <?php echo number_format($amount, 2); ?></strong></div>
         </div>

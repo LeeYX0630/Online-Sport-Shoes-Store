@@ -71,7 +71,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_btn'])) {
             $mail->Port       = 587;
 
             // 收发件人设置
-            $mail->setFrom('sportshoes.system@gmail.com', 'SS Sport Shoes');
+            $mail->setFrom('sportshoes.system@gmail.com', 'STRYDEX Sport Shoes');
             $mail->addAddress($email, $full_name);
 
             // 邮件内容

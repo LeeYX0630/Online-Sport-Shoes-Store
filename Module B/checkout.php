@@ -54,7 +54,7 @@ foreach ($_SESSION['cart'] as $cart_key => $item) {
         $p_data = $res_p->fetch_assoc();
         $p_data['qty'] = $item['qty'];
         $p_data['size'] = $item['size'];
-        $p_data['color'] = $item['color'] ?? 'Default';
+        $p_data['color'] = !empty($item['custom_preview']) ? 'Custom Design' : ($item['color'] ?? 'Default');
         
         // --- 【核心修复：采用与 cart.php 一致的智能搜索逻辑】 ---
         if (!empty($item['custom_preview'])) {
@@ -250,9 +250,11 @@ if ($is_manual_action || $has_input_code) {
             $applied_code = $code; 
         }
     } else {
-        // 用户清空了输入框，恢复自动优化
-        $_SESSION['user_chose_promo'] = false;
+        // 用户清空了输入框，视为【明确不使用优惠券】
+        $_SESSION['user_chose_promo'] = true; // 锁定手动状态，阻止系统自动寻找 Best Deal
         unset($_SESSION['applied_promo_code'], $_SESSION['applied_discount'], $_SESSION['applied_user_promo_id']);
+        $applied_code = "";
+        $discount = 0;
     }
 } else {
     // B. 无手动操作时：检查 Session 记录[cite: 39]
@@ -432,7 +434,8 @@ $conn->begin_transaction();
                 $p_id = $item['pro_id'];
                 $qty = $item['qty'];
                 $size = $conn->real_escape_string($item['size']);
-                $color = $conn->real_escape_string($item['color'] ?? 'Default');
+                $color = !empty($item['custom_preview']) ? 'Custom Design' : ($item['color'] ?? 'Default');
+                $color = $conn->real_escape_string($color);
                 
                 // 获取单价计算小计
                 $v_res = $conn->query("SELECT Pro_Price FROM product WHERE Pro_Id = '$p_id'");
@@ -801,12 +804,21 @@ include '../includes/header.php';
                                             </div>
                                         </div>
                                     </div>
-                                    
                                     <div style="font-size: 0.75rem; color: #666; font-family: monospace; background: #f5f5f5; padding: 4px 6px; border-radius: 3px; display: inline-block;">
                                         <?php echo htmlspecialchars($voucher['promo_code']); ?>
                                     </div>
                                 </div>
                             <?php endforeach; ?>
+                            
+                            <div class="voucher-card" 
+                                 style="border: 1px dashed #ccc; border-radius: 6px; padding: 10px; cursor: pointer; text-align: center; background: #fafafa;"
+                                 onmouseover="this.style.borderColor='#999'; this.style.backgroundColor='#f0f0f0'"
+                                 onmouseout="this.style.borderColor='#ccc'; this.style.backgroundColor='#fafafa'"
+                                 onclick="applyVoucher('')">
+                                <div style="font-weight: 600; font-size: 0.85rem; color: #555;">
+                                    🚫 Don't use any vouchers this time
+                                </div>
+                            </div>
                         </div>
                     </div>
                 <?php endif; ?>
@@ -844,13 +856,12 @@ function applyVoucher(promoCode) {
         couponInput.value = promoCode;
     }
     
-    // 提交表单应用优惠码
-    const forms = document.querySelectorAll('form');
-    forms.forEach(form => {
-        if (form.querySelector('input[name="coupon_code"]')) {
-            form.submit();
-        }
-    });
+    // 【修复】：不要使用 form.submit()，而是模拟点击 Apply 按钮
+    // 这样才能确保后端接收到 $_POST['apply_coupon']，从而触发清除逻辑
+    const applyBtn = document.querySelector('button[name="apply_coupon"]');
+    if (applyBtn) {
+        applyBtn.click();
+    }
 }
 
 const locationData = {

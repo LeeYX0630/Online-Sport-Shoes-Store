@@ -76,7 +76,7 @@ $style = $bank_config[$bank] ?? $bank_config['DEFAULT'];
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <div>
                         <div class="text-uppercase small text-muted">From</div>
-                        <div class="fw-bold">SS SPORT SHOES STORE</div>
+                        <div class="fw-bold">STRYDEX SPORT SHOES STORE</div>
                         <div class="small text-secondary">Merchant Account</div>
                     </div>
                     <div class="text-end">

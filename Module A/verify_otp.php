@@ -1,7 +1,7 @@
 <?php
 /**
  * STEALTH SPORT SHOES - OTP VERIFICATION
- * 完整集成版：包含数据库插入、重复检查及过期校验
+ * 完整集成版：包含数据库插入、重复检查、过期校验、注册自动获新人券及当月生日自动获券
  */
 
 // 1. 初始化 Session 和 数据库连接
@@ -38,14 +38,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['verify_btn'])) {
         // 数据映射：从 Session 中提取注册信息
         $name     = $user_data['full_name'];
         $email    = $user_data['email'];
-        $password = $user_data['password']; // 建议在 register.php 就已经 password_hash 加密
+        $password = $user_data['password']; 
         $phone    = $user_data['phone'];
         $address  = $user_data['address'] ?? '';
         $postcode = $user_data['postcode'] ?? 0;
         $state    = $user_data['state'] ?? '';
         $dob      = $user_data['dob'] ?? null;
 
-        // --- 核心防死机：检查 Email 是否在刚才几分钟内被别人先注册了 ---
+        // 检查 Email 是否在刚才几分钟内被别人先注册了
         $check_stmt = $conn->prepare("SELECT User_Id FROM user WHERE User_Email = ?");
         $check_stmt->bind_param("s", $email);
         $check_stmt->execute();
@@ -54,7 +54,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['verify_btn'])) {
         if ($check_result->num_rows > 0) {
             $error = "This email is already registered. Please log in instead.";
         } else {
-            // 4. 正式插入数据库：请根据你的 user 表字段名调整
+            // 4. 正式插入数据库
             $stmt = $conn->prepare("
                 INSERT INTO user 
                 (User_Name, User_Email, User_Password, User_Phone, User_Address, User_Postcode, User_State, User_DateOfBirth, User_Balance) 
@@ -65,16 +65,20 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['verify_btn'])) {
                 die("SQL Prepare Error: " . $conn->error);
             }
 
-            // 绑定参数: s=string, i=integer
             $stmt->bind_param("sssssiss", $name, $email, $password, $phone, $address, $postcode, $state, $dob);
 
             if ($stmt->execute()) {
-                // Auto-create one-time new user promo code for 20% off
+                $new_user_id = $stmt->insert_id; 
+
+                // =========================================================
+                // 流程 A：自动发放 New User 20% Welcome 优惠券
+                // =========================================================
                 $promo_code = null;
                 do {
                     $candidate = rand(100000, 999999);
-                    $check_code = $conn->query("SELECT 1 FROM promo WHERE Promo_Code = $candidate LIMIT 1");
+                    $check_code = $conn->query("SELECT 1 FROM promo WHERE Promo_Code = '$candidate' LIMIT 1");
                 } while ($check_code && $check_code->num_rows > 0);
+                
                 $promo_code = $candidate;
                 $promo_name = 'New User 20% Welcome';
                 $promo_value = 20.00;
@@ -85,14 +89,76 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['verify_btn'])) {
                 $promo_stmt = $conn->prepare("INSERT INTO promo (Promo_Name, Promo_Code, Promo_Value, Expired_Date, Promo_Status, Promo_Type) VALUES (?, ?, ?, ?, ?, ?)");
                 if ($promo_stmt) {
                     $promo_stmt->bind_param('sddsss', $promo_name, $promo_code, $promo_value, $promo_expiry, $promo_status, $promo_type);
-                    $promo_stmt->execute();
+                    if ($promo_stmt->execute()) {
+                        $new_promo_id = $promo_stmt->insert_id; 
+
+                        // 绑定到 user_promo 表
+                        $assign_stmt = $conn->prepare("INSERT INTO user_promo (User_Id, Promo_Id, Is_Used) VALUES (?, ?, 'No')");
+                        if ($assign_stmt) {
+                            $assign_stmt->bind_param("ii", $new_user_id, $new_promo_id);
+                            $assign_stmt->execute();
+                            $assign_stmt->close();
+                        }
+                    }
                     $promo_stmt->close();
+                }
+
+                // =========================================================
+                // 【新增】流程 B：自动检测当月生日并赠送生日券
+                // =========================================================
+                $birthday_bonus_issued = false;
+                $bday_promo_code = "";
+
+                if (!empty($dob)) {
+                    $birth_month = date('m', strtotime($dob)); // 提取注册用户的生日月份
+                    $current_month = date('m');                // 获取当前系统的月份
+
+                    // 如果两月份相符，证明其在这个月生日
+                    if ($birth_month === $current_month) {
+                        $birth_day = date('d', strtotime($dob));
+                        $month_day = $birth_month . $birth_day;
+                        
+                        // 沿用标准生日券命名规范：BDAY + 独立用户ID + 四位月日
+                        $bday_promo_code = "BDAY{$new_user_id}{$month_day}";
+                        
+                        $bday_promo_name = "Birthday Special - {$name} 15% Off";
+                        $bday_promo_value = 15.00;
+                        $bday_promo_type = 'Percentage';
+                        $bday_promo_status = 'Active';
+                        $bday_promo_expiry = date('Y-m-d', strtotime('+30 days')); // 30天内有效
+
+                        $bday_stmt = $conn->prepare("INSERT INTO promo (Promo_Name, Promo_Code, Promo_Value, Expired_Date, Promo_Status, Promo_Type) VALUES (?, ?, ?, ?, ?, ?)");
+                        if ($bday_stmt) {
+                            $bday_stmt->bind_param('sddsss', $bday_promo_name, $bday_promo_code, $bday_promo_value, $bday_promo_expiry, $bday_promo_status, $bday_promo_type);
+                            if ($bday_stmt->execute()) {
+                                $new_bday_promo_id = $bday_stmt->insert_id;
+
+                                // 将生日券一并绑定至当前用户账户
+                                $assign_bday_stmt = $conn->prepare("INSERT INTO user_promo (User_Id, Promo_Id, Is_Used) VALUES (?, ?, 'No')");
+                                if ($assign_bday_stmt) {
+                                    $assign_bday_stmt->bind_param("ii", $new_user_id, $new_bday_promo_id);
+                                    $assign_bday_stmt->execute();
+                                    $assign_bday_stmt->close();
+                                    $birthday_bonus_issued = true;
+                                }
+                            }
+                            $bday_stmt->close();
+                        }
+                    }
                 }
 
                 // 成功：清除临时 Session 并跳转
                 unset($_SESSION['temp_user']);
+                
+                // 根据是否获得了生日券，动态切换弹窗提示词
+                if ($birthday_bonus_issued) {
+                    $alert_msg = "Account Verified Successfully!\\n\\n1. A 20% New User promo code has been linked to your account: $promo_code\\n2. 🎂 Happy Birthday! An extra 15% Birthday Promo has been added to your account: $bday_promo_code";
+                } else {
+                    $alert_msg = "Account Verified Successfully! A 20% New User promo code has been linked to your account: $promo_code";
+                }
+
                 echo "<script>
-                    alert('Account Verified Successfully! A 20% new user promo code has been issued: $promo_code');
+                    alert('$alert_msg');
                     window.location.href='login.php';
                 </script>";
                 exit();
@@ -239,7 +305,6 @@ include_once '../includes/header.php';
 </div>
 
 <script>
-    // 页面加载自动聚焦输入框
     window.onload = function() {
         document.getElementsByName('otp_input')[0].focus();
     };

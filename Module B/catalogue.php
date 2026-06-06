@@ -230,10 +230,80 @@ $where_clause = count($where_clauses) > 0 ? "WHERE " . implode(" AND ", $where_c
         .badge-sale { position: absolute; top: 10px; left: 10px; background: #ffeb3b; color: #000; font-size: 11px; font-weight: bold; padding: 4px 8px; border-radius: 4px; display: flex; align-items: center; gap: 4px;}
         .no-results { grid-column: 1/-1; text-align: center; padding: 50px; color: #999; border: 1px dashed #ddd; border-radius: 8px;}
         
-        /* 响应式 */
-        @media (max-width: 992px) { .shop-layout { grid-template-columns: 1fr; } .room-grid { grid-template-columns: repeat(3, 1fr); } }
-        @media (max-width: 768px) { .brand-grid, .room-grid { grid-template-columns: repeat(2, 1fr); } .brand-items { grid-template-columns: repeat(2, 1fr); } }
-        @media (max-width: 576px) { .brand-grid, .room-grid, .brand-items { grid-template-columns: 1fr; } .brand-list-group { flex-direction: column; } .brand-letter { margin-bottom: 15px; } .catalogue-container{ padding: 20px; } .az-btn { width: 40px; height: 40px; font-size: 16px; } }
+        /* Mobile Friendly */
+        @media (max-width: 992px) {
+            .shop-layout { grid-template-columns: 1fr; gap: 20px; }
+            
+            /* 1. 过滤侧边栏改造：变为横向滑动的“胶囊”菜单，彻底释放垂直空间 */
+            .filter-sidebar {
+                position: static;
+                display: flex;
+                overflow-x: auto;
+                gap: 12px;
+                padding-bottom: 10px;
+                scroll-snap-type: x mandatory;
+                border-bottom: 1px solid #eee;
+            }
+            .filter-sidebar::-webkit-scrollbar { display: none; }
+            .filter-header { display: none; } 
+            
+            details.filter-group {
+                position: relative;
+                border: 1px solid #ddd;
+                padding: 8px 16px;
+                border-radius: 20px;
+                min-width: max-content;
+                background: #fff;
+                scroll-snap-align: start;
+            }
+            details.filter-group summary { padding: 0; border: none; font-size: 14px; }
+            
+            /* 让展开的筛选面板悬浮，不往下推挤商品列表 */
+            details.filter-group > :not(summary) {
+                position: absolute;
+                top: calc(100% + 10px);
+                left: 0;
+                background: #fff;
+                padding: 15px;
+                border: 1px solid #ddd;
+                border-radius: 8px;
+                box-shadow: 0 5px 20px rgba(0,0,0,0.15);
+                z-index: 100;
+                min-width: 220px;
+            }
+        }
+
+        @media (max-width: 768px) {
+            /* 2. 缩小整体容器外边距，最大化利用手机屏幕宽度 */
+            .catalogue-container { margin: 10px; padding: 15px; }
+            .page-header h2 { font-size: 20px; }
+            
+            .brand-grid { grid-template-columns: repeat(3, 1fr); gap: 10px; }
+            .brand-card-img { height: 110px; }
+            
+            /* 3. 仿效成熟电商 App，手机端商品保持双列网格，加快浏览效率 */
+            .room-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+            .card-image { height: 160px; }
+            .card-content { padding: 10px; }
+            .room-title { font-size: 13px; margin-bottom: 6px; }
+            .room-price { font-size: 15px; }
+            .category-badge { font-size: 10px; padding: 2px 4px; margin-bottom: 5px; }
+            .badge-sale { font-size: 9px; padding: 3px 6px; }
+            
+            .az-btn { width: 36px; height: 36px; font-size: 14px; border-radius: 6px; }
+            .brand-items { grid-template-columns: repeat(2, 1fr); }
+        }
+
+        @media (max-width: 576px) {
+            /* 极小屏幕微调 */
+            .brand-grid { grid-template-columns: repeat(2, 1fr); }
+            .brand-items { grid-template-columns: 1fr; }
+            .brand-list-group { flex-direction: column; align-items: flex-start; }
+            .brand-letter { margin-bottom: 5px; font-size: 24px; }
+            
+            /* 价格滑块在手机上的触控点放大 */
+            .range-slider input[type="range"]::-webkit-slider-thumb { width: 24px; height: 24px; }
+        }
     </style>
 </head>
 <body>

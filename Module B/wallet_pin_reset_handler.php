@@ -36,7 +36,7 @@ if ($action === 'request_otp') {
         $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
         $mail->Port = 587;
 
-        $mail->setFrom(SMTP_EMAIL, 'SS Sport Security');
+        $mail->setFrom(SMTP_EMAIL, 'STRYDEX Sport Security');
         $mail->addAddress($user['User_Email'], $user['User_Name']);
         $mail->isHTML(true);
         $mail->Subject = "Your Wallet Reset OTP";

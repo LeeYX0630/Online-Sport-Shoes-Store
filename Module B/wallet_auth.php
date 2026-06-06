@@ -86,7 +86,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['wallet_pin'])) {
                     $item_pid = $item['pro_id'];
                     $item_qty = $item['qty'];
                     $item_size = $conn->real_escape_string($item['size']);
-                    $item_color = $conn->real_escape_string($item['color'] ?? 'Default');
+                    $item_color = !empty($item['custom_preview']) ? 'Custom Design' : ($item['color'] ?? 'Default');
+                    $item_color = $conn->real_escape_string($item_color);
 
                     $res_p = $conn->query("SELECT Pro_Price FROM product WHERE Pro_Id = '$item_pid'");
                     $row_p = $res_p->fetch_assoc();
@@ -122,7 +123,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['wallet_pin'])) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Wallet Authorization - SS Sport Shoes</title>
+    <title>Wallet Authorization - STRYDEX Sport Shoes</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <style>
@@ -170,13 +171,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['wallet_pin'])) {
             <div class="auth-head">
                 <div class="chip"><i class="bi bi-shield-lock-fill"></i> Wallet Authorization</div>
                 <h1>Complete payment with</h1>
-                <h1>SS Sport Wallet</h1>
+                <h1>STRYDEX Sport Wallet</h1>
                 <p>Secure transaction verification for your order. Enter your wallet PIN to finish payment and get your receipt instantly.</p>
             </div>
             <div class="auth-body">
                 <div class="status-card">
                     <div>
-                        <div class="brand">SS SPORT SHOES STORE</div>
+                        <div class="brand">STRYDEX SPORT SHOES STORE</div>
                         <div class="email"><?php echo $user_email; ?></div>
                     </div>
                     <div>

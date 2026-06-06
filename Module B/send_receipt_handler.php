@@ -59,7 +59,7 @@ function sendOrderReceiptEmail($order_id, $conn) {
         $mail->Port       = 587;
         $mail->CharSet    = 'UTF-8';
 
-        $mail->setFrom('sportshoes.system@gmail.com', 'SS SPORT SHOES STORE');
+        $mail->setFrom('sportshoes.system@gmail.com', 'STRYDEX SPORT SHOES STORE');
         $mail->addAddress($user_email, $order['User_Name']);
 
         // 5. 设置邮件 HTML 模版
@@ -70,7 +70,7 @@ function sendOrderReceiptEmail($order_id, $conn) {
         <div style='font-family: \"Segoe UI\", Helvetica, Arial, sans-serif; max-width: 700px; margin: auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; color: #444;'>
             
             <div style='background-color: #000; padding: 30px; text-align: center;'>
-                <h1 style='color: #FF6B00; margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: 2px;'>SS Sport Shoes Store</h1>
+                <h1 style='color: #FF6B00; margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: 2px;'>STRYDEX Sport Shoes Store</h1>
                 <p style='color: #fff; margin: 5px 0 0; font-size: 12px; opacity: 0.8;'>Multimedia University, Melaka, Malaysia | +60 12-345 6789</p>
             </div>
 
@@ -133,7 +133,7 @@ function sendOrderReceiptEmail($order_id, $conn) {
             </div>
 
             <div style='background-color: #f4f4f4; padding: 20px; text-align: center; font-size: 12px;'>
-                <p style='margin: 0; color: #999;'>&copy; " . date('Y') . " SS Sport Shoes Store. All Rights Reserved.</p>
+                <p style='margin: 0; color: #999;'>&copy; " . date('Y') . " STRYDEX Sport Shoes Store. All Rights Reserved.</p>
             </div>
         </div>";
 

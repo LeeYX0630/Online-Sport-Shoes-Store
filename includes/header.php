@@ -88,8 +88,8 @@ if (isset($_SESSION['cart']) && !empty($_SESSION['cart'])) {
       <div class="container-fluid px-4">
         
         <a class="navbar-brand d-flex align-items-center me-3" href="<?php echo $path_root; ?>index.php">
-           <img src="<?php echo $path_mod_a; ?>../images/picture/Logo 2.png" alt="SS Sport Logo" style="height: 40px; width: auto;" class="d-inline-block align-text-top me-2 rounded bg-white p-1">
-           <span class="fw-bold text-warning d-none d-md-block">Sole 2 Soul</span>
+           <img src="<?php echo $path_mod_a; ?>../images/picture/STRYDEX_Logo.jpeg" alt="STRYDEX Logo" style="height: 40px; width: auto;" class="d-inline-block align-text-top me-2 rounded bg-white p-1">
+           <span class="fw-bold text-warning d-none d-md-block">STRYDEX</span>
         </a>
 
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">

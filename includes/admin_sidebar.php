@@ -14,7 +14,7 @@ $admin_role = $_SESSION['role'] ?? ''; // 获取当前登录的角色
             <img src="../images/picture/Logo 2.png" alt="Logo">
         </div>
         <div class="logo-text">
-            <h5>SS Sport</h5>
+            <h5>STRYDEX Sport Shoe Store</h5>
             <p>Admin Panel</p>
         </div>
     </div>
