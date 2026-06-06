@@ -186,7 +186,7 @@ if ($admin_id) {
         body { 
             background-color: #f8f9fa; 
             margin: 0; 
-            font-family: 'Segoe UI', 'Inter', sans-serif; 
+            font-family: 'Segoe UI', 'Inter', sans-serif;
         }
         .wrapper { display: flex; }
 

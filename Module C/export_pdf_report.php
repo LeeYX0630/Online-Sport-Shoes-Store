@@ -77,7 +77,7 @@ $total_orders_count = ($result) ? $result->num_rows : 0;
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 
     <style>
-        body { font-family: 'Segoe UI', Arial, sans-serif; padding: 40px; color: #333; line-height: 1.6; background: #fff; }
+        body { font-family: 'Segoe UI', 'Inter', sans-serif; padding: 40px; color: #333; line-height: 1.6; background: #fff; }
         
         .no-print { 
             display: flex; 

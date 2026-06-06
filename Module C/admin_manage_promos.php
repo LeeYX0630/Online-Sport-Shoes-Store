@@ -222,7 +222,7 @@ $promos = $conn->query("SELECT * FROM promo ORDER BY Promo_Id DESC");
     
     <style>
         :root { --orange-primary: #FF8C00; --sidebar-width: 260px; }
-        body { background-color: #f8f9fa; margin: 0; font-family: 'Segoe UI', sans-serif; }
+        body { background-color: #f8f9fa; margin: 0; font-family: 'Segoe UI', 'Inter', sans-serif; }
         .wrapper { display: flex; }
         .main-content { flex-grow: 1; margin-left: var(--sidebar-width); padding: 25px; min-height: 100vh; }
         .admin-header { background: white; padding: 15px 30px; border-radius: 15px; margin-bottom: 25px; box-shadow: 0 4px 10px rgba(0,0,0,0.02); }

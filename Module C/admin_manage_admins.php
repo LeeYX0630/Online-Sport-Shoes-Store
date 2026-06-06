@@ -84,7 +84,31 @@ if ($vendor_res && $vendor_res->num_rows > 0) {
 
 $pending_count = count($admins_pending);
 $admin_img_path = "../uploads/admin/";
+
+// --- 修复点：确保 PHP 逻辑正确闭合 ---
+if (isset($_SESSION['new_admin_data'])): 
+    $data = $_SESSION['new_admin_data'];
+?> 
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            Swal.fire({
+                icon: 'success',
+                title: 'Admin Created Successfully!',
+                html: 'Email: <b><?php echo addslashes($data['email']); ?></b><br>' +
+                      'Password: <b><?php echo addslashes($data['password']); ?></b><br><br>' +
+                      '<small>Please copy this password immediately.</small>',
+                confirmButtonText: 'OK',
+                confirmButtonColor: '#FF6B00'
+            });
+        });
+    </script>
+<?php 
+    // 这里重新开启 PHP 模式以执行 unset
+    unset($_SESSION['new_admin_data']);
+endif; // 结束 if 块
 ?>
+
+
 
 <!DOCTYPE html>
 <html lang="en">

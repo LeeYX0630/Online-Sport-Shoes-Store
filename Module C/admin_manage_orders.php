@@ -50,8 +50,7 @@ if ($_SESSION['role'] == 3) {
     )";
 }
 
-// 3. 最后才加上排序，并执行查询（全页面只能有一个 $result = mysqli_query...）
-$sql .= " ORDER BY o.Order_Date DESC";
+// 🌟【新增修复代码】执行查询，生成 $result 结果集供下方表格循环使用
 $result = mysqli_query($conn, $sql);
 
 // --- 处理 AJAX 请求：更新状态、记录各自的时间节点 ---
@@ -62,11 +61,18 @@ if (isset($_POST['update_status'])) {
     
     $extra_query = ""; // 用于动态拼接 order 表的更新字段
 
+    // 为了在通知中显示订单编号，先查出该订单的 Tracking Number
+    $order_info_res = mysqli_query($conn, "SELECT Order_Tracking_Num FROM `order` WHERE Order_Id = '$order_id'");
+    $order_tracking_num = '';
+    if ($order_info_res && $order_row = mysqli_fetch_assoc($order_info_res)) {
+        $order_tracking_num = $order_row['Order_Tracking_Num'];
+    }
+
     if ($new_status == 'Processing') {
         // Processing 时，订单处理时间留在 order 表
         $extra_query = ", Order_Processing_Date = '$current_time'";
         
-        include 'generate_estimated_arrival_date.php'; 
+        include 'generate_estimated_arrival_date.php';
         
         // 预计到达时间写入 shipment 表
         $check_shipment = mysqli_query($conn, "SELECT * FROM `shipment` WHERE Order_Id = '$order_id'");
@@ -79,11 +85,11 @@ if (isset($_POST['update_status'])) {
     } 
     elseif ($new_status == 'Shipped') {
         // Shipped 时不更新 order 表其他字段
-        $extra_query = ""; 
+        $extra_query = "";
         
-        $month_day = date('md'); 
+        $month_day = date('md');
         $permitted_chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-        $random_str = substr(str_shuffle($permitted_chars), 0, 2); 
+        $random_str = substr(str_shuffle($permitted_chars), 0, 2);
         $tracking_number = "SSPMY" . $month_day . $random_str;
 
         // 追踪单号(Ship_Tracking_Number) 和 发货时间(Shipped_Date) 存入 shipment 表
@@ -101,9 +107,9 @@ if (isset($_POST['update_status'])) {
     } 
     elseif ($new_status == 'Delivered') {
         // Delivered 时不更新 order 表其他字段
-        $extra_query = ""; 
+        $extra_query = "";
         
-        // 【修改点】将 Delivered_Date 存入 shipment 表！
+        // 将 Delivered_Date 存入 shipment 表
         $check_shipment = mysqli_query($conn, "SELECT * FROM `shipment` WHERE Order_Id = '$order_id'");
         if (mysqli_num_rows($check_shipment) > 0) {
             $shipment_sql = "UPDATE `shipment` SET Delivered_Date = '$current_time' WHERE Order_Id = '$order_id'";
@@ -116,7 +122,65 @@ if (isset($_POST['update_status'])) {
     // 最后，只更新 order 表中的 Status（以及 Processing 时的处理时间）
     $update_sql = "UPDATE `order` SET Order_Status = '$new_status' $extra_query WHERE Order_Id = '$order_id'";
     
-    if (mysqli_query($conn, $update_sql)) {
+if (mysqli_query($conn, $update_sql)) {
+        
+        // ── 🌟 自动触发状态变更通知（精准路由给对应品牌的 Level 3 管理员） ──
+        $notif_type = 'status_change';
+        $notif_title = "Order Status Updated";
+        
+        // 根据变更为何种状态，定制人性化的通知内容
+        switch ($new_status) {
+            case 'Processing':
+                $notif_msg = "Order #ODR{$order_tracking_num} is now being processed and prepared.";
+                break;
+            case 'Shipped':
+                $notif_msg = "Order #ODR{$order_tracking_num} has been shipped out.";
+                break;
+            case 'Delivered':
+                $notif_msg = "Order #ODR{$order_tracking_num} has been successfully delivered.";
+                break;
+            default:
+                $notif_msg = "Order #ODR{$order_tracking_num} status changed to {$new_status}.";
+                break;
+        }
+        
+        $notif_link = "admin_manage_orders.php"; 
+
+        // 【核心修改】：通过当前 Order_Id 查出这个订单里包含了哪些 Level 3 品牌管理员的产品
+        $brand_admin_sql = "
+            SELECT DISTINCT b.Admin_Id 
+            FROM order_detail od
+            JOIN product p ON od.Pro_Id = p.Pro_Id
+            JOIN brand b ON p.Brand_Id = b.Brand_Id
+            WHERE od.Order_Id = '$order_id' AND b.Admin_Id IS NOT NULL
+        ";
+        $brand_admin_res = mysqli_query($conn, $brand_admin_sql);
+        
+        // 用于记录是否成功发给了特定品牌管理员
+        $has_sent_to_brand_admin = false;
+
+        if ($brand_admin_res && mysqli_num_rows($brand_admin_res) > 0) {
+            // 遍历所有涉及到的 Level 3 品牌管理员，给他们每个人单独插入一条带有个体 Admin_Id 的通知
+            $stmt_notif = $conn->prepare("INSERT INTO notification (Notif_Type, Notif_Title, Notif_Message, Notif_Link, Admin_Id, Related_Id) VALUES (?, ?, ?, ?, ?, ?)");
+            
+            while ($brand_admin_row = mysqli_fetch_assoc($brand_admin_res)) {
+                $target_admin_id = intval($brand_admin_row['Admin_Id']);
+                $stmt_notif->bind_param("ssssii", $notif_type, $notif_title, $notif_msg, $notif_link, $target_admin_id, $order_id);
+                $stmt_notif->execute();
+                $has_sent_notif = true;
+            }
+            $stmt_notif->close();
+        }
+
+        // 【兜底机制】：如果这个订单里没有查到任何 Level 3 管理员的产品（比如普通全站产品），则以 NULL 形式发给 Level 1 & 2 系统大管理员
+        if (!$has_sent_notif) {
+            $stmt_global = $conn->prepare("INSERT INTO notification (Notif_Type, Notif_Title, Notif_Message, Notif_Link, Admin_Id, Related_Id) VALUES (?, ?, ?, ?, NULL, ?)");
+            $stmt_global->bind_param("ssssi", $notif_type, $notif_title, $notif_msg, $notif_link, $order_id);
+            $stmt_global->execute();
+            $stmt_global->close();
+        }
+        // ──────────────────────────────────────────────
+
         echo json_encode(['status' => 'success']);
     } else {
         echo json_encode(['status' => 'error', 'message' => mysqli_error($conn)]);

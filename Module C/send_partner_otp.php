@@ -48,8 +48,8 @@ function sendPartnerOTP($recipientEmail) {
         $mail->isHTML(true);
         $mail->Subject = 'Partner Application OTP Verification';
         $mail->Body    = "
-            <div style='font-family: sans-serif; border: 1px solid #eee; padding: 20px; border-radius: 10px;'>
-                <h2 style='color: #FF6B00;'>Partner Application Verification</h2>
+            <div style='font-family: 'Segoe UI', 'Inter', sans-serif; border: 1px solid #eee; padding: 20px; border-radius: 10px;'>
+                <h2 style='color: #FF8C00;'>Partner Application Verification</h2>
                 <p>Hello,</p>
                 <p>Thank you for applying to partner with SS Sport Shoes Store.</p>
                 <p>Your one-time password (OTP) to verify your application is:</p>

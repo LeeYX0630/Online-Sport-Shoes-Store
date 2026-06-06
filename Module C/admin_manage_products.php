@@ -11,6 +11,18 @@ if (!isset($_SESSION['role'])) {
 $admin_id = $_SESSION['admin_id']; // 从 Session 获取当前管理员 ID
 $admin_role = $_SESSION['role'];
 $username = $_SESSION['username'] ?? 'Admin';
+// 初始化管理员头像（与其他管理页面保持一致）
+$admin_image = 'default_admin.png';
+if ($admin_id) {
+    $img_res = $conn->query("SELECT Admin_Image FROM admin WHERE Admin_Id = $admin_id");
+    if ($img_res && $img_row = $img_res->fetch_assoc()) {
+        $admin_image = !empty($img_row['Admin_Image']) ? $img_row['Admin_Image'] : ($_SESSION['admin_image'] ?? 'default_admin.png');
+    } else {
+        $admin_image = $_SESSION['admin_image'] ?? 'default_admin.png';
+    }
+} else {
+    $admin_image = $_SESSION['admin_image'] ?? 'default_admin.png';
+}
 
 // --- 新增逻辑：如果不是超级管理员，则根据 admin_id 去查询他负责的 Brand_Id ---
 $admin_brand_id = 0;
@@ -113,8 +125,8 @@ function getSmartProductImage($filename, $colors = []) {
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
-        :root { --sidebar-width: 260px; --primary-orange: #FF6B00; --hover-orange: #e66000; }
-        body { background-color: #f8f9fa; font-family: 'Inter', sans-serif; margin: 0; }
+        :root { --sidebar-width: 260px; --primary-orange: #FF8C00; --hover-orange: #e66000; }
+        body { background-color: #f8f9fa; font-family: 'Segoe UI', 'Inter', sans-serif;, sans-serif; margin: 0; }
         .main-wrapper { flex-grow: 1; margin-left: var(--sidebar-width); padding: 25px; min-height: 100vh; width: calc(100% - var(--sidebar-width)); }
         .admin-header { background: white; padding: 15px 30px; border-radius: 15px; margin-bottom: 25px; box-shadow: 0 4px 10px rgba(0,0,0,0.02); }
         .admin-profile-img { width: 42px; height: 42px; border-radius: 50%; border: 2px solid var(--primary-orange); object-fit: cover; }
@@ -174,11 +186,11 @@ function getSmartProductImage($filename, $colors = []) {
                     <div class="fw-bold"><?php echo htmlspecialchars($username); ?></div>
                     <small class="text-muted"><?php 
                         if($admin_role == 1) echo 'Super Admin';
-                        elseif($admin_role == 2) echo 'Senior Manager';
-                        else echo 'Manager'; 
+                        elseif($admin_role == 2) echo 'Admin';
+                        else echo 'Brand Manager'; 
                     ?></small>
                 </div>
-                <img src="../uploads/admin/<?php echo $_SESSION['admin_image'] ?? 'default_admin.png'; ?>?t=<?php echo time(); ?>" class="admin-profile-img">
+                <img src="../uploads/admin/<?php echo $admin_image; ?>?t=<?php echo time(); ?>" class="admin-profile-img">
             </div>
         </header>
 
@@ -538,6 +550,49 @@ function getSmartProductImage($filename, $colors = []) {
             searchInput.value = ''; toggleClearIcon(); filterForm.submit();
         });
     });
+
+    document.addEventListener('DOMContentLoaded', function() {
+    // ── 🌟【新增核心逻辑】检测 URL 参数，自动弹出对应低库存商品的尺码变体 Modal ──
+    const urlParams = new URLSearchParams(window.location.search);
+    const openStockId = urlParams.get('open_stock_id');
+
+    if (openStockId) {
+        // 1. 尝试在当前页面的表格中寻找该商品对应的 "View Variants" 按钮
+        // 假设你的按钮上有类似 onclick="openVariantsModal('16', 'Nike Air Max')" 这样的属性
+        const variantBtn = document.querySelector(`button[onclick*="openVariantsModal('${openStockId}'"]`);
+        
+        if (variantBtn) {
+            // 如果商品在当前页，直接模拟点击它，触发你原本写好的完美弹窗与数据加载
+            variantBtn.click();
+            
+            // 顺便滚动到这一行并做一个高亮效果，方便管理员认出
+            const productRow = variantBtn.closest('tr');
+            if (productRow) {
+                productRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                productRow.style.backgroundColor = '#fff3cd'; // 淡淡的黄色高亮
+                setTimeout(() => {
+                    productRow.style.transition = 'background-color 2s';
+                    productRow.style.backgroundColor = ''; // 2秒后恢复原样
+                }, 2000);
+            }
+        } else {
+            // 2. 兜底机制：如果商品在其他分页，或者当前表格被搜索条件过滤了，导致找不到按钮
+            // 我们可以直接通过现有的 AJAX 查询接口把商品名称查出来并强制弹窗
+            fetch('admin_manage_products.php?action=get_variants&pro_id=' + openStockId)
+                .then(response => response.json())
+                .then(data => {
+                    if (data && data.length > 0) {
+                        // 从返回的变体数据中拿到产品名称
+                        const pName = data[0].Pro_Name || "Product";
+                        // 直接调用你现有的弹窗函数
+                        if (typeof openVariantsModal === 'function') {
+                            openVariantsModal(openStockId, pName);
+                        }
+                    }
+                }).catch(err => console.error("Error auto-opening modal:", err));
+        }
+    }
+});
 
     <?php if($swalCode) echo $swalCode; ?>
     </script>

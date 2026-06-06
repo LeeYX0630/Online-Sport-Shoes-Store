@@ -86,6 +86,14 @@ $eta_display = "Pending Assignment";
 if (!empty($order_data['Estimated_Arrival_Date'])) {
     $eta_display = date('d M Y', strtotime($order_data['Estimated_Arrival_Date']));
 }
+
+// 辅助：把数据库的零时间或空值格式化成用户友好的显示
+function format_nullable_datetime($dt, $fmt = 'd M Y, h:i A') {
+    if (empty($dt) || $dt === '0000-00-00 00:00:00') return '--';
+    $ts = strtotime($dt);
+    if ($ts === false || $ts <= 0) return '--';
+    return date($fmt, $ts);
+}
 ?>
 
 <!DOCTYPE html>
@@ -103,7 +111,7 @@ if (!empty($order_data['Estimated_Arrival_Date'])) {
             --sidebar-width: 260px; 
             --step-grey: #e0e0e0;
         }
-        body { background-color: #f8f9fa; font-family: 'Segoe UI', sans-serif; }
+        body { background-color: #f8f9fa; font-family: 'Segoe UI', 'Inter', sans-serif; }
         .wrapper { display: flex; }
         .main-content { flex-grow: 1; margin-left: var(--sidebar-width); padding: 25px; min-height: 100vh; }
         
@@ -244,13 +252,13 @@ if (!empty($order_data['Estimated_Arrival_Date'])) {
                         <div class="track-step <?php echo ($status_level >= 2) ? 'active' : ''; ?>">
                             <div class="icon-circle"><i class="bi bi-credit-card"></i></div>
                             <p class="step-label">Processing</p>
-                            <span class="step-date"><?php echo $order_data['Order_Processing_Date'] ? date('d M Y, H:i', strtotime($order_data['Order_Processing_Date'])) : '--'; ?></span>
+                            <span class="step-date"><?php echo format_nullable_datetime($order_data['Order_Processing_Date'], 'd M Y, H:i'); ?></span>
                         </div>
 
                         <div class="track-step <?php echo ($status_level >= 3) ? 'active' : ''; ?>">
                             <div class="icon-circle"><i class="bi bi-box-seam"></i></div>
                             <p class="step-label">Shipped Out</p>
-                            <span class="step-date"><?php echo $order_data['Shipped_Date'] ? date('d M Y, H:i', strtotime($order_data['Shipped_Date'])) : '--'; ?></span>
+                            <span class="step-date"><?php echo format_nullable_datetime($order_data['Shipped_Date'], 'd M Y, H:i'); ?></span>
                         </div>
 
                         <div class="track-step <?php echo ($status_level >= 4) ? 'active' : ''; ?>">
@@ -262,7 +270,7 @@ if (!empty($order_data['Estimated_Arrival_Date'])) {
                         <div class="track-step <?php echo ($status_level >= 5) ? 'active' : ''; ?>">
                             <div class="icon-circle"><i class="bi bi-check2-circle"></i></div>
                             <p class="step-label">Delivered</p>
-                            <span class="step-date"><?php echo $order_data['Delivered_Date'] ? date('d M Y, H:i', strtotime($order_data['Delivered_Date'])) : '--'; ?></span>
+                            <span class="step-date"><?php echo format_nullable_datetime($order_data['Delivered_Date'], 'd M Y, H:i'); ?></span>
                         </div>
                     </div>
                 </div>
@@ -398,12 +406,12 @@ if (!empty($order_data['Estimated_Arrival_Date'])) {
                     
                     <div class="info-label text-muted mb-1">Shipped Date</div>
                     <div class="info-value text-dark fw-medium mb-3" style="font-size: 0.95rem;">
-                        <?php echo !empty($order_data['Shipped_Date']) ? date('d M Y, h:i A', strtotime($order_data['Shipped_Date'])) : 'Not Shipped Yet'; ?>
+                        <?php echo format_nullable_datetime($order_data['Shipped_Date'], 'd M Y, h:i A'); ?>
                     </div>
                     
                     <div class="info-label text-muted mb-1">Delivered Date</div>
                     <div class="info-value text-success fw-bold" style="font-size: 0.95rem;">
-                        <?php echo !empty($order_data['Delivered_Date']) ? date('d M Y, h:i A', strtotime($order_data['Delivered_Date'])) : 'Not Delivered Yet'; ?>
+                        <?php echo format_nullable_datetime($order_data['Delivered_Date'], 'd M Y, h:i A'); ?>
                     </div>
                 </div>
 

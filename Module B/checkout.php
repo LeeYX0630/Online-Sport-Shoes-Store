@@ -450,6 +450,57 @@ $conn->begin_transaction();
                 $conn->query("UPDATE PRODUCT_STOCK SET Quantity = Quantity - $qty 
                               WHERE Pro_Id = '$p_id' AND Pro_Size = '$size' AND Pro_Colour = '$db_color_key'");
             }
+
+            // ── 🌟【新增库存检查逻辑】放在更新库存的下一行 ───────────────────
+                try {
+                    // 1. 查出当前变动商品扣减后的【当前尺码与颜色】的最新剩余库存，以及它属于哪个品牌管理员
+                    $stock_check_sql = "
+                        SELECT ps.Quantity AS Current_Stock, p.Pro_Name, b.Admin_Id
+                        FROM PRODUCT_STOCK ps
+                        JOIN product p ON ps.Pro_Id = p.Pro_Id
+                        JOIN brand b ON p.Brand_Id = b.Brand_Id
+                        WHERE ps.Pro_Id = '$p_id' AND ps.Pro_Size = '$size' AND ps.Pro_Colour = '$db_color_key'
+                    ";
+                    
+                    $stock_res = $conn->query($stock_check_sql);
+                    if ($stock_res && $stock_row = $stock_res->fetch_assoc()) {
+                        $current_stock = intval($stock_row['Current_Stock']);
+                        $pro_name = $stock_row['Pro_Name'];
+                        $target_admin_id = $stock_row['Admin_Id'];
+
+                        // 2. 判断该尺码颜色的剩余库存是否少于或等于 5
+                        if ($current_stock <= 5) {
+                            $notif_type = 'low_stock';
+                            $notif_title = "Low Stock Warning";
+                            // 文案提示更贴心：带上具体的尺码和颜色
+                            $notif_msg = "Warning: Product '{$pro_name}' (Size: {$size}, Color: {$db_color_key}) is running low. Only {$current_stock} left!";
+                            $notif_link = "admin_manage_products.php?open_stock_id=" . $p_id;
+
+                            // 3. 24小时防刷机制：避免同一个商品频繁刷一模一样的通知
+                            $dup_check = $conn->query("SELECT 1 FROM notification WHERE Notif_Type = 'low_stock' AND Related_Id = '$p_id' AND Notif_Created_At > DATE_SUB(NOW(), INTERVAL 1 DAY)");
+                            
+                            if ($dup_check && $dup_check->num_rows == 0) {
+                                
+                                // 精准发给对应的 Level 3 品牌管理员
+                                if (!empty($target_admin_id)) {
+                                    $stmt_brand = $conn->prepare("INSERT INTO notification (Notif_Type, Notif_Title, Notif_Message, Notif_Link, Admin_Id, Related_Id) VALUES (?, ?, ?, ?, ?, ?)");
+                                    $stmt_brand->bind_param("ssssii", $notif_type, $notif_title, $notif_msg, $notif_link, $target_admin_id, $p_id);
+                                    $stmt_brand->execute();
+                                    $stmt_brand->close();
+                                }
+
+                                // 广播发给 Level 1 & 2 的系统总管理员
+                                $stmt_global = $conn->prepare("INSERT INTO notification (Notif_Type, Notif_Title, Notif_Message, Notif_Link, Admin_Id, Related_Id) VALUES (?, ?, ?, ?, NULL, ?)");
+                                $stmt_global->bind_param("ssssi", $notif_type, $notif_title, $notif_msg, $notif_link, $p_id);
+                                $stmt_global->execute();
+                                $stmt_global->close();
+                            }
+                        }
+                    }
+                } catch (Exception $e) {
+                    // 记录错误日志，确保不会因为通知代码报错而卡死或终止顾客的 Checkout 下单流程
+                    error_log("Low Stock Notification Error: " . $e->getMessage());
+                }
             
             // 核销优惠券
             if (isset($_SESSION['applied_user_promo_id']) && !empty($_SESSION['applied_user_promo_id'])) {
@@ -458,6 +509,52 @@ $conn->begin_transaction();
             }
             
             $conn->commit();
+
+            // ── 🌟【新增核心逻辑】顾客结算成功，自动向管理员触发 New Order 通知 ──
+            try {
+                $notif_type = 'new_order';
+                $notif_title = "New Order Placed";
+                // 从数据库读取刚插入订单的追踪号，确保使用数据库中的值（fallback 到生成的 $tracking_no）
+                $order_tracking_num = $tracking_no;
+                $tres = $conn->query("SELECT Order_Tracking_Num FROM `ORDER` WHERE Order_Id = '$order_id' LIMIT 1");
+                if ($tres && $trow = $tres->fetch_assoc()) {
+                    $order_tracking_num = $trow['Order_Tracking_Num'];
+                }
+                $notif_msg = "A new order #ODR{$order_tracking_num} has been successfully placed by Customer.";
+                $notif_link = "admin_manage_orders.php";
+
+                // 1. 找出这个新订单里面包含了哪些 Level 3 品牌管理员管理的产品
+                $brand_admin_sql = "
+                    SELECT DISTINCT b.Admin_Id 
+                    FROM order_detail od
+                    JOIN product p ON od.Pro_Id = p.Pro_Id
+                    JOIN brand b ON p.Brand_Id = b.Brand_Id
+                    WHERE od.Order_Id = '$order_id' AND b.Admin_Id IS NOT NULL
+                ";
+                $brand_admin_res = $conn->query($brand_admin_sql);
+
+                // 2. 循环给这些涉及到的 Level 3 品牌管理员发送精准通知
+                if ($brand_admin_res && $brand_admin_res->num_rows > 0) {
+                    $stmt_notif = $conn->prepare("INSERT INTO notification (Notif_Type, Notif_Title, Notif_Message, Notif_Link, Admin_Id, Related_Id) VALUES (?, ?, ?, ?, ?, ?)");
+                    while ($brand_admin_row = $brand_admin_res->fetch_assoc()) {
+                        $target_admin_id = intval($brand_admin_row['Admin_Id']);
+                        $stmt_notif->bind_param("ssssii", $notif_type, $notif_title, $notif_msg, $notif_link, $target_admin_id, $order_id);
+                        $stmt_notif->execute();
+                    }
+                    $stmt_notif->close();
+                }
+
+                // 3. 同时发一条全局公共广播通知（Admin_Id = NULL），让 Level 1 和 Level 2 的总管理员也能收到
+                $stmt_global = $conn->prepare("INSERT INTO notification (Notif_Type, Notif_Title, Notif_Message, Notif_Link, Admin_Id, Related_Id) VALUES (?, ?, ?, ?, NULL, ?)");
+                $stmt_global->bind_param("ssssi", $notif_type, $notif_title, $notif_msg, $notif_link, $order_id);
+                $stmt_global->execute();
+                $stmt_global->close();
+
+            } catch (Exception $e) {
+                // 即使通知写入失败，也不要影响客户购物车结算成功的流程
+                error_log("Notification Error: " . $e->getMessage());
+            }
+
             
             require_once 'send_receipt_handler.php'; 
             sendOrderReceiptEmail($order_id, $conn);
