@@ -84,13 +84,13 @@ $res_details = $conn->query($sql_details);
         
         <div class="receipt-header d-flex justify-content-between align-items-center">
             <div class="brand">
-                <div class="brand-logo">SS SPORT SHOES STORE</div>
+                <div class="brand-logo">STRYDEX SPORT SHOES STORE</div>
                 <p class="text-muted mb-0 small">Multimedia University, Melaka, Malaysia</p>
                 <p class="text-muted mb-0 small">Email: sportshoes.system@gmail.com</p>
             </div>
             <div class="text-end">
                 <h2 class="fw-bold mb-0">OFFICIAL RECEIPT</h2>
-                <p class="mb-0 text-muted">Order ID: <strong>#<?php echo $order_id; ?></strong></p>
+                <p class="mb-0 text-muted">Order ID: <strong>#<?php echo $order['Order_Tracking_Num']; ?></strong></p>
                 <p class="mb-0 text-muted">Date: <strong><?php echo date('d M Y, h:i A', strtotime($order['Order_Date'])); ?></strong></p>
             </div>
         </div>

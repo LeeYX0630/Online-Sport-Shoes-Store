@@ -123,7 +123,7 @@ elseif ($mode === 'chat') {
         }
     }
 
-    $chatSystemPrompt = "You are the SS Sport Shoes Assistant. 
+    $chatSystemPrompt = "You are the STRYDEX Sport Shoes Assistant. 
     Use the following REAL-TIME inventory data to guide customers.
     CRITICAL FORMATTING RULES:
     1. Use HTML line breaks <br> for every new point.

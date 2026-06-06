@@ -34,7 +34,7 @@ function sendOTP($recipientEmail) {
         
 
         // --- 收件人 ---
-        $mail->setFrom('sportshoes.system@gmail.com', 'SS SPORT SHOES STORE');
+        $mail->setFrom('sportshoes.system@gmail.com', 'STRYDEX SPORT SHOES STORE');
         $mail->addAddress($recipientEmail);
 
         // --- 内容 ---

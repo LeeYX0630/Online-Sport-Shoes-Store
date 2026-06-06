@@ -1,6 +1,6 @@
 <?php
 /**
- * SS SPORT - AI PASSWORD ASSISTANT
+ * STRYDEX SPORT - AI PASSWORD ASSISTANT
  * Integrated with Stealth Sport Shoes standard header/footer.
  */
 if (session_status() === PHP_SESSION_NONE) {

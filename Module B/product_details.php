@@ -1280,7 +1280,7 @@ async function processMeasurement(imagePath) {
         html: `
             <div style="padding: 20px;">
                 <div class="spinner-border text-success" role="status"></div>
-                <p style="margin-top: 15px; font-weight: bold;">正在提取脚部拓扑骨架与解剖轴线...</p>
+                <p style="margin-top: 15px; font-weight: bold;">Analyzing foot contours...</p>
             </div>
         `,
         allowOutsideClick: false,

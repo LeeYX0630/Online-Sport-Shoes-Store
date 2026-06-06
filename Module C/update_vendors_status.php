@@ -24,7 +24,7 @@ function sendMailHtml($to, $subject, $html) {
         $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
         $mail->Port       = 587;
 
-        $mail->setFrom(SMTP_EMAIL, 'SS SPORT SHOES STORE');
+        $mail->setFrom(SMTP_EMAIL, 'STRYDEX SPORT SHOES STORE');
         $mail->addAddress($to);
 
         $mail->isHTML(true);
@@ -97,7 +97,7 @@ if ($action === 'approve') {
         $html = "
 <div style='font-family: sans-serif; max-width: 700px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; color: #444; text-align: center;'>
     <div style='background-color: #000; padding: 30px;'>
-        <h1 style='color: #FF6B00; margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: 2px;'>SS Sport Shoes Store</h1>
+        <h1 style='color: #FF6B00; margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: 2px;'>STRYDEX Sport Shoes Store</h1>
         <p style='color: #fff; margin: 5px 0 0; font-size: 12px; opacity: 0.8;'>Multimedia University, Melaka, Malaysia | +60 12-345 6789</p>
     </div>
     <div style='padding: 20px;'>
@@ -139,7 +139,7 @@ if ($action === 'approve') {
         $html = "
             <div style='font-family: sans-serif; max-width: 700px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; color: #444; text-align: center;'>
         <div style='background-color: #000; padding: 30px;'>
-            <h1 style='color: #FF6B00; margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: 2px;'>SS Sport Shoes Store</h1>
+            <h1 style='color: #FF6B00; margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: 2px;'>STRYDEX Sport Shoes Store</h1>
             <p style='color: #fff; margin: 5px 0 0; font-size: 12px; opacity: 0.8;'>Multimedia University, Melaka, Malaysia | +60 12-345 6789</p>
         </div>
         <div style='font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; text-align: center;'>

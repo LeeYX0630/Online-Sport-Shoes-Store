@@ -87,7 +87,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['verify_btn'])) {
                 $mail->Port       = 587;
 
                 // 修改发件人为你的系统邮箱
-                $mail->setFrom('sportshoes.system@gmail.com', 'SS Sport Security');
+                $mail->setFrom('sportshoes.system@gmail.com', 'STRYDEX Sport Security');
                 $mail->addAddress($email);
 
                 // Email Content Template

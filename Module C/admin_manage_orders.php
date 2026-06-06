@@ -27,7 +27,7 @@ function sendShipmentNotificationEmail($user_email, $user_name, $order_id, $trac
         $mail->Port       = 587;
         $mail->CharSet    = 'UTF-8';
 
-        $mail->setFrom('sportshoes.system@gmail.com', 'SS SPORT SHOES STORE');
+        $mail->setFrom('sportshoes.system@gmail.com', 'STRYDEX SPORT SHOES STORE');
         $mail->addAddress($user_email, $user_name);
 
         $mail->isHTML(true);

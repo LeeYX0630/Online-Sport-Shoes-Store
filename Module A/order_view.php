@@ -70,7 +70,7 @@ while ($item = $details->fetch_assoc()) {
     }
 
     $line_items[] = [
-        'brand' => $item['Brand_Name'] ?? 'SS Sport',
+        'brand' => $item['Brand_Name'] ?? 'STRYDEX Sport',
         'name' => $item['Pro_Name'] ?? 'Unknown Shoe',
         'image' => $image_path,
         'qty' => $qty,

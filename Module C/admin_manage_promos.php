@@ -160,7 +160,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $mail->Password   = SMTP_PASS;
                         $mail->SMTPSecure = PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
                         $mail->Port       = 587;
-                        $mail->setFrom(SMTP_EMAIL, 'Sole 2 Soul Shoes Store');
+                        $mail->setFrom(SMTP_EMAIL, 'STRYDEX SPORT SHOES STORE');
                         
                         foreach($email_list as $em) {
                             $mail->addBCC($em);
@@ -179,7 +179,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 </div>
                                 <p style='margin-top: 20px;'>Login to your Dashboard to view all your rewards.</p>
                                 <hr>
-                                <p style='font-size: 12px; color: #999;'>Thank you for shopping with SS Sports Shoes Store.</p>
+                                <p style='font-size: 12px; color: #999;'>Thank you for shopping with STRYDEX Sports Shoes Store.</p>
                             </div>";
 
                         $mail->send();
