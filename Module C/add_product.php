@@ -633,12 +633,45 @@ function addVariantBox(color) {
     container.insertAdjacentHTML('beforeend', html);
 }
 
+
 function handleFileSelect(input, color) {
-    const safeId = color.replace(/\s+/g, '_');
-    const preview = document.getElementById(`preview_${safeId}`);
+    const safeId     = color.replace(/\s+/g, '_');
+    const preview    = document.getElementById(`preview_${safeId}`);
     const finalInput = document.getElementById(`final_input_${safeId}`);
+    const MAX_PHOTOS = 4;
+
+    // 计算目前已有几张
+    const existing = colorFilesManager[color].items.length;
+    const slots    = MAX_PHOTOS - existing;
+
+    if (slots <= 0) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'Photo Limit Reached',
+            text: `Each color can only have a maximum of ${MAX_PHOTOS} photos.`,
+            confirmButtonColor: '#FF8C00'
+        });
+        input.value = ''; // 清空 input，避免残留
+        return;
+    }
+
+    const files    = Array.from(input.files);
+    const allowed  = files.slice(0, slots);       // 只取剩余可放的数量
+    const rejected = files.length - allowed.length;
+
+    if (rejected > 0) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'Too Many Photos',
+            text: `Only ${slots} more photo(s) allowed for "${color}". ${rejected} file(s) were ignored.`,
+            confirmButtonColor: '#FF8C00'
+        });
+    }
+
+    // 第一次上传时清掉 "No photos yet" 提示
     if (colorFilesManager[color].items.length === 0) preview.innerHTML = '';
-    Array.from(input.files).forEach(file => {
+
+    allowed.forEach(file => {
         colorFilesManager[color].items.add(file);
         const reader = new FileReader();
         reader.onload = (e) => {
@@ -650,7 +683,9 @@ function handleFileSelect(input, color) {
         };
         reader.readAsDataURL(file);
     });
+
     finalInput.files = colorFilesManager[color].files;
+    input.value = ''; // 清空，避免重复触发
 }
 
 function removeFile(color, btn) {

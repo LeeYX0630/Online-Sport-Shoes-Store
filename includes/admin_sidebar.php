@@ -11,11 +11,11 @@ $admin_role = $_SESSION['role'] ?? ''; // 获取当前登录的角色
     
     <div class="sidebar-header">
         <div class="logo-icon">
-            <img src="../images/picture/Logo 2.png" alt="Logo">
+            <img src="../images/picture/STRYDEX_Logo.jpeg" alt="Logo">
         </div>
         <div class="logo-text">
             <h5>STRYDEX Sport Shoe Store</h5>
-            <p>Admin Panel</p>
+            <p><?php echo (intval($admin_role) === 3) ? 'Vendor Panel' : 'Admin Panel'; ?></p>
         </div>
     </div>
 
@@ -73,18 +73,10 @@ $admin_role = $_SESSION['role'] ?? ''; // 获取当前登录的角色
         </ul>
     </div>
 
-    <div class="sidebar-footer">
-        <div class="user-avatar">
-            <?php echo isset($_SESSION['username']) ? strtoupper(substr($_SESSION['username'], 0, 2)) : 'AD'; ?>
-        </div>
-        <div class="user-info">
-            <span class="user-name"><?php echo htmlspecialchars($_SESSION['username'] ?? 'Admin'); ?></span>
-            <span class="user-email"><?php echo (isset($_SESSION['role']) && $_SESSION['role'] == 1) ? 'Super Admin' : 'Brand Admin'; ?></span>
-        </div>
-        <a href="javascript:void(0);" class="logout-btn" title="Sign out" onclick="confirmLogout()">
-            <i class="bi bi-box-arrow-right"></i>
-        </a>    
-    </div>
+    <a href="javascript:void(0);" class="sidebar-footer logout-link d-flex align-items-center" title="Sign out" onclick="confirmLogout()" style="text-decoration:none; gap:10px;">
+        <i class="bi bi-door-open" style="font-size:18px; color:#FF6B00;"></i>
+        <span style="font-weight:600; color:#212529;">Log out</span>
+    </a>
 </nav>
 
 <style>
@@ -106,7 +98,7 @@ $admin_role = $_SESSION['role'] ?? ''; // 获取当前登录的角色
 }
 
 .sidebar-header { padding: 25px; display: flex; align-items: center; gap: 12px; }
-.logo-icon img { max-width: 55px; object-fit: contain; }
+.logo-icon img { max-width: 62px; object-fit: contain; border-radius: 10px; }
 .logo-text h5 { 
     margin: 0; 
     font-size: 22px; 
@@ -133,12 +125,12 @@ $admin_role = $_SESSION['role'] ?? ''; // 获取当前登录的角色
 .nav-link.active { background-color: #FF6B00; color: #ffffff; }
 
 /* --- 底部 --- */
-.sidebar-footer { padding: 20px; border-top: 1px solid #f0f0f0; display: flex; align-items: center; gap: 12px; background: #fff; }
-.user-avatar { width: 40px; height: 40px; background: #FF6B00; color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; }
-.user-info { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-.user-name { font-size: 14px; font-weight: 600; }
-.logout-btn { color: #888; font-size: 20px; transition: 0.3s; cursor: pointer; }
-.logout-btn:hover { color: #FF6B00; }
+.sidebar-footer { padding: 20px; border-top: 1px solid #f0f0f0; display: flex; align-items: center; gap: 12px; background: #fff; transition: background 0.18s ease; cursor: pointer; }
+
+
+/* 浅橙色 hover for full footer */
+.sidebar-footer:hover { background-color: #FFF0E5; }
+.sidebar-footer:focus { outline: none; box-shadow: inset 0 0 0 2px rgba(255,107,0,0.06); }
 
 /* --- SweetAlert2 自定义样式 --- */
 .swal2-actions button {
