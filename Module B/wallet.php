@@ -167,7 +167,6 @@ include '../includes/header.php';
                             <?php else: ?>
                                 <tr>
                                     <td colspan="5" class="text-center text-muted py-5">No transaction activities found.</td>
-                                endwhile; ?>
                             <?php endif; ?>
                         </tbody>
                     </table>

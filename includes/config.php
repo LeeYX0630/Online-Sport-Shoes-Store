@@ -5,7 +5,7 @@
  */
 
 // Mobile device configuration
-define('MOBILE_DEVICE_IP', getenv('MOBILE_IP') ?: '10.17.8.155');
+define('MOBILE_DEVICE_IP', getenv('MOBILE_IP') ?: '10.127.43.155');
 define('MOBILE_DEVICE_PORT', getenv('MOBILE_PORT') ?: '80');
 
 // Image processing configuration

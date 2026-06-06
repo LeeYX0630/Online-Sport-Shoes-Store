@@ -307,9 +307,14 @@ if (!empty($_SESSION['cart'])) {
         $placeholders = implode(',', array_fill(0, count($pro_ids), '?'));
         $stmt_mini = $conn->prepare("SELECT Pro_Id, Pro_Name, Pro_Price, Pro_Image FROM product WHERE Pro_Id IN ($placeholders)");
         
-        // Bind parameters dynamically
+        // Bind parameters dynamically (mysqli bind_param requires references)
         $types = str_repeat('i', count($pro_ids));
-        $stmt_mini->bind_param($types, ...$pro_ids);
+        $bindParams = [];
+        $bindParams[] = $types;
+        foreach ($pro_ids as $k => $v) {
+            $bindParams[] = &$pro_ids[$k];
+        }
+        call_user_func_array([$stmt_mini, 'bind_param'], $bindParams);
         $stmt_mini->execute();
         $c_res = $stmt_mini->get_result();
         
@@ -354,16 +359,31 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <style>
-        body { font-family: 'Segoe UI', Arial, sans-serif; background-color: #f4f6f9; color: #333; margin: 0; padding: 0; display: flex; flex-direction: column; min-height: 100vh; overflow-x: hidden; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: #fafafa;
+            color: #111;
+            scroll-behavior: smooth;
+        }
         .flex-wrapper { flex: 1 0 auto; width: 100%; padding-bottom: 60px; }
         .detail-container { max-width: 1300px; margin: 40px auto; padding: 30px; background: #ffffff; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); }
         .breadcrumb { margin-bottom: 30px; font-size: 14px; color: #666; }
         .breadcrumb a { color: #333; text-decoration: none; font-weight: bold; }
         
-        .product-layout { display: grid; grid-template-columns: 1.5fr 1fr; gap: 50px; }
+        .product-layout { 
+            display: grid; 
+            grid-template-columns: 1fr 1fr;   /* 改掉 1.5fr 1fr */
+            gap: 40px;                         /* 从 50px 收窄一点 */
+            align-items: start;                /* 加上这行，防止空白区被拉伸 */
+        }
         @media (max-width: 992px) { .product-layout { grid-template-columns: 1fr; } }
 
         .product-gallery-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; }
+        .gallery-wrapper {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
         .gallery-img-box { background: #f4f6f9; border-radius: 8px; overflow: hidden; aspect-ratio: 1 / 1; display: flex; align-items: center; justify-content: center; position: relative; }
         .gallery-img-box img { width: 90%; height: 90%; object-fit: contain; mix-blend-mode: multiply; transition: transform 0.3s; }
         
@@ -435,6 +455,36 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
     margin-top: 10px;
     display: block;
 }
+
+        /* AI 功能卡片统一样式（保留原色） */
+        .ai-box { display: flex; align-items: center; gap: 12px; padding: 15px; border-radius: 12px; transition: transform .18s ease, box-shadow .18s ease; margin-bottom: 16px; }
+        .ai-box:hover { transform: translateY(-6px); box-shadow: 0 14px 40px rgba(0,0,0,0.08); }
+        .ai-icon { font-size: 24px; flex-shrink: 0; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; }
+        .ai-content { flex: 1; }
+        .ai-title { font-weight: 800; font-size: 14px; }
+        .ai-sub { font-size: 12px; color: #666; margin-top: 4px; }
+        .ai-actions { margin-left: auto; display: flex; align-items: center; }
+        .ai-button { border: none; padding: 8px 14px; border-radius: 20px; font-weight: 800; font-size: 12px; cursor: pointer; transition: transform .12s ease; white-space: nowrap; flex-shrink: 0; }
+        .ai-button:active { transform: translateY(1px); }
+
+        .ai-box--size { background: #f0f7f4; border: 1px dashed #008060; }
+        .ai-box--size .ai-title { color: #008060; }
+        .ai-button--size { background: #008060; color: #fff; border: 1px solid #008060; }
+
+        .ai-box--wear { background: #fff9f0; border: 1px dashed #e67e22; }
+        .ai-box--wear .ai-title { color: #e67e22; }
+        .ai-button--wear { background: #e67e22; color: #fff; border: 1px solid #e67e22; }
+
+        .ai-box--stylist { background: #666; border: 1px dashed #000000; color: #fff; }
+        .ai-box--stylist .ai-title, .ai-box--stylist .ai-sub { color: #fff; }
+        .ai-icon-stylist { font-size: 22px; color: #00ff9d; display: inline-flex; align-items: center; justify-content: center; }
+        .ai-button--stylist { background: #00ff9d; color: #000; border: 1px solid #00ff9d; }
+
+        @media (max-width:720px) {
+            .ai-box { flex-direction: column; align-items: flex-start; }
+            .ai-actions { width: 100%; margin-left: 0; margin-top: 8px; }
+            .ai-button { width: 100%; }
+        }
 
 /* Recently Viewed Styles */
 .rv-card {
@@ -596,6 +646,11 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
     .fmc-actions { width: 100%; justify-content: space-between; gap: 8px; }
     .fmc-btn-view, .fmc-btn-checkout { flex: 1; text-align: center; padding: 10px 0; }
     
+    .product-info {
+        position: sticky;
+        top: 20px;       /* 加这两行 */
+        min-width: 0;    /* 防止 flex/grid 子项溢出 */
+    }
     /* 5. 调整数量选择器和添加购物车按钮为垂直排列 (可选，防止拥挤) */
     .product-info > form > div:nth-of-type(4) {
         flex-direction: column;
@@ -614,18 +669,12 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
         </div>
 
         <div class="product-layout">
-            <div class="product-gallery-grid" id="mainGalleryGrid"></div>
-            
-            <div class="product-info">
-                <button class="btn-wishlist-main" onclick="toggleWishlist(event, this)">
-                    <i class="bi <?php echo $is_in_wishlist ? 'bi-heart-fill' : 'bi-heart'; ?>" 
-                    style="<?php echo $is_in_wishlist ? 'color: #e74c3c;' : ''; ?>"></i>
-                </button>
-                <div class="brand-name"><?php echo $product['Brand_Name']; ?></div>
-                <h1 class="product-title"><?php echo $product['Pro_Name']; ?></h1>
-                <span class="current-price">RM <?php echo number_format($product['Pro_Price'], 2); ?></span>
 
-                <div class="design-tabs">
+            <div class="gallery-wrapper">
+                <div class="product-gallery-grid" id="mainGalleryGrid"></div>
+                <div id="thumbnailStrip" style="display:flex; gap:8px; margin-top:8px;"></div>
+
+                <div class="design-tabs" style="margin-top: 24px;">
                     <?php if ($pro_id == 16 || $pro_id == 17): ?>
                         <div class="design-tab active" onclick="switchDesignTab(event, 'inspiration')">Inspiration</div>
                         <div class="design-tab" onclick="switchDesignTab(event, 'your-designs')">
@@ -667,6 +716,16 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
                     </div>
                 </div>
                 <?php endif; ?>
+            </div>
+                    
+            <div class="product-info">
+                <button class="btn-wishlist-main" onclick="toggleWishlist(event, this)">
+                    <i class="bi <?php echo $is_in_wishlist ? 'bi-heart-fill' : 'bi-heart'; ?>" 
+                    style="<?php echo $is_in_wishlist ? 'color: #e74c3c;' : ''; ?>"></i>
+                </button>
+                <div class="brand-name"><?php echo $product['Brand_Name']; ?></div>
+                <h1 class="product-title"><?php echo $product['Pro_Name']; ?></h1>
+                <span class="current-price">RM <?php echo number_format($product['Pro_Price'], 2); ?></span>
 
                 <form action="product_details.php?pro_id=<?php echo $product['Pro_Id']; ?>" method="POST" id="addToCartForm">
                     <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES, 'UTF-8'); ?>">
@@ -675,31 +734,39 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
                     <input type="hidden" name="selected_size" id="selectedSizeInput" value="">
                     <input type="hidden" name="selected_color" id="selectedColorInput" value="<?php echo htmlspecialchars($colors[0], ENT_QUOTES, 'UTF-8'); ?>">
                     
-                    <!-- AR 尺码扫描入口 -->
-                    <div style="background: #f0f7f4; border: 1px dashed #008060; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-                        <div style="display: flex; align-items: center; gap: 12px;">
-                            <div style="font-size: 24px;">📏</div>
-                            <div style="flex: 1;">
-                                <div style="font-weight: 800; font-size: 14px; color: #008060;">Not sure about your size?</div>
-                                <div style="font-size: 12px; color: #666;">Use our AI Vision Sizer for 99% accuracy.</div>
-                            </div>
-                            <button type="button" onclick="openARScanner()" 
-                                    style="background: #008060; color: #fff; border: none; padding: 8px 15px; border-radius: 20px; font-weight: bold; font-size: 12px; cursor: pointer;">
-                                START SCAN
-                            </button>
+                    <!-- AI 功能卡片（保留原始配色，优化样式） -->
+                    <div class="ai-box ai-box--size" role="group" aria-label="AI Foot Sizer">
+                        <div class="ai-icon">📏</div>
+                        <div class="ai-content">
+                            <div class="ai-title">Not sure about your size?</div>
+                            <div class="ai-sub">Upload a photo of your foot for AI-powered size recommendation for 99% accurate.</div>
+                        </div>
+                        <div class="ai-actions">
+                            <button type="button" class="ai-button ai-button--size" onclick="openARScanner()">START SCAN</button>
                         </div>
                     </div>
-                    <div style="background: #fff9f0; border: 1px dashed #e67e22; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-                        <div style="display: flex; align-items: center; gap: 12px;">
-                            <div style="font-size: 24px;">👟</div>
-                            <div style="flex: 1;">
-                                <div style="font-weight: 800; font-size: 14px; color: #e67e22;">Not sure about your shoe health?</div>
-                                <div style="font-size: 12px; color: #666;">Upload a photo of your worn sole for AI-powered wear assessment and safety insights.</div>
+
+                    <div class="ai-box ai-box--wear" role="group" aria-label="AI Wear Assessment">
+                        <div class="ai-icon">👟</div>
+                        <div class="ai-content">
+                            <div class="ai-title">Not sure about your shoe health?</div>
+                            <div class="ai-sub">Upload a photo of your shoe for AI-powered wear assessment and safety insights.</div>
+                        </div>
+                        <div class="ai-actions">
+                            <button type="button" class="ai-button ai-button--wear" onclick="openWearScanner()">Start Assessment</button>
+                        </div>
+                    </div>
+
+                    <div class="ai-box ai-box--stylist" style="background-color: #cdcdcd61; border: 1px dashed #262626;" role="group" aria-label="AI Personal Stylist">
+                        <div style="display:flex; align-items:center; gap:12px;">
+                            <i class="bi bi-magic ai-icon-stylist" aria-hidden="true" style="color: #2d2d2d;"></i>
+                            <div class="ai-content">
+                                <div class="ai-title" style="color: #2d2d2d;">AI Personal Stylist / LIFESTYLE</div>
+                                <div class="ai-sub ai-sub--muted" style="color: #666;">Let our AI Personal Stylist help you find the perfect look and feel for any occasion.</div>
                             </div>
-                            <button type="button" onclick="openWearScanner()" 
-                                    style="background: #e67e22; color: #fff; border: none; padding: 8px 15px; border-radius: 20px; font-weight: bold; font-size: 12px; cursor: pointer;">
-                                Start Assessment
-                            </button>
+                        </div>
+                        <div class="ai-actions">
+                            <button type="button" class="ai-button ai-button--stylist" style="border: 1px solid #2d2d2d; background-color: #2d2d2d; color: #fff;" onclick="openAILookbook()">Start Styling</button>
                         </div>
                     </div>
 
@@ -713,7 +780,7 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
                     <div class="info-label">Quantity</div>
                     <div style="display:flex; gap:15px; align-items:center;">
                         <div class="quantity-selector">
-                            <button type="button" onclick="changeQty(-1)">−</button>
+                            <button type="button" onclick="changeQty(-1)">-</button>
                             <input type="number" name="quantity" id="qtyInput" value="1" readonly>
                             <button type="button" onclick="changeQty(1)">+</button>
                         </div>
@@ -1758,7 +1825,6 @@ function generateWearReportHTML(data) {
                 }).join('')}
             </div>
 
-            <!-- ✅ Bug 2 Fix: 恢复 final_advice 建议显示 -->
             <div style="margin-top:15px; padding:12px; background:#e8f8f5; color:#008060; border-radius:6px; line-height:1.6; border:1px solid #c3e6cb;">
                 <strong>💡 AI Final Recommendation:</strong><br>
                 ${data.final_advice}
@@ -1767,106 +1833,184 @@ function generateWearReportHTML(data) {
     `;
 }
 
-/*async function submitMultiViewAnalysis() {
-    Swal.fire({ title: 'AI Triple View Analysis...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+// 升级版：加入性别选择的 AI Lookbook 核心交互
+async function openAILookbook() {
+    const { value: formValues } = await Swal.fire({
+        title: '<span style="font-weight: 800; font-size: 24px;">AI Lookbook</span>',
+        html: `
+            <style>
+                .vibe-label { display: block; margin: 0; }
+                .vibe-card { border: 2px solid #eee; padding: 15px; border-radius: 8px; cursor: pointer; transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1); }
+                .vibe-card:hover { border-color: #bbb; }
+                input[name="vibe"]:checked + .vibe-card { border-color: #000; background-color: #f8f9fa; box-shadow: 0 4px 12px rgba(0,0,0,0.1); transform: translateY(-2px); }
+                
+                .gender-btn { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 8px; cursor: pointer; text-align: center; color: #666; font-weight: bold; transition: 0.2s; }
+                input[name="gender"]:checked + .gender-btn { background: #000; color: #fff; border-color: #000; }
+            </style>
+            
+            <p style="color: #333; font-weight: bold; text-align: left; margin-bottom: 10px; font-size: 14px;">1. Select Lifestyle Vibe</p>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; text-align: left; margin-bottom: 25px;">
+                <label class="vibe-label">
+                    <input type="radio" name="vibe" value="streetwear" style="display:none;">
+                    <div class="vibe-card">
+                        <div style="font-size: 20px;">🛹</div>
+                        <div style="font-weight: bold; margin-top: 8px;">High Street Streetwear</div>
+                    </div>
+                </label>
+                <label class="vibe-label">
+                    <input type="radio" name="vibe" value="athleisure" style="display:none;">
+                    <div class="vibe-card">
+                        <div style="font-size: 20px;">🏃‍♂️</div>
+                        <div style="font-weight: bold; margin-top: 8px;">Athleisure</div>
+                    </div>
+                </label>
+                <label class="vibe-label">
+                    <input type="radio" name="vibe" value="cyberpunk" style="display:none;">
+                    <div class="vibe-card">
+                        <div style="font-size: 20px;">🌃</div>
+                        <div style="font-weight: bold; margin-top: 8px;">Cyberpunk</div>
+                    </div>
+                </label>
+                <label class="vibe-label">
+                    <input type="radio" name="vibe" value="casual" style="display:none;">
+                    <div class="vibe-card">
+                        <div style="font-size: 20px;">☕</div>
+                        <div style="font-weight: bold; margin-top: 8px;">Casual</div>
+                    </div>
+                </label>
+            </div>
+
+            <p style="color: #333; font-weight: bold; text-align: left; margin-bottom: 10px; font-size: 14px;">2. Model Characteristics</p>
+            <div style="display: flex; gap: 10px;">
+                <label style="flex: 1; margin: 0;">
+                    <input type="radio" name="gender" value="male" style="display:none;">
+                    <div class="gender-btn">👨 Male</div>
+                </label>
+                <label style="flex: 1; margin: 0;">
+                    <input type="radio" name="gender" value="female" style="display:none;">
+                    <div class="gender-btn">👩 Female</div>
+                </label>
+                <label style="flex: 1; margin: 0;">
+                    <input type="radio" name="gender" value="random" style="display:none;" checked>
+                    <div class="gender-btn">🎲 Random</div>
+                </label>
+            </div>
+        `,
+        width: '500px',
+        showCancelButton: true,
+        confirmButtonText: 'Generate Lookbook',
+        confirmButtonColor: '#000',
+        cancelButtonText: 'Cancel',
+        preConfirm: () => {
+            const selectedVibe = document.querySelector('input[name="vibe"]:checked');
+            const selectedGender = document.querySelector('input[name="gender"]:checked');
+            
+            if (!selectedVibe) {
+                Swal.showValidationMessage('Please select a lifestyle vibe first');
+                return false; 
+            }
+            return {
+                style: selectedVibe.value,
+                gender: selectedGender.value
+            };
+        }
+    });
+
+    if (formValues) {
+        generateLookbookImage(formValues.style, formValues.gender);
+    }
+}
+
+// 接收 gender 参数并发送给后端
+async function generateLookbookImage(style, gender) {
+    Swal.fire({
+        title: 'AI Stylist Loading...',
+        html: '<div style="margin: 20px 0;"><div class="spinner-border text-dark"></div><p style="margin-top:15px; color:#666; font-size:14px;">Retrieving or rendering the highest resolution fashion场景, please wait...</p></div>',
+        showConfirmButton: false,
+        allowOutsideClick: false
+    });
 
     try {
-        const res = await fetch('gemini_handler.php', {
+        const response = await fetch('gemini_handler.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ mode: 'wear_detector', images: wearImages })
+            body: JSON.stringify({
+                mode: 'lifestyle_preview',
+                style: style,
+                gender: gender, // 新增：将性别传给后端
+                brand_name: "<?php echo $product['Brand_Name']; ?>",
+                product_name: "<?php echo $product['Pro_Name']; ?>",
+                current_color: selectedColor 
+            })
         });
+
+        if (!response.ok) throw new Error('Server error');
+
+        const data = await response.json();
         
-        // 先作为普通文本读取，防止非 JSON 格式直接引发代码崩溃
-        const rawText = await res.text();
-        let data;
-        
-        try {
-            data = JSON.parse(rawText);
-        } catch (parseError) {
-            console.error("【Format Error】:", rawText);
-            throw new Error("AI analysis returned an unexpected format. Please ensure the images are clear and try again.");
-        }
-
-        // 拦截 PHP 层面拦截到的图片丢失等错误
-        if (data.error) {
-            throw new Error(data.message || data.error);
-        }
-
-        // 拦截 AI 未按要求返回 JSON 字段的情况
-        if (!data.overall_level_zh || !data.front) {
-            console.error("【AI Error】:", data);
-            throw new Error("AI analysis failed to return expected results. Please ensure the images are clear and try again.");
-        }
-
-        Swal.fire({
-            title: '👟 Deep Wear Report',
-            width: '780px',
-            html: `
-                <div style="text-align: left; font-size: 13px;">
-                    <div style="background:#333; color:#fff; padding:12px; border-radius:6px; margin-bottom:15px; text-align:center;">
-                        <strong style="font-size: 15px;">Overall Rating: ${data.overall_level_zh}</strong>
+        if (data.image_url) {
+            const finalImageUrl = data.is_cached ? data.image_url : `${data.image_url}?t=${Date.now()}`;
+            Swal.fire({
+                title: false,
+                width: '800px',
+                html: `
+                    <div style="position: relative; border-radius: 12px; overflow: hidden; background: #0b0b0b; min-height: 550px; display: flex; align-items: center; justify-content: center;">
+                        <div id="ai-loading-state" style="position: absolute; text-align: center; color: #00ff9d; z-index: 10;">
+                            <div class="spinner-border" style="width: 3rem; height: 3rem; margin-bottom: 15px;"></div>
+                            <div style="font-weight: bold; letter-spacing: 1px;">Loading local ultra-high-definition image...</div>
+                        </div>
+                        <img src="${finalImageUrl}" 
+                             onload="document.getElementById('ai-loading-state').style.display='none'; this.style.opacity=1;" 
+                             style="width: 100%; height: auto; display: block; opacity: 0; transition: opacity 0.5s ease-in-out; position: relative; z-index: 1;">
+                        <div style="position: absolute; bottom: 20px; left: 20px; background: rgba(0,0,0,0.6); backdrop-filter: blur(5px); color: white; padding: 10px 20px; border-radius: 30px; font-weight: bold; display: flex; align-items: center; gap: 10px; z-index: 20;">
+                            <i class="bi bi-stars" style="color: #00ff9d;"></i> 
+                            ${data.is_cached ? 'Instant Lookbook (Cached)' : 'AI Generated Lookbook'}
+                        </div>
                     </div>
-                    
-                    <div style="display:flex; flex-direction:column; gap:12px;">
-                        ${['front', 'left', 'right'].map(v => {
-                            const percent = data[v].wear_percent;
-                            
-                            // 💡 核心算法：利用 HSL 色彩空间动态生成青(绿)到红的颜色
-                            const hue = Math.max(0, (100 - percent) * 1.2); 
-                            const overlayColor = \`hsla(${hue}, 85%, 50%, 0.55)\`; // 半透明彩色遮罩
-                            const borderColor = \`hsl(${hue}, 80%, 45%)\`; // 边框颜色同步
-                            const textColor = percent > 70 ? '#e74c3c' : (percent > 40 ? '#f39c12' : '#27ae60');
-                            
-                            // 彻底去除了反斜杠，变量现在可以完美加载真实的图片路径！
-                            const imgPath = \`../Module B/${wearImages[v]}?t=${Date.now()}\`;
-
-                            return \`
-                            <div style="display:flex; gap:18px; border-left: 5px solid ${borderColor}; background:#f9f9f9; padding:12px; border-radius:0 8px 8px 0; align-items: stretch;">
-                                
-                                <div style="position: relative; width: 140px; height: 110px; border-radius: 6px; overflow: hidden; flex-shrink: 0; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
-                                    <img src="${imgPath}" style="width: 100%; height: 100%; object-fit: cover; display: block; filter: grayscale(20%);">
-                                    
-                                    <div style="position: absolute; inset: 0; background-color: ${overlayColor}; mix-blend-mode: multiply;"></div>
-                                    
-                                    <div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 30px; font-weight: 900; color: #fff; text-shadow: 0px 2px 8px rgba(0,0,0,0.9), 0px 0px 3px rgba(0,0,0,0.6);">
-                                        ${percent}%
-                                    </div>
-                                </div>
-                                
-                                <div style="flex: 1; display: flex; flex-direction: column; justify-content: center;">
-                                    <div style="display:flex; justify-content:space-between; font-weight:bold; margin-bottom: 8px; font-size: 14px;">
-                                        <span style="color: #333;">${v.toUpperCase()} VIEW</span>
-                                        <span style="color: ${textColor}; background: #fff; padding: 2px 8px; border-radius: 4px; border: 1px solid #ddd;">
-                                            Wear ${percent}%
-                                        </span>
-                                    </div>
-                                    <p style="margin:0; color:#555; line-height: 1.5; text-align: justify;">${data[v].detail}</p>
-                                </div>
-
-                            </div>
-                            \`;
-                        }).join('')}
-                    </div>
-
-                    <div style="margin-top:15px; padding:12px; background:#e8f8f5; color:#008060; border-radius:6px; line-height: 1.6; border: 1px solid #c3e6cb;">
-                        <strong>💡 AI Final Recommendation:</strong><br>
-                        ${data.final_advice}
-                    </div>
-                </div>
-            `,
-            confirmButtonText: 'Got It',
-            confirmButtonColor: '#008060'
-        });
-        
-    } catch (e) {
-        Swal.fire({
-            icon: 'error',
-            title: 'Analysis Interrupted',
-            text: e.message || 'System busy, please try again later'
-        });
+                `,
+                showCloseButton: true,
+                showConfirmButton: false,
+                background: 'transparent'
+            });
+        }
+    } catch (error) {
+        Swal.fire('Node Busy', 'The server is currently rendering in the background. Please try again in a few seconds.', 'warning');
     }
-}*/
+}
+
+// 渲染超时或失败时的处理函数
+function handleLookbookError(encodedPrompt) {
+    const loadingState = document.getElementById('ai-loading-state');
+    
+    // 生成一个新的随机种子，强制 API 重新绘图
+    const newSeed = Math.floor(Math.random() * 999999);
+    const retryUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=800&height=1000&nologo=true&seed=${newSeed}`;
+
+    // 变更为可交互的重试界面
+    loadingState.innerHTML = `
+        <i class="bi bi-exclamation-triangle" style="font-size: 28px; color: #e67e22; margin-bottom: 10px; display: block;"></i>
+        <div style="color: #fff; font-weight: bold;">Global generation nodes are crowded, first request timed out</div>
+        <button onclick="retryLookbookLoad('${retryUrl}')" style="margin-top: 20px; background: #e67e22; color: #fff; border: none; padding: 10px 25px; border-radius: 30px; font-weight: bold; cursor: pointer; transition: 0.2s;">
+            <i class="bi bi-arrow-clockwise"></i> Switch Backup Node and Retry
+        </button>
+    `;
+    loadingState.style.color = "#e67e22";
+}
+
+// 执行重试加载
+function retryLookbookLoad(newUrl) {
+    const loadingState = document.getElementById('ai-loading-state');
+    const imgElement = document.getElementById('lookbookImg');
+
+    // 恢复加载中 UI
+    loadingState.innerHTML = `
+        <div class="spinner-border text-warning" style="width: 3rem; height: 3rem; margin-bottom: 15px;"></div>
+        <div style="font-weight: bold; letter-spacing: 1px; color: #fff;">Retrying with backup node...</div>
+    `;
+    
+    // 赋予新的带有新 Seed 的 URL，强制浏览器重新发起网络请求
+    imgElement.src = newUrl;
+}
 </script>
 
 </body>

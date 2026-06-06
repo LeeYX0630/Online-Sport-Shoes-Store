@@ -862,9 +862,99 @@ body::after {
         }
     });
 
-    // 虚拟钱包占位函数
-    function setupWalletPIN() { alert('Setting up your wallet PIN...'); }
-    function forgotWalletPIN() { alert('PIN reset code sent to your email.'); }
+    function setupWalletPIN() {
+        Swal.fire({
+            title: 'Activate Your E-Wallet',
+            text: 'Please set a 6-digit secure PIN to protect your balance.',
+            input: 'password',
+            inputAttributes: { maxlength: 6, autocapitalize: 'off', autocorrect: 'off', pattern: '[0-9]*', inputmode: 'numeric' },
+            showCancelButton: true,
+            confirmButtonText: 'Set PIN',
+            confirmButtonColor: '#FF6B00',
+            inputValidator: (value) => {
+                if (!/^\d{6}$/.test(value)) { return 'PIN must be exactly 6 digits!'; }
+            }
+        }).then((result) => {
+            if (result.isConfirmed) {
+                fetch('../Module B/update_pin_handler.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: `new_pin=${result.value}`
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) { Swal.fire('Activated!', 'Your wallet is now ready.', 'success').then(() => location.reload()); }
+                });
+            }
+        });
+    }
+
+    async function forgotWalletPIN() {
+        Swal.fire({
+            title: 'Reset Wallet PIN',
+            text: "We will send an OTP to your registered email.",
+            icon: 'info',
+            showCancelButton: true,
+            confirmButtonText: 'Send OTP',
+            confirmButtonColor: '#FF6B00',
+            showLoaderOnConfirm: true,
+            preConfirm: () => {
+                return fetch('../Module B/wallet_pin_reset_handler.php', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                    body: 'action=request_otp'
+                }).then(res => res.json());
+            }
+        }).then((result) => {
+            if (result.isConfirmed && result.value.success) {
+                handleOTPInput();
+            }
+        });
+    }
+
+    function handleOTPInput() {
+        Swal.fire({
+            title: 'Verify OTP',
+            html: `
+                <input type="text" id="otp_code" class="swal2-input" placeholder="6-digit OTP" maxlength="6">
+                <input type="password" id="reset_pin" class="swal2-input" placeholder="Enter New 6-digit PIN" maxlength="6">
+            `,
+            confirmButtonText: 'Reset PIN',
+            confirmButtonColor: '#17735b',
+            preConfirm: () => {
+                const otp = document.getElementById('otp_code').value;
+                const pin = document.getElementById('reset_pin').value;
+                if (!/^\d{6}$/.test(otp)) return Swal.showValidationMessage('Invalid OTP format');
+                if (!/^\d{6}$/.test(pin)) return Swal.showValidationMessage('PIN must be 6 digits');
+                
+                let formData = new URLSearchParams();
+                formData.append('action', 'verify_and_reset');
+                formData.append('otp', otp);
+                formData.append('new_pin', pin);
+
+                return fetch('../Module B/wallet_pin_reset_handler.php', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                    body: formData.toString()
+                }).then(res => res.json());
+            }
+        }).then((result) => {
+            if (result.value && result.value.success) {
+                Swal.fire('Success!', 'Your Wallet PIN has been updated.', 'success').then(() => location.reload());
+            } else if (result.value) {
+                Swal.fire('Failed', result.value.message, 'error');
+            }
+        });
+    }
+
+    function toggleOrderIdColumn() {
+        const checkbox = document.getElementById('showOrderId');
+        const columns = document.querySelectorAll('.order-id-column');
+        const display = checkbox.checked ? 'table-cell' : 'none';
+        columns.forEach(col => {
+            col.style.display = display;
+        });
+    }
 </script>
 
 <?php include '../includes/footer.php'; ?>

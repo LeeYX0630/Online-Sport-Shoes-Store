@@ -11,8 +11,7 @@ $userMessage = $input['message'] ?? '';
 $mode = $input['mode'] ?? 'chat';
 $image_path = $input['image_path'] ?? null;
 
-// 【核心修复】：把 wear_detector 加入免文字消息的白名单
-if (!$userMessage && $mode !== 'sizer' && $mode !== 'wear_detector') {
+if (!$userMessage && !in_array($mode, ['sizer', 'wear_detector', 'lifestyle_preview'])) {
     echo json_encode(['reply' => 'No message provided']);
     exit;
 }
@@ -185,9 +184,79 @@ elseif ($mode === 'wear_detector' && isset($input['images'])) {
             "responseMimeType" => "application/json"
         ]
     ];
-}
+} elseif ($mode === 'lifestyle_preview') {
+    $style = $input['style'] ?? 'casual';
+    $productName = $input['product_name'] ?? 'sneakers';
+    $brandName = $input['brand_name'] ?? '';
+    $color = $input['current_color'] ?? 'default';
+    $gender = $input['gender'] ?? 'random'; // 新增：接收性别
+    
+    // 1. 动态决定 Prompt 里的主语
+    $subject = "a person";
+    if ($gender === 'male') $subject = "a male model";
+    if ($gender === 'female') $subject = "a female model";
 
-else {
+    // 2. 数据清洗与命名规范 (必须把 gender 加进缓存文件名！)
+    $cleanColor = str_replace('/', ' and ', $color);
+    $safeFileName = preg_replace('/[^a-zA-Z0-9]/', '_', strtolower("{$brandName}_{$productName}_{$cleanColor}_{$style}_{$gender}"));
+    
+    $cacheDir = '../Module B/uploads/lookbooks/';
+    if (!file_exists($cacheDir)) {
+        mkdir($cacheDir, 0777, true);
+    }
+    
+    $cacheFileFullPath = $cacheDir . $safeFileName . '.jpeg';
+    $frontendDisplayUrl = '../Module B/uploads/lookbooks/' . $safeFileName . '.jpeg';
+
+    if (file_exists($cacheFileFullPath)) {
+        echo json_encode(['image_url' => $frontendDisplayUrl, 'is_cached' => true]);
+        exit;
+    }
+
+    // 3. 构建包含性别的 Google Imagen 3 提示词
+    $imagenModel = "gemini-3-pro-image-preview"; 
+    $imagenApiUrl = "https://generativelanguage.googleapis.com/v1beta/models/{$imagenModel}:generateContent?key=" . $apiKey;
+
+    // 注意这里使用了 $subject 替换了原本写死的 a person
+    $prompt = "A hyper-realistic full body fashion photography of {$subject} wearing {$style} outfit on the street, wearing {$cleanColor} {$brandName} {$productName} sneakers. High-end editorial lighting, 8k resolution, photorealistic.";
+
+    $imagenPayload = [
+        "contents" => [
+            [
+                "parts" => [
+                    ["text" => $prompt]
+                ]
+            ]
+        ]
+    ];
+
+    $ch = curl_init($imagenApiUrl);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($imagenPayload));
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 40); 
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    $result = json_decode($response, true);
+    $parts = $result['candidates'][0]['content']['parts'][0] ?? null;
+    $base64Image = $parts['inlineData']['data'] ?? ($parts['inline_data']['data'] ?? null);
+
+    if ($httpCode == 200 && $base64Image) {
+        $imgData = base64_decode($base64Image);
+        file_put_contents($cacheFileFullPath, $imgData);
+        
+        echo json_encode(['image_url' => $frontendDisplayUrl, 'is_cached' => false]);
+        exit;
+    } else {
+        error_log("Google Imagen 3 API Error: " . $response);
+        http_response_code(500);
+        echo json_encode(['error' => 'API Error', 'message' => 'Failed to generate image via Google Imagen 3 API.']);
+        exit;
+    }
+} else {
     echo json_encode(['reply' => 'Invalid mode or missing image for sizer/wear_detector']);
     exit;
 }
