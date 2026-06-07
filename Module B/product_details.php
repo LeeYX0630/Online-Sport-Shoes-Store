@@ -167,7 +167,20 @@ foreach($raw_colors as $rc) {
         }
     }
 }
-if (empty($colors)) $colors[] = "Default";
+if (empty($colors)) {
+    $colors[] = "Default";
+}
+
+$selected_color = $colors[0];
+if (isset($_GET['color']) && !empty(trim($_GET['color']))) {
+    $requested_color = trim($_GET['color']);
+    foreach ($colors as $c) {
+        if (strcasecmp($c, $requested_color) === 0) {
+            $selected_color = $c;
+            break;
+        }
+    }
+}
 
 $stmt_stock = $conn->prepare("SELECT Pro_Size, Pro_Colour, Quantity FROM product_stock WHERE Pro_Id = ?");
 $stmt_stock->bind_param("i", $pro_id);
@@ -434,7 +447,7 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
         .fmc-btn-view { padding: 10px 20px; border-radius: 25px; border: 1px solid #ccc; color: #333; text-decoration: none; font-weight: bold; font-size: 14px; transition: 0.3s; cursor: pointer; }
         .fmc-btn-checkout { padding: 10px 24px; border-radius: 25px; background: #008060; color: #fff; text-decoration: none; font-weight: bold; font-size: 14px; transition: 0.3s; border: 1px solid #008060; cursor: pointer; }
 
-        .design-tabs { display: flex; gap: 20px; border-bottom: 1px solid #eee; margin-bottom: 20px; }
+        .design-tabs { display: flex; gap: 20px; border-bottom: 1px solid #eee; margin: 0 0 18px 0; }
         .design-tab { padding-bottom: 10px; cursor: pointer; font-weight: bold; color: #999; border-bottom: 2px solid transparent; }
         .design-tab.active { color: #000; border-bottom-color: #000; }
         .design-content { display: none; }
@@ -664,31 +677,32 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
 
 <div class="flex-wrapper">
     <div class="detail-container">
-        <div class="breadcrumb">
-            <a href="catalogue.php">Catalogue</a> / <a href="catalogue.php?brand_id=<?php echo $product['Brand_Id']; ?>"><?php echo $product['Brand_Name']; ?></a> / <?php echo $product['Pro_Name']; ?>
-        </div>
-
+        <nav class="breadcrumb" aria-label="Breadcrumb">
+            <a href="catalogue.php">Catalogue</a> &gt; 
+            <a href="catalogue.php?brand=<?php echo urlencode($product['Brand_Name']); ?>"><?php echo htmlspecialchars($product['Brand_Name']); ?></a> &gt; 
+            <span aria-current="page"><?php echo htmlspecialchars($product['Pro_Name']); ?></span>
+        </nav>
         <div class="product-layout">
 
             <div class="gallery-wrapper">
                 <div class="product-gallery-grid" id="mainGalleryGrid"></div>
                 <div id="thumbnailStrip" style="display:flex; gap:8px; margin-top:8px;"></div>
 
-                <div class="design-tabs" style="margin-top: 24px;">
+                <div class="design-tabs">
                     <?php if ($pro_id == 16 || $pro_id == 17): ?>
                         <div class="design-tab active" onclick="switchDesignTab(event, 'inspiration')">Inspiration</div>
                         <div class="design-tab" onclick="switchDesignTab(event, 'your-designs')">
                             Your Designs (<?php echo count($all_designs); ?>)
                         </div>
                     <?php else: ?>
-                        <div class="design-tab active">Colour: <span id="currentColorText" style="color:#333; margin-left:5px;"><?php echo htmlspecialchars($colors[0]); ?></span></div>
+                        <div class="design-tab active">Colour: <span id="currentColorText" style="color:#333; margin-left:5px;"><?php echo htmlspecialchars($selected_color, ENT_QUOTES, 'UTF-8'); ?></span></div>
                     <?php endif; ?>
                 </div>
 
                 <div id="inspiration-content" class="design-content active">
                     <div class="color-variants-container">
                         <?php foreach($colors as $idx => $c): ?>
-                            <div class="color-variant-box <?php echo $idx==0 ? 'active' : ''; ?>" 
+                            <div class="color-variant-box <?php echo ($c === $selected_color) ? 'active' : ''; ?>" 
                                 onclick="selectColor(this, '<?php echo htmlspecialchars($c, ENT_QUOTES, 'UTF-8'); ?>')" 
                                 title="<?php echo htmlspecialchars($c, ENT_QUOTES, 'UTF-8'); ?>">
                                 <img src="<?php echo $color_galleries[$c][0]; ?>">
@@ -732,7 +746,7 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
                     <input type="hidden" name="custom_design_id" id="customDesignIdInput" value="">
                     <input type="hidden" name="pro_id" value="<?php echo $product['Pro_Id']; ?>">
                     <input type="hidden" name="selected_size" id="selectedSizeInput" value="">
-                    <input type="hidden" name="selected_color" id="selectedColorInput" value="<?php echo htmlspecialchars($colors[0], ENT_QUOTES, 'UTF-8'); ?>">
+                    <input type="hidden" name="selected_color" id="selectedColorInput" value="<?php echo htmlspecialchars($selected_color, ENT_QUOTES, 'UTF-8'); ?>">
                     
                     <!-- AI 功能卡片（保留原始配色，优化样式） -->
                     <div class="ai-box ai-box--size" role="group" aria-label="AI Foot Sizer">
@@ -850,7 +864,7 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
     const variantMap = <?php echo json_encode($variant_map); ?>;
     const currentProId = <?php echo $pro_id; ?>;
     const isSale = <?php echo $product['Pro_Sale']; ?>;
-    let selectedColor = "<?php echo htmlspecialchars($colors[0]); ?>";
+    let selectedColor = "<?php echo htmlspecialchars($selected_color, ENT_QUOTES, 'UTF-8'); ?>";
     let selectedSize = "";
 
     function renderGallery(color) {
@@ -1585,7 +1599,7 @@ async function openWearScanner() {
     const mobileURL = `http://${computerIP}/${folderPath}/mobile_capture.php?token=${sessionToken}&mode=wear`;
 
     Swal.fire({
-        title: '上传三视角进行深度检测',
+        title: 'Wearable AI Scanner',
         width: window.innerWidth < 768 ? '95%' : '780px',
         html: `
             <div style="display: flex; flex-wrap: wrap; gap: 25px; align-items: center; text-align: left;">
@@ -1925,7 +1939,7 @@ async function openAILookbook() {
 async function generateLookbookImage(style, gender) {
     Swal.fire({
         title: 'AI Stylist Loading...',
-        html: '<div style="margin: 20px 0;"><div class="spinner-border text-dark"></div><p style="margin-top:15px; color:#666; font-size:14px;">Retrieving or rendering the highest resolution fashion场景, please wait...</p></div>',
+        html: '<div style="margin: 20px 0;"><div class="spinner-border text-dark"></div><p style="margin-top:15px; color:#666; font-size:14px;">Retrieving or rendering the highest resolution fashion lifestyle images, please wait...</p></div>',
         showConfirmButton: false,
         allowOutsideClick: false
     });

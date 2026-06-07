@@ -76,7 +76,7 @@ body {
         <canvas id="output_canvas"></canvas>
         
         <div id="instructionOverlay" style="display: <?php echo $mode === 'wear' ? 'block' : 'none'; ?>">
-            <span style="color:#e67e22;">STEP 1:</span> 拍摄鞋子【正面】
+            <span style="color:#e67e22;">STEP 1:</span>Take photo of the FRONT side of the shoe<br>
         </div>
         
         <div id="flashLayer"></div>
@@ -152,7 +152,7 @@ body {
         /* ================================================================= */
         let wearStepIndex = 0;
         const wearViews = ['front', 'left', 'right'];
-        const wearLabels = ['【正面】', '【左侧面】', '【右侧面】'];
+        const wearLabels = ['(Front)', '(Left Side)', '(Right Side)'];
         const wearBlobs = {};
 
         function initWearMode() {
@@ -178,7 +178,7 @@ body {
 
             if (wearStepIndex < 3) {
                 // 更新提示文本进入下一拍
-                document.getElementById('instructionOverlay').innerHTML = `<span style="color:#e67e22;">STEP ${wearStepIndex + 1}:</span> 拍摄鞋子${wearLabels[wearStepIndex]}`;
+                document.getElementById('instructionOverlay').innerHTML = `<span style="color:#e67e22;">STEP ${wearStepIndex + 1}:</span> Take photo of the ${wearLabels[wearStepIndex]}`;
                 if (wearStepIndex === 2) {
                     document.getElementById('btnText').innerText = "FINISH & SYNC";
                 }
