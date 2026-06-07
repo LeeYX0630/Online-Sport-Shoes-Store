@@ -412,13 +412,13 @@ if (isset($_SESSION['user_id'])) {
 <section class="ss-hero">
     <div class="ss-hero-overlay"></div>
     <video class="ss-video-bg active" id="ssvideo1" muted playsinline autoplay>
-        <source src="images/Hero/Sport Shoe Video_a.mp4" type="video/mp4">
+        <source src="images/Hero/Sport Shoe Video_1.mp4" type="video/mp4">
     </video>
     <video class="ss-video-bg" id="ssvideo2" muted playsinline>
-        <source src="images/Hero/Sport Shoe Video 2.mp4" type="video/mp4">
+        <source src="images/Hero/Sport Shoe Video_2.mp4" type="video/mp4">
     </video>
     <video class="ss-video-bg" id="ssvideo3" muted playsinline>
-        <source src="images/Hero/Sport Shoe Video 3.mp4" type="video/mp4">
+        <source src="images/Hero/Sport Shoe Video_3.mp4" type="video/mp4">
     </video>
 
     <div class="ss-hero-bg-glow"></div>
