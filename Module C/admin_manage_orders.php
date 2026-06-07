@@ -119,11 +119,15 @@ if (isset($_POST['update_status'])) {
     
     $extra_query = ""; // 用于动态拼接 order 表的更新字段
 
-    // 为了在通知中显示订单编号，先查出该订单的 Tracking Number
-    $order_info_res = mysqli_query($conn, "SELECT Order_Tracking_Num FROM `order` WHERE Order_Id = '$order_id'");
+    // 为了在通知和邮件中显示订单编号与客户信息，先查出该订单的 Tracking Number 以及用户 Email/Name
+    $order_info_res = mysqli_query($conn, "SELECT o.Order_Tracking_Num, u.User_Email, u.User_Name FROM `order` o JOIN `user` u ON o.User_Id = u.User_Id WHERE o.Order_Id = '$order_id'");
     $order_tracking_num = '';
+    $customer_email = '';
+    $customer_name = '';
     if ($order_info_res && $order_row = mysqli_fetch_assoc($order_info_res)) {
         $order_tracking_num = $order_row['Order_Tracking_Num'];
+        $customer_email = $order_row['User_Email'];
+        $customer_name = $order_row['User_Name'];
     }
 
     if ($new_status == 'Processing') {
@@ -186,6 +190,14 @@ if (mysqli_query($conn, $update_sql)) {
         // ── 🌟 自动触发状态变更通知（精准路由给对应品牌的 Level 3 管理员） ──
         $notif_type = 'status_change';
         $notif_title = "Order Status Updated";
+
+        // 如果订单刚标记为 Shipped，则发邮件通知客户，并把发货跟踪号写入通知内容
+        if ($new_status === 'Shipped' && !empty($customer_email)) {
+            $sent_email = sendShipmentNotificationEmail($customer_email, $customer_name ?: 'Customer', $order_id, $tracking_number, $current_time);
+            if (!$sent_email) {
+                error_log("Failed to send shipped notification email for order {$order_id} to {$customer_email}");
+            }
+        }
         
         // 根据变更为何种状态，定制人性化的通知内容
         switch ($new_status) {

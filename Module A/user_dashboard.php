@@ -582,7 +582,7 @@ body::after {
                                                     <span class="text-dark">ORD#<?php echo sprintf("%06d", $row['Order_Id']); ?></span>
                                                 </td>
                                                 <td><?php echo date("Y-m-d", strtotime($row['Order_Date'])); ?></td>
-                                                <td class="trans-time">--</td>
+                                                <td class="trans-time" data-order-time="<?php echo htmlspecialchars($row['Order_Date']); ?>">--</td>
                                                 <td>RM <?php echo number_format($row['Order_Amount'] ?? 0, 2); ?></td>
                                                 <td>
                                                     <span class="badge rounded-pill <?php echo $badge_color; ?> px-3 py-2">
@@ -753,7 +753,39 @@ body::after {
 
     function updateTransactionTimes() {
         document.querySelectorAll('.trans-time').forEach(el => {
-            el.textContent = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+            const orderTime = el.getAttribute('data-order-time');
+            if (!orderTime) return;
+
+            const normalizedOrderTime = orderTime.trim().replace(' ', 'T');
+            const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalizedOrderTime);
+            const date = new Date(hasTimezone ? normalizedOrderTime : `${normalizedOrderTime}Z`);
+
+            if (!Number.isNaN(date.getTime())) {
+                el.textContent = date.toLocaleTimeString('en-US', {
+                    timeZone: 'Asia/Kuala_Lumpur',
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    hour12: true
+                });
+                return;
+            }
+
+            const match = orderTime.match(/(\d{1,2}):(\d{2})(?::\d{2})?(?:\s*(AM|PM))?/i);
+            if (!match) return;
+
+            let hour = parseInt(match[1], 10);
+            const minute = match[2];
+            const suffix = match[3];
+
+            if (suffix) {
+                const normalizedSuffix = suffix.toUpperCase();
+                if (normalizedSuffix === 'PM' && hour < 12) hour += 12;
+                if (normalizedSuffix === 'AM' && hour === 12) hour = 0;
+            }
+
+            const period = hour >= 12 ? 'PM' : 'AM';
+            const displayHour = hour % 12 || 12;
+            el.textContent = `${displayHour}:${minute} ${period}`;
         });
     }
 
