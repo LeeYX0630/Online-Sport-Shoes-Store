@@ -33,9 +33,8 @@ if (!$order) {
 
 $customer_name = !empty($order['User_Name']) ? trim($order['User_Name']) : 'Customer';
 
-// Fetching order line details safely with backticks
 $detail_stmt = $conn->prepare(
-    "SELECT od.`Order_Qty`, od.`Order_Subtotal`, p.`Pro_Name`, p.`Pro_Image`, p.`Pro_Price`, b.`Brand_Name`
+    "SELECT od.`Order_Qty`, od.`Order_Subtotal`, od.`Pro_Colour`, od.`Custom_Preview`, p.`Pro_Name`, p.`Pro_Image`, p.`Pro_Price`, b.`Brand_Name`
      FROM `order_detail` od
      JOIN `product` p ON od.`Pro_Id` = p.`Pro_Id`
      LEFT JOIN `brand` b ON p.`Brand_Id` = b.`Brand_Id`
@@ -60,7 +59,13 @@ while ($item = $details->fetch_assoc()) {
     $products_total += $line_total;
 
     $image_path = '../images/brands/placeholder.png';
-    if (!empty($item['Pro_Image'])) {
+
+    // Prefer Custom Preview when the order line indicates a custom design
+    $item_color = $item['Pro_Colour'] ?? ($item['color'] ?? '');
+    $custom_preview = $item['Custom_Preview'] ?? ($item['custom_preview'] ?? '');
+    if (strcasecmp(trim($item_color), 'Custom Design') === 0 && !empty($custom_preview)) {
+        $image_path = $custom_preview;
+    } elseif (!empty($item['Pro_Image'])) {
         $path_parts = pathinfo($item['Pro_Image']);
         $filename = $path_parts['filename'];
         $found_images = glob('../uploads/' . $filename . '*.*');
@@ -84,10 +89,45 @@ $adjustment = round($order_total - $products_total, 2);
 $payment_method = !empty($order['Payment_Method']) ? $order['Payment_Method'] : 'Online Payment';
 $payment_status = !empty($order['Payment_Status']) ? strtoupper($order['Payment_Status']) : 'PENDING';
 
-// Smart deduplication: structural string cleaning if the username is appended into the address string
-$shipping_address = !empty($order['Order_Shipping_Addr']) ? trim($order['Order_Shipping_Addr']) : 'Address not available';
-if (stripos($shipping_address, $customer_name) === 0) {
-    $shipping_address = ltrim(substr($shipping_address, strlen($customer_name)), " ,，\t\n\r\0\x0B");
+// Promo calculation: determine promo amount (if any) so we can display promo offer value
+$promo_amount = 0.00;
+$promo_info = null;
+$promo_id = intval($order['Promo_Id'] ?? 0);
+if ($promo_id > 0) {
+    $promo_row = $conn->query("SELECT Promo_Value, Promo_Type, Promo_Code FROM promo WHERE Promo_Id = $promo_id")->fetch_assoc();
+    if ($promo_row) {
+        $promo_info = $promo_row;
+        if (strcasecmp($promo_row['Promo_Type'], 'Percentage') === 0) {
+            $promo_pct = floatval($promo_row['Promo_Value']);
+            $promo_amount = round($products_total * ($promo_pct / 100), 2);
+        } else {
+            $promo_amount = floatval($promo_row['Promo_Value']);
+        }
+    }
+}
+
+// Get shipping address safely
+$shipping_address = !empty($order['Order_Shipping_Addr']) 
+    ? trim($order['Order_Shipping_Addr']) 
+    : 'Address not available';
+
+// Remove customer name from the start of the address (more flexible)
+if (!empty($shipping_address)) {
+
+    // Case 1: remove "Name, Address"
+    $shipping_address = preg_replace('/^[^,，:：\-]+[\s,，:：\-]+/u', '', $shipping_address);
+
+    // Case 2: extra cleanup (in case name repeats exactly)
+    if (!empty($customer_name)) {
+        $shipping_address = preg_replace('/^' . preg_quote($customer_name, '/') . '\s*/iu', '', $shipping_address);
+    }
+
+    $shipping_address = trim($shipping_address);
+}
+
+// Final fallback
+if (empty($shipping_address)) {
+    $shipping_address = 'Address not available';
 }
 
 $order_date = !empty($order['Order_Date']) ? date('d-m-Y', strtotime($order['Order_Date'])) : 'N/A';
@@ -671,10 +711,10 @@ include '../includes/header.php';
                         <span class="subtotal-value">RM <?php echo number_format($products_total, 2); ?></span>
                     </div>
                     
-                    <?php if (abs($adjustment) >= 0.01): ?>
+                    <?php if ($promo_info && floatval($promo_amount) > 0.0): ?>
                         <div class="financial-row">
-                            <label>Shipping / Adjustments</label>
-                            <span>RM <?php echo number_format($adjustment, 2); ?></span>
+                            <label class="strong-label">Promo Code Offer <?php echo (strcasecmp($promo_info['Promo_Type'] ?? '', 'Percentage') === 0) ? '('.intval($promo_info['Promo_Value']).'%)' : ''; ?></label>
+                            <span style="color: #16a34a;">-RM <?php echo number_format($promo_amount, 2); ?></span>
                         </div>
                     <?php endif; ?>
                     
