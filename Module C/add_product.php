@@ -126,7 +126,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_product'])) {
     $pro_name = mysqli_real_escape_string($conn, $_POST['product_name']);
     $brand_id = intval($_POST['brand']); 
     $price    = abs(floatval($_POST['selling_price'])); 
-    $desc     = mysqli_real_escape_string($conn, $_POST['description']);
+    // 从请求中获取 description（支持表单提交）并进行清理
+    $desc     = mysqli_real_escape_string($conn, $_REQUEST['description'] ?? '');
+    // 强制服务器端验证：Description 不能为空
+    if (trim($desc) === '') {
+        $_SESSION['swal_status'] = 'desc_required';
+        header('Location: add_product.php');
+        exit();
+    }
     $gender   = $_POST['gender'];
     $age_group = $_POST['age_group'];
     $status   = ($_POST['status'] == 'Active') ? 'Available' : 'Unavailable';
@@ -227,11 +234,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_product'])) {
                 $stmt_stock->close();
             }
         }
-        echo "<script>alert('Product Added Successfully!'); window.location.href='admin_manage_products.php';</script>";
-    } else {
-        echo "Error: " . $stmt->error;
-    }
-}
+        // 成功时设置 session 状态，不再直接 echo script 跳转
+                $_SESSION['swal_status'] = 'success';
+            } else {
+                // 失败时设置 session 状态
+                $_SESSION['swal_status'] = 'failed';
+            }
+        }
 
 // --- 2. 管理员与品牌获取逻辑 ---
 $admin_id = $_SESSION['admin_id'] ?? 0;
@@ -792,22 +801,18 @@ document.getElementById('productForm').addEventListener('submit', function(e) {
         return;
     }
 
-    // 2. Description 验证 (警告但允许通过)
+    // 2. Description 验证（必须填写）
     if (description === "") {
-        e.preventDefault(); // 先拦截
+        e.preventDefault();
         Swal.fire({
-            title: 'Empty Description',
-            text: "You haven't added a description. Do you want to continue?",
+            title: 'Description Required',
+            text: 'Please fill in the product description, or use the AI generator to create one.',
             icon: 'warning',
-            showCancelButton: true,
             confirmButtonColor: '#FF8C00',
-            cancelButtonColor: '#d33',
-            confirmButtonText: 'Yes, submit anyway'
-        }).then((result) => {
-            if (result.isConfirmed) {
-                // 如果用户确认，解除拦截并再次触发提交
-                form.submit(); 
-            }
+            confirmButtonText: 'OK'
+        }).then(() => {
+            const ta = form.querySelector('textarea[name="description"]');
+            if (ta) ta.focus();
         });
         return;
     }
@@ -935,6 +940,50 @@ document.getElementById('generateDescBtn').addEventListener('click', async funct
         btnText.textContent = 'Generate with AI';
     }
 });
+
+<?php if (isset($_SESSION['swal_status'])): ?>
+    document.addEventListener("DOMContentLoaded", function() {
+        const status = "<?php echo $_SESSION['swal_status']; ?>";
+        
+        if (status === 'success') {
+            Swal.fire({
+                title: 'Successful',
+                text: 'Product added successfully!',
+                icon: 'success',
+                confirmButtonColor: '#FF8C00', // 匹配你的系统主题橘色
+                confirmButtonText: 'OK'
+            }).then((result) => {
+                // 无论点击 OK 还是关闭弹窗，都跳转到指定的页面
+                window.location.href = '../Module C/admin_manage_products.php';
+            });
+        } else if (status === 'failed') {
+            Swal.fire({
+                title: 'Failed',
+                text: 'Something went wrong. Please try again.',
+                icon: 'error',
+                confirmButtonColor: '#ef4444',
+                confirmButtonText: 'OK'
+            }).then((result) => {
+                window.location.href = '../Module C/admin_Product.php';
+            });
+        } else if (status === 'desc_required') {
+            Swal.fire({
+                title: 'Description Required',
+                text: 'Product description is required. Please fill it before saving.',
+                icon: 'warning',
+                confirmButtonColor: '#FF8C00',
+                confirmButtonText: 'OK'
+            }).then(() => {
+                const ta = document.querySelector('textarea[name="description"]');
+                if (ta) { ta.focus(); window.scrollTo({ top: ta.getBoundingClientRect().top + window.scrollY - 120, behavior: 'smooth' }); }
+            });
+        }
+    });
+<?php 
+    // 弹窗触发后清除 Session，防止刷新页面时重复弹窗
+    unset($_SESSION['swal_status']); 
+endif; 
+?>
 
 </script>
 </body>

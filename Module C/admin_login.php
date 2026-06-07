@@ -48,7 +48,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 $_SESSION['role'] = $row['Admin_Level'];
 
                 // 4. 跳转到 Dashboard
-                header("Location: ../index.php");
+                header("Location: ../Module C/admin_dashboard.php");
                 exit();
             } else {
                 $error = "Invalid password.";
@@ -116,7 +116,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             <div class="card shadow-lg">
                 <div class="row g-0">
                     <div class="col-md-5 brand-section text-center">
-                        <img src="../images/picture/Logo 2.png" alt="Logo" style="width: 120px;" class="mb-4">
+                        <img src="../images/picture/STRYDEX_Logo.jpeg" alt="Logo" style="width: 120px;" class="mb-4">
                         <h2 class="fw-bold text-black  mb-3">STRYDEX Sport</h2>
                         <p class="text-black-50">Management Dashboard Access</p>
                         <div class="mt-auto small text-black-50">

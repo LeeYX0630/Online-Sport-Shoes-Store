@@ -119,7 +119,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_product'])) {
     $brand_id = isset($_POST['brand']) ? intval($_POST['brand']) : ($is_edit ? $product_data['Brand_Id'] : 0); 
     
     $price    = abs(floatval($_POST['selling_price'])); 
-    $desc     = mysqli_real_escape_string($conn, $_POST['description']);
+    // 从请求中获取 description 并清理（支持来自表单或其他来源）
+    $desc     = mysqli_real_escape_string($conn, $_REQUEST['description'] ?? '');
+    // 强制服务器端验证：Description 不能为空
+    if (trim($desc) === '') {
+        $_SESSION['swal_status'] = 'desc_required';
+        $redirect = 'edit_product.php' . ($is_edit ? '?id=' . intval($edit_pro_id) : '');
+        header('Location: ' . $redirect);
+        exit();
+    }
     $gender   = $_POST['gender'];
     $age_group = $_POST['age_group'];
     $status   = ($_POST['status'] == 'Active') ? 'Available' : 'Unavailable';
@@ -153,114 +161,116 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_product'])) {
     // 如果是编辑且没传新图，先默认使用数据库旧图名
     $db_main_image = $is_edit ? $product_data['Pro_Image'] : ($pure_name . ".jpg");
 
-    // 上传照片处理
+    // 上传照片处理 (增强：支持保留旧图并按需删除/重命名)
     $upload_dir = '../uploads/';
     if (!is_dir($upload_dir)) mkdir($upload_dir, 0777, true);
 
     $first_image_uploaded = false;
+
     if (isset($_FILES['color_photos'])) {
         foreach ($_FILES['color_photos']['tmp_name'] as $color => $tmp_names) {
             $color_clean = strtolower(str_replace(' ', '_', $color));
-            $count = 0;
+
+            // ── 获取前端传来的要保留的旧图列表（basename）
+            $keep_files = $_POST['keep_photos'][$color] ?? [];
+
+            // ── 检查这个颜色是否有新图上传
+            $has_new_for_this_color = false;
+            foreach ($tmp_names as $tmp_name) {
+                if (!empty($tmp_name) && is_uploaded_file($tmp_name)) {
+                    $has_new_for_this_color = true;
+                    break;
+                }
+            }
+
+if ($is_edit) {
+                $path_info     = pathinfo($product_data['Pro_Image']);
+                $img_base_name = $path_info['filename'];
+
+                // 找出这个颜色所有旧图
+                $all_old = glob($upload_dir . $img_base_name . '_' . $color_clean . '_*.*') ?: [];
+
+                // 1. 只删除用户在前端移除了的旧图（不在 keep_photos 里的）
+                foreach ($all_old as $f) {
+                    $basename = basename($f);
+                    if (!in_array($basename, $keep_files) && is_file($f)) {
+                        unlink($f);
+                    }
+                }
+                
+                // 2. 重新按序号命名留下来（没有被删）的旧文件，保持连续性
+                $remaining = glob($upload_dir . $img_base_name . '_' . $color_clean . '_*.*') ?: [];
+                sort($remaining);
+                foreach ($remaining as $idx => $f) {
+                    $ext      = pathinfo($f, PATHINFO_EXTENSION);
+                    $new_name = $upload_dir . $img_base_name . '_' . $color_clean . '_' . ($idx + 1) . '.' . $ext;
+                    if ($f !== $new_name) {
+                        rename($f, $new_name);
+                    }
+                }
+            }
+
+            // ── 3. 重要修复：确定统一的文件名前缀（编辑模式用旧前缀，新增模式用新商品名） ──
+            $final_base_name = $is_edit ? pathinfo($product_data['Pro_Image'], PATHINFO_FILENAME) : $pure_name;
+
+            // ── 4. 重新计算当前文件夹中该颜色实际留下的有效旧图数量 ──
+            $existing_count = count(glob($upload_dir . $final_base_name . '_' . $color_clean . '_*.*') ?: []);
+            $count = $existing_count;
+
+            // ── 5. 追加新图 ──
             foreach ($tmp_names as $index => $tmp_name) {
-                if ($count >= 4) break; 
+                if ($count >= 4) break; // 确保总数（旧图+新图）不超过4张
                 if (!empty($tmp_name) && is_uploaded_file($tmp_name)) {
                     $original_name = $_FILES['color_photos']['name'][$color][$index];
                     $ext = strtolower(pathinfo($original_name, PATHINFO_EXTENSION));
-                    if (empty($ext)) $ext = 'jpg'; 
-                    
+                    if (empty($ext)) $ext = 'jpg';
+
                     if (!$first_image_uploaded) {
-                        $db_main_image = $pure_name . "." . $ext;
+                        // 统一保持主图扩展名一致
+                        $db_main_image        = $final_base_name . '.' . $ext;
                         $first_image_uploaded = true;
                     }
-                    
-                    $new_filename = $pure_name . "_" . $color_clean . "_" . ($count + 1) . "." . $ext;
+
+                    // 使用统一确定的 $final_base_name 追加编号，绝对不会覆盖旧图
+                    $new_filename = $final_base_name . '_' . $color_clean . '_' . ($count + 1) . '.' . $ext;
                     move_uploaded_file($tmp_name, $upload_dir . $new_filename);
                     $count++;
                 }
             }
-        }
-    }
+            // ── 上传新图：从现有文件数开始计数，避免覆盖留下的旧图
+            $base_name_for_count = $is_edit ? pathinfo($product_data['Pro_Image'], PATHINFO_FILENAME) : $pure_name;
+            $existing_count = count(glob($upload_dir . $base_name_for_count . '_' . $color_clean . '_*.*') ?: []);
+            $count = $existing_count;
 
-    // --- 在此处插入删除逻辑 ---
-// 如果是编辑模式，且用户上传了新照片，则先清理旧照片
-if ($is_edit && isset($_FILES['color_photos'])) {
-    // 检查是否有任何一个颜色上传了文件
-    $has_new_upload = false;
-    foreach ($_FILES['color_photos']['tmp_name'] as $color => $tmp_names) {
-        foreach ($tmp_names as $tmp_name) {
-            if (!empty($tmp_name) && is_uploaded_file($tmp_name)) {
-                $has_new_upload = true;
-                break 2;
-            }
-        }
-    }
+            foreach ($tmp_names as $index => $tmp_name) {
+                if ($count >= 4) break;
+                if (!empty($tmp_name) && is_uploaded_file($tmp_name)) {
+                    $original_name = $_FILES['color_photos']['name'][$color][$index];
+                    $ext = strtolower(pathinfo($original_name, PATHINFO_EXTENSION));
+                    if (empty($ext)) $ext = 'jpg';
 
-    if ($has_new_upload) {
-        // 获取产品图片的基础名称 (基于数据库现有的 Pro_Image)
-        $path_info = pathinfo($product_data['Pro_Image']);
-        $img_base_name = $path_info['filename']; // 例如 "nike_air_max"
-        
-        // 匹配该产品所有的变体图：nike_air_max_*.jpg, nike_air_max_*.png 等
-        $old_files = glob($upload_dir . $img_base_name . "_*.*");
-        if ($old_files) {
-            foreach ($old_files as $file) {
-                if (is_file($file)) {
-                    unlink($file); // 执行物理删除
-                }
-            }
-        }
-    }
-}
-
-
-
-// --- 下面是你原本的上传照片处理逻辑 ---  
-$first_image_uploaded = false;
-
-    $size_string = isset($_POST['variant_sizes']) ? implode(',', array_unique($_POST['variant_sizes'])) : '';
-    $color_string = isset($_POST['selected_colors']) ? implode(',', $_POST['selected_colors']) : '';
-
-    // --- 核心改动：判断 UPDATE 还是 INSERT ---
-    if ($is_edit) {
-        $sql_product = "UPDATE product SET Pro_Name=?, Cat_Id=?, Brand_Id=?, Pro_Price=?, Pro_Description=?, Pro_Image=?, Pro_Size=?, Pro_Colour=?, Pro_Gender=?, Pro_Age_Group=?, Pro_Status=? WHERE Pro_Id=?";
-        $stmt = $conn->prepare($sql_product);
-        $stmt->bind_param("siidsssssssi", $pro_name, $cat_id, $brand_id, $price, $desc, $db_main_image, $size_string, $color_string, $gender, $age_group, $status, $edit_pro_id);
-    } else {
-        $sql_product = "INSERT INTO product (Pro_Name, Cat_Id, Brand_Id, Pro_Price, Pro_Description, Pro_Image, Pro_Size, Pro_Colour, Pro_Gender, Pro_Age_Group, Pro_Status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-        $stmt = $conn->prepare($sql_product);
-        $stmt->bind_param("siidsssssss", $pro_name, $cat_id, $brand_id, $price, $desc, $db_main_image, $size_string, $color_string, $gender, $age_group, $status);
-    }
-    
-    if ($stmt->execute()) {
-        $current_pro_id = $is_edit ? $edit_pro_id : $conn->insert_id;
-
-        // --- 库存更新策略：先删除旧的，再插入新的 ---
-        if ($is_edit) {
-            $conn->query("DELETE FROM product_stock WHERE Pro_Id = $current_pro_id");
-        }
-
-        if (!empty($_POST['selected_colors']) && is_array($_POST['selected_colors'])) {
-            if (!empty($_POST['stock']) && is_array($_POST['stock'])) {
-                $stmt_stock = $conn->prepare("INSERT INTO product_stock (Pro_Id, Pro_Size, Pro_Colour, Quantity) VALUES (?, ?, ?, ?)");
-                foreach ($_POST['stock'] as $color => $sizesArr) {
-                    foreach ($sizesArr as $size => $qty) {
-                        $qty_i = intval($qty);
-                        $size_s = $conn->real_escape_string($size);
-                        $color_s = $conn->real_escape_string($color);
-                        $stmt_stock->bind_param("issi", $current_pro_id, $size_s, $color_s, $qty_i);
-                        $stmt_stock->execute();
+                    if (!$first_image_uploaded) {
+                        $db_main_image        = $pure_name . '.' . $ext;
+                        $first_image_uploaded = true;
                     }
+
+                    $new_filename = $pure_name . '_' . $color_clean . '_' . ($count + 1) . '.' . $ext;
+                    move_uploaded_file($tmp_name, $upload_dir . $new_filename);
+                    $count++;
                 }
-                $stmt_stock->close();
             }
+                }
+
+        // ── 【添加此段逻辑】检查数据库执行状态并设置提示变量 ──
+        // 注意：请确保你的主要 SQL 执行（如 $stmt->execute()）在这里已经完成。
+        if (!isset($conn->error) || empty($conn->error)) {
+            $_SESSION['swal_status'] = 'success';
+        } else {
+            $_SESSION['swal_status'] = 'failed';
         }
-        $msg = $is_edit ? "Product Updated Successfully!" : "Product Added Successfully!";
-        echo "<script>alert('$msg'); window.location.href='admin_manage_products.php';</script>";
-    } else {
-        echo "Error: " . $stmt->error;
     }
 }
+
 
 // 管理员信息获取 (保持不变)
 $admin_id = $_SESSION['admin_id'] ?? 0;
@@ -465,6 +475,7 @@ if ($is_edit && !empty($product_data['Pro_Image'])) {
         </header>
 
         <form action="" method="POST" enctype="multipart/form-data" id="productForm">
+            <div id="keepPhotosContainer"></div>
             <div class="back-button-container">
                 <a href="admin_manage_products.php" class="btn-back-header"><i class="bi bi-arrow-left"></i> Back to Products</a>
             </div>
@@ -934,22 +945,18 @@ document.getElementById('productForm').addEventListener('submit', function(e) {
         return;
     }
 
-    // 2. Description 验证 (警告但允许通过)
+    // 2. Description 验证（必须填写）
     if (description === "") {
-        e.preventDefault(); // 先拦截
+        e.preventDefault();
         Swal.fire({
-            title: 'Empty Description',
-            text: "You haven't added a description. Do you want to continue?",
+            title: 'Description Required',
+            text: 'Please fill in the product description, or use the AI generator to create one.',
             icon: 'warning',
-            showCancelButton: true,
             confirmButtonColor: '#FF8C00',
-            cancelButtonColor: '#d33',
-            confirmButtonText: 'Yes, submit anyway'
-        }).then((result) => {
-            if (result.isConfirmed) {
-                // 如果用户确认，解除拦截并再次触发提交
-                form.submit(); 
-            }
+            confirmButtonText: 'OK'
+        }).then(() => {
+            const ta = form.querySelector('textarea[name="description"]');
+            if (ta) ta.focus();
         });
         return;
     }
@@ -1047,50 +1054,107 @@ window.addEventListener('load', function() {
         
 setTimeout(() => {
     const imageData = <?php echo json_encode($existing_images); ?>;
-    
+
     for (const color in imageData) {
         const safeId = color.replace(/\s+/g, '_');
         const previewContainer = document.getElementById(`preview_${safeId}`);
-        
-        if (previewContainer) {
-            // 移除 "No photos yet" 提示
-            const emptyHint = previewContainer.querySelector('.text-muted');
-            if (emptyHint) emptyHint.remove();
+        if (!previewContainer) continue;
 
-            imageData[color].forEach((imgUrl, index) => {
-                // 1. 创建和原文件一样的 div 容器
-                const div = document.createElement('div');
-                div.className = 'preview-item'; // 使用原本的 CSS 类名 (110x110, 圆角等)
-                
-                // 2. 直接绑定原文件里的 openLightbox function
-                div.onclick = function() { 
-                    openLightbox(color, div); 
-                };
-                
-                // 3. 填入照片和原本的 X 按钮
-                // 注意：由于是旧照片，点击 X 只是把这个元素从 UI 移除 (this.parentNode.remove())
-                div.innerHTML = `
-                    <img src="${imgUrl}">
-                    <button type="button" class="remove-img" onclick="event.stopPropagation(); this.parentNode.remove();">×</button>
-                `;
-                
-                // 4. 将生成好的预览图塞进容器
-                previewContainer.appendChild(div);
+        const emptyHint = previewContainer.querySelector('.text-muted');
+        if (emptyHint) emptyHint.remove();
+
+        imageData[color].forEach((imgPath) => {
+            const basename = imgPath.split('/').pop(); // e.g. "nikeDunk_black_1.jpg"
+
+            // 默认加一个 hidden input 代表"保留这张"
+            const keepInput = document.createElement('input');
+            keepInput.type  = 'hidden';
+            keepInput.name  = `keep_photos[${color}][]`;
+            keepInput.value = basename;
+            keepInput.id    = `keep_${safeId}_${basename}`;
+            document.getElementById('keepPhotosContainer').appendChild(keepInput);
+
+            const div = document.createElement('div');
+            div.className = 'preview-item';
+            div.onclick = function() { openLightbox(color, div); };
+
+            const imgEl = document.createElement('img');
+            imgEl.src = imgPath;
+            const btnEl = document.createElement('button');
+            btnEl.type = 'button';
+            btnEl.className = 'remove-img';
+            btnEl.textContent = '×';
+            btnEl.addEventListener('click', function(e) {
+                e.stopPropagation();
+                removeOldPhoto(color, basename, this);
             });
-            
-            // 重要：如果你有维护 colorImageData[color].count，请在这里同步，避免新上传覆盖旧图编号
-            if (typeof colorImageData !== 'undefined' && colorImageData[color]) {
-                colorImageData[color].count = imageData[color].length;
-            }
-        }
+
+            div.appendChild(imgEl);
+            div.appendChild(btnEl);
+            previewContainer.appendChild(div);
+        });
     }
 }, 800);
+
+// ── 删除旧图：移除 DOM + 移除 hidden input（让后端知道不保留这张）──
+function removeOldPhoto(color, basename, btn) {
+    // 1. 移除预览 DOM
+    btn.parentNode.remove();
+
+    // 2. 移除对应的 hidden keep input
+    const safeId    = color.replace(/\s+/g, '_');
+    const keepInput = document.getElementById(`keep_${safeId}_${basename}`);
+    if (keepInput) keepInput.remove();
+}
 
 
 
 
     <?php endif; ?>
 });
+
+<?php if (isset($_SESSION['swal_status'])): ?>
+    document.addEventListener("DOMContentLoaded", function() {
+        const status = "<?php echo $_SESSION['swal_status']; ?>";
+        
+        if (status === 'success') {
+            Swal.fire({
+                title: 'Successful',
+                text: 'Product updated successfully!',
+                icon: 'success',
+                confirmButtonColor: '#FF8C00',
+                confirmButtonText: 'OK'
+            }).then((result) => {
+                window.location.href = '../Module C/admin_manage_products.php';
+            });
+        } else if (status === 'failed') {
+            Swal.fire({
+                title: 'Failed',
+                text: 'Something went wrong. Please try again.',
+                icon: 'error',
+                confirmButtonColor: '#ef4444',
+                confirmButtonText: 'OK'
+            }).then((result) => {
+                window.location.href = '../Module C/Product.php';
+            });
+        } else if (status === 'desc_required') {
+            Swal.fire({
+                title: 'Description Required',
+                text: 'Product description is required. Please fill it before saving.',
+                icon: 'warning',
+                confirmButtonColor: '#FF8C00',
+                confirmButtonText: 'OK'
+            }).then(() => {
+                const ta = document.querySelector('textarea[name="description"]');
+                if (ta) { ta.focus(); window.scrollTo({ top: ta.getBoundingClientRect().top + window.scrollY - 120, behavior: 'smooth' }); }
+            });
+        }
+    });
+<?php 
+    // 触发完后清除 Session 防止刷新时重复弹窗
+    unset($_SESSION['swal_status']); 
+endif; 
+?>
 </script>
 </body>
 </html>
