@@ -58,7 +58,9 @@ function sendOTP($recipientEmail) {
     }
 }
 
-if (isset($_POST['email'])) {
+// Only handle direct POST requests when this file is executed directly,
+// not when it's included via require/include (avoids accidental echoes).
+if (realpath(__FILE__) === realpath($_SERVER['SCRIPT_FILENAME']) && isset($_POST['email'])) {
     $result = sendOTP($_POST['email']);
     if ($result === true) {
         echo "OTP sent successfully!";
