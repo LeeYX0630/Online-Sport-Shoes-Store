@@ -45,6 +45,18 @@ $user_id = $_SESSION['user_id'];
 $msg = "";
 $msg_type = "";
 
+$conn->query("
+    CREATE TABLE IF NOT EXISTS user_address (
+        Address_Id INT AUTO_INCREMENT PRIMARY KEY,
+        User_Id INT NOT NULL,
+        Address_Text TEXT NOT NULL,
+        Is_Default TINYINT(1) NOT NULL DEFAULT 0,
+        Created_At TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        Updated_At TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_user_address_user (User_Id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+");
+
 // ===================================================
 // 核心追加：自给自足的安全明细 API 路由 (防越权与高内聚)
 // ===================================================
@@ -219,9 +231,41 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 $msg = "Email already used by another account!";
                 $msg_type = "danger";
             } else {
+                $addresses = [];
+                if (isset($_POST['addresses']) && is_array($_POST['addresses'])) {
+                    foreach ($_POST['addresses'] as $address) {
+                        $clean_address = trim(preg_replace('/\s+/', ' ', $address));
+                        if ($clean_address !== '') {
+                            $addresses[] = substr($clean_address, 0, 500);
+                        }
+                    }
+                }
+
+                $default_index = isset($_POST['default_address_index']) ? (int)$_POST['default_address_index'] : 0;
+                if ($default_index < 0 || $default_index >= count($addresses)) {
+                    $default_index = 0;
+                }
+
+                $default_address = $addresses[$default_index] ?? '';
+
                 // Update user details
-                $conn->query("UPDATE `user` SET User_Name='$new_name', User_Phone='$clean_phone', User_Email='$new_email' WHERE User_Id='$user_id'");
+                $stmt = $conn->prepare("UPDATE `user` SET User_Name=?, User_Phone=?, User_Email=?, User_Address=? WHERE User_Id=?");
+                $stmt->bind_param("ssssi", $new_name, $clean_phone, $new_email, $default_address, $user_id);
+                $stmt->execute();
                 $_SESSION['user_name'] = $new_name;
+
+                $delete_stmt = $conn->prepare("DELETE FROM user_address WHERE User_Id=?");
+                $delete_stmt->bind_param("i", $user_id);
+                $delete_stmt->execute();
+
+                if (!empty($addresses)) {
+                    $insert_stmt = $conn->prepare("INSERT INTO user_address (User_Id, Address_Text, Is_Default) VALUES (?, ?, ?)");
+                    foreach ($addresses as $index => $address) {
+                        $is_default = ($index === $default_index) ? 1 : 0;
+                        $insert_stmt->bind_param("isi", $user_id, $address, $is_default);
+                        $insert_stmt->execute();
+                    }
+                }
 
                 // HANDLE PROFILE IMAGE UPLOAD
                 if (!empty($_FILES['profile_image']['name'])) {
@@ -253,6 +297,41 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 // ===============================
 $user_res = $conn->query("SELECT * FROM `user` WHERE User_Id='$user_id'");
 $user = $user_res->fetch_assoc();
+
+$address_count_stmt = $conn->prepare("SELECT COUNT(*) AS total FROM user_address WHERE User_Id=?");
+$address_count_stmt->bind_param("i", $user_id);
+$address_count_stmt->execute();
+$address_count = $address_count_stmt->get_result()->fetch_assoc();
+
+if ((int)($address_count['total'] ?? 0) === 0 && !empty($user['User_Address'])) {
+    $legacy_address = trim($user['User_Address']);
+    $is_default = 1;
+    $insert_legacy_stmt = $conn->prepare("INSERT INTO user_address (User_Id, Address_Text, Is_Default) VALUES (?, ?, ?)");
+    $insert_legacy_stmt->bind_param("isi", $user_id, $legacy_address, $is_default);
+    $insert_legacy_stmt->execute();
+}
+
+$address_book = [];
+$default_address_index = 0;
+$address_stmt = $conn->prepare("SELECT Address_Text, Is_Default FROM user_address WHERE User_Id=? ORDER BY Is_Default DESC, Address_Id ASC");
+$address_stmt->bind_param("i", $user_id);
+$address_stmt->execute();
+$address_result = $address_stmt->get_result();
+while ($address_row = $address_result->fetch_assoc()) {
+    $is_default = (int)$address_row['Is_Default'] === 1;
+    if ($is_default) {
+        $default_address_index = count($address_book);
+    }
+    $address_book[] = [
+        'text' => $address_row['Address_Text'],
+        'is_default' => $is_default
+    ];
+}
+if (empty($address_book)) {
+    $address_book[] = ['text' => '', 'is_default' => true];
+}
+$selected_address_text = $address_book[$default_address_index]['text'] ?? '';
+
 $passwordChangeDisabled = (empty($_SESSION['password_change_verified']) || $_SESSION['password_change_verified'] !== true) ? 'disabled' : '';
 $passwordVerified = ($passwordChangeDisabled === '') ? true : false;
 $available_promos = $conn->query("
@@ -354,6 +433,10 @@ body::after {
 .btn-orange:hover { background-color: #E66000; color: white; transform: translateY(-2px); }
 .btn-outline-orange { color: var(--brand-orange); border: 1px solid var(--brand-orange); background: transparent; }
 .btn-outline-orange:hover { background: rgba(255, 107, 0, 0.08); }
+.address-row.selected { border-color: var(--brand-orange); background: #fff; box-shadow: 0 0 0 0.18rem rgba(255, 107, 0, 0.16); }
+.address-preview { background: #fff; }
+.address-toggle-btn i { transition: transform 0.2s ease; }
+.address-toggle-btn.collapsed i { transform: rotate(-180deg); }
 .nav-tabs { border-bottom: 1px solid rgba(0,0,0,0.05); }
 .nav-tabs .nav-link { border: none; color: #6c757d; font-weight: 700; padding: 10px 20px; }
 .nav-tabs .nav-link.active { color: var(--brand-orange); border-bottom: 3px solid var(--brand-orange); background: none; }
@@ -455,13 +538,76 @@ body::after {
                                        value="<?php echo $user['User_Email']; ?>" required>
                             </div>
                             <div class="mb-4">
-                                <label class="small fw-bold text-muted">Change Avatar</label>
-                                <input type="file" name="profile_image" class="form-control bg-light border-0">
-                            </div>
-                            <button type="submit" class="btn btn-orange px-5 py-2">Save Profile Changes</button>
-                        </form>
-                    </div>
+            <div class="mb-2">
+                <label class="small fw-bold text-muted mb-0">Address Book</label>
+            </div>
 
+            <div class="mb-3">
+                <div class="bg-white rounded-3 border p-3 shadow-sm" style="border-left: 5px solid var(--brand-orange) !important;">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <div class="small text-muted fw-bold mb-1">
+                                <i class="fa-solid fa-truck-fast text-warning me-1"></i> Selected Delivery Address
+                            </div>
+                            <div id="selectedAddressPreview" class="fw-semibold text-dark fs-6" style="white-space: pre-line;">
+                                <?php echo !empty($selected_address_text) ? htmlspecialchars($selected_address_text) : 'No address selected. Please add one.'; ?>
+                            </div>
+                        </div>
+                        <button class="btn btn-light btn-sm border address-toggle-btn rounded-circle p-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseAddresses" aria-expanded="false" aria-controls="collapseAddresses" id="addrChevronBtn">
+                            <i class="bi bi-chevron-down id-arrow-icon transition-3s" style="font-size: 1.1rem; color: var(--brand-orange); display: inline-block;"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <input type="hidden" name="default_address_index" id="defaultAddressIndex" value="<?php echo $default_address_index; ?>">
+
+           <div class="collapse" id="collapseAddresses">
+                        <div class="mb-2 px-1 mt-2">
+                            <div class="small fw-bold text-uppercase text-muted" style="letter-spacing: 1px;">Saved Addresses</div>
+                        </div>
+                        
+                        <div id="addressBook">
+                            <?php foreach ($address_book as $index => $address): ?>
+                                <?php 
+                                    $is_current_selected = ($index == $default_address_index); 
+                                ?>
+                                <div class="address-row mb-3 rounded-3 border p-3 transition-3s <?php echo $is_current_selected ? 'border-warning bg-white shadow-sm' : 'bg-light'; ?>" data-index="<?php echo $index; ?>">
+                                    <div class="d-flex justify-content-between align-items-start mb-2">
+                                        <div>
+                                            <span class="badge <?php echo $is_current_selected ? 'bg-warning text-dark' : 'bg-secondary text-white'; ?> id-addr-badge">
+                                                <?php echo $is_current_selected ? 'Active Default' : 'Alternative Address'; ?>
+                                            </span>
+                                        </div>
+                                        <div class="btn-group btn-group-sm">
+                                            <button type="button" class="btn btn-outline-success <?php echo $is_current_selected ? 'active' : ''; ?> id-check-btn" onclick="setAsDefaultAddress(this)" title="Use this address">
+                                                <i class="bi bi-check-circle-fill"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-outline-danger" onclick="removeAddressBox(this)" title="Remove address">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <textarea name="addresses[]" class="form-control bg-white border py-2" rows="2" placeholder="House number, building, street name, city, state" oninput="updateSelectedAddressPreview()"><?php echo htmlspecialchars($address['text']); ?></textarea>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+
+                        <button type="button" class="btn btn-outline-dark btn-sm rounded-3 mt-2 w-100 py-2 fw-bold" onclick="addAddressBox()" id="addNewAddressBtn" style="border-style: dashed; border-width: 2px;">
+                            <i class="bi bi-plus-circle me-1 text-warning"></i> Add New Address
+                        </button>
+                        
+                        <small class="text-muted d-block mt-2">Choose the saved address you want as the default and save profile changes to keep it.</small>
+                    </div> </div> <div class="mb-4 mt-4">
+                    <label class="small fw-bold text-muted mb-2">Change Avatar</label>
+                    <input type="file" name="profile_image" class="form-control bg-light border-0 py-2 rounded-3">
+                </div>
+
+                <div class="mt-4">
+                    <button type="submit" class="btn btn-orange px-5 py-2 fw-bold rounded-3 text-white">Save Profile Changes</button>
+                </div>
+            </form>
+        </div>
                     <div class="tab-pane fade" id="purchased">
                         <?php
                         $today = date('Y-m-d');
@@ -987,6 +1133,127 @@ body::after {
             col.style.display = display;
         });
     }
+
+    function refreshAddressLabels() {
+        document.querySelectorAll('#addressBook .address-row').forEach((row) => {
+            const label = row.querySelector('.small.fw-bold.text-muted');
+            if (label) {
+                label.textContent = row.classList.contains('selected') ? 'Default Address' : 'Address';
+            }
+        });
+    }
+
+    function updateSelectedAddressPreview() {
+        const defaultIndexInput = document.getElementById('defaultAddressIndex');
+        const rows = document.querySelectorAll('#addressBook .address-row');
+        const selectedIndex = defaultIndexInput ? Number(defaultIndexInput.value) : 0;
+        const preview = document.getElementById('selectedAddressPreview');
+        if (!preview) return;
+        const selectedRow = rows[selectedIndex];
+        const textarea = selectedRow?.querySelector('textarea');
+        preview.textContent = textarea ? textarea.value.trim() : '';
+    }
+
+    function setAsDefaultAddress(button) {
+        const rows = document.querySelectorAll('#addressBook .address-row');
+        if (!rows.length) return;
+
+        const selectedRow = button.closest('.address-row');
+        if (!selectedRow) return;
+
+        rows.forEach(row => {
+            const defaultBtn = row.querySelector('.btn-outline-success');
+            row.classList.toggle('selected', row === selectedRow);
+            if (defaultBtn) {
+                defaultBtn.classList.toggle('active', row === selectedRow);
+            }
+        });
+
+        const selectedIndex = Array.from(rows).indexOf(selectedRow);
+        document.getElementById('defaultAddressIndex').value = selectedIndex;
+        refreshAddressLabels();
+        updateSelectedAddressPreview();
+    }
+
+    function addAddressBox() {
+        const addressBook = document.getElementById('addressBook');
+        if (!addressBook) return;
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'address-row mb-2 rounded-3 border p-3 bg-light';
+        wrapper.innerHTML = `
+            <div class="d-flex justify-content-between align-items-start mb-2">
+                <div><span class="small fw-bold text-muted">Address</span></div>
+                <div class="btn-group btn-group-sm">
+                    <button type="button" class="btn btn-outline-success" onclick="setAsDefaultAddress(this)" title="Set as default">
+                        <i class="bi bi-check-circle"></i>
+                    </button>
+                    <button type="button" class="btn btn-outline-danger" onclick="removeAddressBox(this)" title="Remove address">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>
+            </div>
+            <textarea name="addresses[]" class="form-control bg-white border-0 py-2" rows="2" placeholder="House number, building, street name, city, state" oninput="updateSelectedAddressPreview()"></textarea>
+        `;
+        addressBook.appendChild(wrapper);
+
+        const rows = document.querySelectorAll('#addressBook .address-row');
+        if (rows.length === 1) {
+            setAsDefaultAddress(wrapper.querySelector('.btn-outline-success'));
+        } else {
+            refreshAddressLabels();
+        }
+        wrapper.querySelector('textarea').focus();
+    }
+
+    function removeAddressBox(button) {
+        const rows = document.querySelectorAll('#addressBook .address-row');
+        const rowToRemove = button.closest('.address-row');
+        if (!rowToRemove) return;
+
+        const defaultIndexInput = document.getElementById('defaultAddressIndex');
+        const currentDefault = defaultIndexInput ? Number(defaultIndexInput.value) : 0;
+        const removeIndex = Array.from(rows).indexOf(rowToRemove);
+
+        if (rows.length <= 1) {
+            const textarea = rowToRemove.querySelector('textarea');
+            if (textarea) textarea.value = '';
+            updateSelectedAddressPreview();
+            return;
+        }
+
+        rowToRemove.remove();
+        const updatedRows = document.querySelectorAll('#addressBook .address-row');
+        if (!defaultIndexInput) return;
+
+        if (removeIndex === currentDefault || currentDefault >= updatedRows.length) {
+            const nextDefault = Math.max(0, Math.min(removeIndex, updatedRows.length - 1));
+            const defaultButton = updatedRows[nextDefault]?.querySelector('.btn-outline-success');
+            if (defaultButton) {
+                setAsDefaultAddress(defaultButton);
+            }
+        } else {
+            defaultIndexInput.value = currentDefault > removeIndex ? currentDefault - 1 : currentDefault;
+            refreshAddressLabels();
+            updateSelectedAddressPreview();
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        const addNewAddressBtn = document.getElementById('addNewAddressBtn');
+        if (addNewAddressBtn) {
+            addNewAddressBtn.addEventListener('click', function () {
+                addAddressBox();
+                const collapseAddresses = document.getElementById('collapseAddresses');
+                if (collapseAddresses && !collapseAddresses.classList.contains('show')) {
+                    collapseAddresses.classList.add('show');
+                    document.querySelector('.address-toggle-btn')?.setAttribute('aria-expanded', 'true');
+                }
+            });
+        }
+
+        updateSelectedAddressPreview();
+    });
 </script>
 
 <?php include '../includes/footer.php'; ?>
