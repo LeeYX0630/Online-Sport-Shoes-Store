@@ -6,7 +6,7 @@ require_once '../includes/db_connection.php';
 
 // 1. 拦截器：如果已经登录，直接跳转回主页
 if (isset($_SESSION['admin_id'])) {
-    header("Location: ../index.php");
+    header("Location: ../Module C/admin_dashboard.php");
     exit();
 }
 
@@ -48,7 +48,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 $_SESSION['role'] = $row['Admin_Level'];
 
                 // 4. 跳转到 Dashboard
-                header("Location: ../index.php");
+                header("Location: ../Module C/admin_dashboard.php");
                 exit();
             } else {
                 $error = "Invalid password.";
