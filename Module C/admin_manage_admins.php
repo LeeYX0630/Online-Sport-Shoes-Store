@@ -155,6 +155,7 @@ endif; // 结束 if 块
         
         .badge-role { font-size: 11px; padding: 5px 12px; border-radius: 50px; font-weight: 600; text-transform: uppercase; }
         .role-super { background: #fee2e2; color: #ef4444; }
+        .role-admin { background: #eef2ff; color: #1e3a8a; }
         .btn-add-admin {
             background-color: var(--orange-primary); color: white; border: none;
             padding: 12px 25px; border-radius: 12px; font-weight: 600;
@@ -263,8 +264,10 @@ endif; // 结束 if 块
                                 <h5 class="fw-bold mb-1"><?php echo htmlspecialchars($row['Admin_Name']); ?></h5>
                                 <p class="text-muted small mb-3"><?php echo htmlspecialchars($row['Admin_Email']); ?></p>
                                 <div class="mb-3">
-                                    <?php if($row['Admin_Level'] == 1): ?>
+                                    <?php if(isset($row['Admin_Level']) && $row['Admin_Level'] == 1): ?>
                                         <span class="badge-role role-super">SUPER ADMIN</span>
+                                    <?php elseif(isset($row['Admin_Level']) && $row['Admin_Level'] == 2): ?>
+                                        <span class="badge-role role-admin">ADMIN</span>
                                     <?php else: ?>
                                         <span class="badge bg-light text-dark border px-3 py-1 rounded-pill small">
                                             <?php echo htmlspecialchars($row['Display_Brand']); ?>
@@ -331,8 +334,7 @@ endif; // 结束 if 块
                                 <label class="form-label small fw-bold text-muted text-uppercase">Admin Level</label>
                                 <select name="admin_level" id="edit_admin_level" class="form-select">
                                     <option value="0">Normal Admin</option>
-                                    <option value="1">Super Admin</option>
-                                </select>
+                                    <option value="1">Super Admin</option>                                </select>
                             </div>
                         </div>
                         <div class="col-md-6">

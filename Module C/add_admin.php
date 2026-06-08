@@ -231,7 +231,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             <div class="d-flex align-items-center">
                 <div class="text-end me-3 text-dark">
                     <div class="fw-bold"><?php echo htmlspecialchars($username); ?></div>
-                    <small class="text-muted"><?php echo ($admin_role == 1) ? 'Super Admin' : 'Manager'; ?></small>
+                    <small class="text-muted"><?php 
+                        if($admin_role == 1) echo 'Super Admin';
+                        elseif($admin_role == 2) echo 'Admin';
+                        else echo 'Brand Manager'; 
+                    ?></small>
                 </div>
                 <img src="../uploads/admin/<?php echo $admin_image; ?>?t=<?php echo time(); ?>" class="admin-profile-img">
             </div>

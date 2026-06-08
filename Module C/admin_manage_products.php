@@ -328,7 +328,7 @@ function getSmartProductImage($filename, $colors = []) {
                             $img_path = $color_galleries[$colors[0]][0];
                         ?>
                         <tr>
-                            <td><img src="<?php echo $img_path; ?>" class="product-img" onerror="this.src='../assets/no-image.png'"></td>
+                            <td><img src="<?php echo $img_path; ?>" class="product-img" onerror="this.onerror=null; this.outerHTML='<div class=\'text-muted small\'>N/A</div>';"></td>
                             <td>
                                 <div class="fw-bold"><?php echo $row['Pro_Name']; ?></div>
                                 <small class="text-muted">#<?php echo $row['Pro_Id']; ?> <?php if(!empty($colors)) echo "| Colors: ".implode(', ', $colors); ?></small>
@@ -360,7 +360,7 @@ function getSmartProductImage($filename, $colors = []) {
                     <div class="row g-4">
                         <div class="col-lg-6">
                             <div class="main-img-box mb-3 border rounded d-flex align-items-center justify-content-center" style="height: 420px; background: #fff; overflow: hidden;">
-                                <img id="main_view_img" src="" class="img-fluid" style="max-height: 100%; object-fit: contain;" onerror="this.src='../assets/no-image.png'">
+                                <img id="main_view_img" src="" class="img-fluid" style="max-height: 100%; object-fit: contain;" onerror="this.onerror=null; this.outerHTML='N/A';">
                             </div>
                             <div class="row g-2" id="thumbnail_container"></div>
                         </div>

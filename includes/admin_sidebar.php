@@ -3,6 +3,47 @@
 include_once 'db_connection.php';
 $current_page = basename($_SERVER['PHP_SELF']);
 $admin_role = $_SESSION['role'] ?? ''; // 获取当前登录的角色
+$admin_id_sidebar = $_SESSION['admin_id'] ?? 0;
+
+// ── Unread notification count for sidebar badge ────────────────────────────
+$sidebar_unread_count = 0;
+if ($admin_id_sidebar) {
+    if ($admin_role == 1 || $admin_role == 2) {
+        // Role 1 & 2: see global (Admin_Id NULL) + their own notifications
+        $notif_cond_sidebar = "(n.Admin_Id IS NULL OR n.Admin_Id = $admin_id_sidebar)";
+    } else {
+        // Role 3 (vendor): only their own
+        $notif_cond_sidebar = "n.Admin_Id = $admin_id_sidebar";
+    }
+    $count_sql = "
+        SELECT COUNT(*) AS cnt
+        FROM notification n
+        LEFT JOIN admin_notification_status s 
+            ON n.Notif_Id = s.Notif_Id AND s.Admin_Id = $admin_id_sidebar
+        WHERE $notif_cond_sidebar
+          AND (s.Is_Read IS NULL OR s.Is_Read = 0)
+          AND (s.Is_Deleted IS NULL OR s.Is_Deleted = 0)
+    ";
+    $count_res = $conn->query($count_sql);
+    if ($count_res && $count_row = $count_res->fetch_assoc()) {
+        $sidebar_unread_count = (int)$count_row['cnt'];
+    }
+}
+// ── Pending vendor count for sidebar badge (role 1 & 2 only) ─────────────
+$sidebar_pending_vendors = 0;
+if ($admin_role == 1 || $admin_role == 2) {
+    $check_col_sb = $conn->query("SHOW COLUMNS FROM `vendors` LIKE 'Vendor_Status'");
+    $status_field_sb = ($check_col_sb && $check_col_sb->num_rows > 0) ? 'Vendor_Status' : 'Status';
+    $vendor_count_res = $conn->query("SELECT COUNT(*) AS cnt FROM `vendors` WHERE `$status_field_sb` = 'Pending'");
+    if ($vendor_count_res && $vc_row = $vendor_count_res->fetch_assoc()) {
+        $sidebar_pending_vendors = (int)$vc_row['cnt'];
+    }
+}
+
+// ── Badge display helper (caps at 99+) ────────────────────────────────────
+function formatBadgeCount(int $n): string {
+    return $n > 99 ? '99+' : (string)$n;
+}
 ?>
 
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
@@ -49,6 +90,9 @@ $admin_role = $_SESSION['role'] ?? ''; // 获取当前登录的角色
             <li class="nav-item">
                 <a href="admin_notifications.php" class="nav-link <?php echo ($current_page == 'admin_notifications.php') ? 'active' : ''; ?>">
                     <i class="bi bi-bell"></i> Notifications
+                    <?php if ($sidebar_unread_count > 0): ?>
+                    <span class="notif-badge"><?php echo formatBadgeCount($sidebar_unread_count); ?></span>
+                    <?php endif; ?>
                 </a>
             </li>
 
@@ -61,6 +105,9 @@ $admin_role = $_SESSION['role'] ?? ''; // 获取当前登录的角色
                             <li class="nav-item">
                                 <a href="admin_manage_admins.php" class="nav-link <?php echo ($current_page == 'admin_manage_admins.php') ? 'active' : ''; ?>">
                                     <i class="bi bi-shield-lock"></i> Admins
+                                    <?php if ($sidebar_pending_vendors > 0): ?>
+                                    <span class="notif-badge"><?php echo formatBadgeCount($sidebar_pending_vendors); ?></span>
+                                    <?php endif; ?>
                                 </a>
                             </li>
             <?php endif; ?>
@@ -123,6 +170,28 @@ $admin_role = $_SESSION['role'] ?? ''; // 获取当前登录的角色
 
 .nav-link:hover { background-color: #FFF0E5; }
 .nav-link.active { background-color: #FF6B00; color: #ffffff; }
+
+/* ── Notification badge ── */
+.notif-badge {
+    margin-left: auto;
+    background-color: #e53e3e;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 5px;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    flex-shrink: 0;
+}
+.nav-link.active .notif-badge {
+    background-color: #fff;
+    color: #FF6B00;
+}
 
 /* --- 底部 --- */
 .sidebar-footer { padding: 20px; border-top: 1px solid #f0f0f0; display: flex; align-items: center; gap: 12px; background: #fff; transition: background 0.18s ease; cursor: pointer; }
