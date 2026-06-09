@@ -50,12 +50,20 @@ if (isset($_POST['action']) && $_POST['action'] === 'generate_logo_bg') {
 
     $brand_logo_path_db = "";
 
+<<<<<<< HEAD
     // Ensure upload dir exists
     $save_dir = __DIR__ . '/../images/brands/';
     if (!is_dir($save_dir) && !mkdir($save_dir, 0777, true) && !is_dir($save_dir)) {
         echo json_encode(['error' => 'Unable to create upload directory.']);
         exit();
     }
+=======
+    // Ensure upload dir exists (resolve project root to avoid saving under Module C)
+    $project_root = realpath(__DIR__ . '/..');
+    if ($project_root === false) $project_root = __DIR__ . '/..';
+    $save_dir = rtrim($project_root, '/\\') . '/images/brands/';
+    if (!is_dir($save_dir)) mkdir($save_dir, 0777, true);
+>>>>>>> 1cda877435036e3b59a893d4800496ea2870a9c5
 
     // ── 开始替换的部分 ──
     
@@ -235,7 +243,7 @@ if ($brand_info && !empty($brand_info['Brand_Logo'])) {
         }
     } else {
         // 仅文件名，尝试 images/brands/ 下的文件
-        $candidate = __DIR__ . '/../images/brands/' . $raw;
+        $candidate = __DIR__ . '../images/brands/' . $raw;
         if (file_exists($candidate)) {
             $brand_logo_web = '../images/brands/' . $raw;
             $has_brand_logo = true;
