@@ -51,8 +51,11 @@ if (isset($_POST['action']) && $_POST['action'] === 'generate_logo_bg') {
     $brand_logo_path_db = "";
 
     // Ensure upload dir exists
-    $save_dir = __DIR__ . '../images/brands/';
-    if (!is_dir($save_dir)) mkdir($save_dir, 0777, true);
+    $save_dir = __DIR__ . '/../images/brands/';
+    if (!is_dir($save_dir) && !mkdir($save_dir, 0777, true) && !is_dir($save_dir)) {
+        echo json_encode(['error' => 'Unable to create upload directory.']);
+        exit();
+    }
 
     // ── 开始替换的部分 ──
     
@@ -61,7 +64,14 @@ if (isset($_POST['action']) && $_POST['action'] === 'generate_logo_bg') {
     $logo_mime   = $_POST['logo_mime'] ?? 'image/png';
 
     if (empty($logo_base64)) {
-        echo json_encode(['error' => 'No logo file uploaded.']); exit();
+        echo json_encode(['error' => 'No logo file uploaded.']);
+        exit();
+    }
+
+    $logo_decoded = base64_decode($logo_base64, true);
+    if ($logo_decoded === false) {
+        echo json_encode(['error' => 'Invalid logo base64 data.']);
+        exit();
     }
 
     $brand_name_sanitized = str_replace(array(' ', '/', '\\', ':', '*', '?', '"', '<', '>', '|'), '_', $brand_name);
@@ -71,7 +81,10 @@ if (isset($_POST['action']) && $_POST['action'] === 'generate_logo_bg') {
     $brand_original_filename = $brand_name_sanitized . "_original." . $ext;
     $brand_original_path = $save_dir . $brand_original_filename;
     
-    file_put_contents($brand_original_path, base64_decode($logo_base64));
+    if (file_put_contents($brand_original_path, $logo_decoded) === false) {
+        echo json_encode(['error' => 'Unable to save logo file.']);
+        exit();
+    }
 
     // 3. 构建专业的 AI Prompt
 $prompt = "A high-end cinematic sports brand product photography banner (16:9). 
@@ -113,6 +126,10 @@ STYLE: Ultra-realistic, 8k resolution, professional advertising quality, deep co
     curl_close($ch);
 
     $decoded_result = json_decode($result, true);
+    if ($decoded_result === null && json_last_error() !== JSON_ERROR_NONE) {
+        echo json_encode(['error' => 'Invalid API response: ' . json_last_error_msg()]);
+        exit();
+    }
 
     // 5. 解析 AI 返回的图片
     $generated_image_data = null;
@@ -129,7 +146,10 @@ STYLE: Ultra-realistic, 8k resolution, professional advertising quality, deep co
         $brand_generated_filename = $brand_name_sanitized . ".png";
         $brand_generated_path = $save_dir . $brand_generated_filename;
         
-        file_put_contents($brand_generated_path, $generated_image_data);
+        if (file_put_contents($brand_generated_path, $generated_image_data) === false) {
+            echo json_encode(['error' => 'Unable to save generated image.']);
+            exit();
+        }
         
         $web_path = '../images/brands/' . $brand_generated_filename; // used for JSON response
         $brand_logo_db_filename = $brand_generated_filename; // store only filename in DB
@@ -637,8 +657,14 @@ async function generateBrandBanner() {
         fd.append('logo_base64',  b64);
         fd.append('logo_mime',    mime);
 
-        const res  = await fetch('admin_profile.php', { method: 'POST', body: fd });
-        const data = await res.json();
+        const res = await fetch('admin_profile.php', { method: 'POST', body: fd });
+        const text = await res.text();
+        let data;
+        try {
+            data = JSON.parse(text);
+        } catch (parseErr) {
+            throw new Error('Invalid server response: ' + text.substring(0, 300));
+        }
 
         if (data.error) {
             Swal.fire({ icon: 'error', title: 'Generation Failed', text: data.error, confirmButtonColor: '#FF8C00' });

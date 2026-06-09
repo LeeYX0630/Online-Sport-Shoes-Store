@@ -580,12 +580,12 @@ include '../includes/header.php';
 <div style="max-width: 1100px; margin: 20px auto 0; padding: 0 20px;">
     <?php if($error): ?>
     <div style="background-color: #f8d7da; color: #721c24; padding: 15px; border-radius: 5px; border-left: 4px solid #f5c6cb; margin-bottom: 20px;">
-        <strong>❌ 出错：</strong> <?php echo htmlspecialchars($error); ?>
+        <strong>❌ Error:</strong> <?php echo htmlspecialchars($error); ?>
     </div>
     <?php endif; ?>
     <?php if($success_msg): ?>
     <div style="background-color: #d4edda; color: #155724; padding: 15px; border-radius: 5px; border-left: 4px solid #c3e6cb; margin-bottom: 20px;">
-        <strong>✓ 成功：</strong> <?php echo htmlspecialchars($success_msg); ?>
+        <strong>✓ Success:</strong> <?php echo htmlspecialchars($success_msg); ?>
     </div>
     <?php endif; ?>
 </div>

@@ -140,18 +140,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_card_pay'])) {
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <style>
-        body { background: #0b0f19; color: #fff; font-family: 'Segoe UI', sans-serif; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
-        .payment-wrapper { width: 100%; max-width: 500px; background: #121824; border: 1px solid rgba(255,255,255,0.1); border-radius: 24px; padding: 30px; box-shadow: 0 20px 50px rgba(0,0,0,0.4); }
-        .secure-header { text-align: center; margin-bottom: 25px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 15px; }
+        body { background: #0b0f19; color: #f8fafc; font-family: 'Segoe UI', sans-serif; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+        .payment-wrapper { width: 100%; max-width: 500px; background: #121824; border: 1px solid rgba(255,255,255,0.14); border-radius: 24px; padding: 30px; box-shadow: 0 20px 50px rgba(0,0,0,0.4); }
+        .secure-header { text-align: center; margin-bottom: 25px; border-bottom: 1px solid rgba(255,255,255,0.14); padding-bottom: 15px; }
         
         /* 拟态卡片视觉 */
-        .credit-card-view { background: linear-gradient(135deg, #1d293d 0%, #25354c 100%); border-radius: 16px; padding: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); margin-bottom: 30px; border: 1px solid rgba(255,255,255,0.1); position: relative; overflow: hidden; }
+        .credit-card-view { background: linear-gradient(135deg, #1d293d 0%, #25354c 100%); border-radius: 16px; padding: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); margin-bottom: 30px; border: 1px solid rgba(255,255,255,0.14); position: relative; overflow: hidden; }
         .card-chip { width: 40px; height: 30px; background: #d4af37; border-radius: 6px; margin-bottom: 20px; background: linear-gradient(135deg, #e5c158 0%, #b89730 100%); }
         .card-number-view { font-size: 1.45rem; font-family: monospace; letter-spacing: 3px; margin-bottom: 15px; color: #f8fafc; text-shadow: 1px 1px 2px rgba(0,0,0,0.5); }
-        .card-logo { position: absolute; top: 20px; right: 20px; font-size: 1.8rem; font-style: italic; font-weight: bold; color: rgba(255,255,255,0.8); }
+        .card-logo { position: absolute; top: 20px; right: 20px; font-size: 1.8rem; font-style: italic; font-weight: bold; color: rgba(255,255,255,0.9); }
 
-        .input-dark { background: #1a2333; border: 1px solid rgba(255,255,255,0.15); color: #fff; border-radius: 10px; padding: 12px; }
-        .input-dark:focus { background: #1e293b; border-color: #3b82f6; color: #fff; box-shadow: none; }
+        .form-label, .text-muted { color: #d1d5db !important; }
+        .input-dark { background: #1a2333; border: 1px solid rgba(255,255,255,0.18); color: #f8fafc; border-radius: 10px; padding: 12px; }
+        .input-dark::placeholder { color: rgba(248,250,252,0.68); }
+        .input-dark:focus { background: #1e293b; border-color: #3b82f6; color: #f8fafc; box-shadow: none; }
         .btn-pay { background: #17735b; color: #fff; border: none; font-weight: bold; padding: 14px; border-radius: 12px; transition: 0.3s; }
         .btn-pay:hover { background: #125c49; }
     </style>
