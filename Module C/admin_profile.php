@@ -49,15 +49,39 @@ if (isset($_POST['action']) && $_POST['action'] === 'generate_logo_bg') {
         echo json_encode(['error' => 'API key not found.']); exit();
     }
 
+<<<<<<< HEAD
     $project_root = realpath(__DIR__ . '/..') ?: (__DIR__ . '/..');
+=======
+    $brand_logo_path_db = "";
+
+<<<<<<< HEAD
+    // Ensure upload dir exists
+    $save_dir = __DIR__ . '/../images/brands/';
+    if (!is_dir($save_dir) && !mkdir($save_dir, 0777, true) && !is_dir($save_dir)) {
+        echo json_encode(['error' => 'Unable to create upload directory.']);
+        exit();
+    }
+=======
+    // Ensure upload dir exists (resolve project root to avoid saving under Module C)
+    $project_root = realpath(__DIR__ . '/..');
+    if ($project_root === false) $project_root = __DIR__ . '/..';
+>>>>>>> 7fad789807b8f063b25c191d3823f2857e46ddd8
     $save_dir = rtrim($project_root, '/\\') . '/images/brands/';
     if (!is_dir($save_dir)) mkdir($save_dir, 0777, true);
+>>>>>>> 1cda877435036e3b59a893d4800496ea2870a9c5
 
     $logo_base64 = $_POST['logo_base64'] ?? '';
     $logo_mime   = $_POST['logo_mime'] ?? 'image/png';
 
     if (empty($logo_base64)) {
-        echo json_encode(['error' => 'No logo file uploaded.']); exit();
+        echo json_encode(['error' => 'No logo file uploaded.']);
+        exit();
+    }
+
+    $logo_decoded = base64_decode($logo_base64, true);
+    if ($logo_decoded === false) {
+        echo json_encode(['error' => 'Invalid logo base64 data.']);
+        exit();
     }
 
     $brand_name_sanitized = str_replace([' ','/','\\',':','*','?','"','<','>','|'], '_', $brand_name);
@@ -65,7 +89,16 @@ if (isset($_POST['action']) && $_POST['action'] === 'generate_logo_bg') {
     // Save original logo file
     $ext = ($logo_mime === 'image/jpeg') ? 'jpg' : 'png';
     $brand_original_filename = $brand_name_sanitized . "_original." . $ext;
+<<<<<<< HEAD
     file_put_contents($save_dir . $brand_original_filename, base64_decode($logo_base64));
+=======
+    $brand_original_path = $save_dir . $brand_original_filename;
+    
+    if (file_put_contents($brand_original_path, $logo_decoded) === false) {
+        echo json_encode(['error' => 'Unable to save logo file.']);
+        exit();
+    }
+>>>>>>> 7fad789807b8f063b25c191d3823f2857e46ddd8
 
     // Build AI prompt
     $prompt = "A high-end cinematic sports brand product photography banner (16:9). 
@@ -97,7 +130,17 @@ STYLE: Ultra-realistic, 8k resolution, professional advertising quality, deep co
     if (curl_errno($ch)) { $err = curl_error($ch); curl_close($ch); echo json_encode(['error' => 'Curl error: ' . $err]); exit(); }
     curl_close($ch);
 
+<<<<<<< HEAD
     $decoded_result       = json_decode($result, true);
+=======
+    $decoded_result = json_decode($result, true);
+    if ($decoded_result === null && json_last_error() !== JSON_ERROR_NONE) {
+        echo json_encode(['error' => 'Invalid API response: ' . json_last_error_msg()]);
+        exit();
+    }
+
+    // 5. 解析 AI 返回的图片
+>>>>>>> 7fad789807b8f063b25c191d3823f2857e46ddd8
     $generated_image_data = null;
     if (isset($decoded_result['candidates'][0]['content']['parts'])) {
         foreach ($decoded_result['candidates'][0]['content']['parts'] as $part) {
@@ -106,12 +149,25 @@ STYLE: Ultra-realistic, 8k resolution, professional advertising quality, deep co
     }
 
     if ($generated_image_data) {
+<<<<<<< HEAD
         // Save to a TEMP file — NOT the final filename, NOT written to DB yet
         $temp_filename = $brand_name_sanitized . "_preview_" . time() . ".png";
         $temp_path     = $save_dir . $temp_filename;
         file_put_contents($temp_path, $generated_image_data);
         $web_path = '../images/brands/' . $temp_filename;
         echo json_encode(['success' => true, 'img_url' => $web_path . '?t=' . time(), 'temp_filename' => $temp_filename]);
+=======
+        $brand_generated_filename = $brand_name_sanitized . ".png";
+        $brand_generated_path = $save_dir . $brand_generated_filename;
+        
+        if (file_put_contents($brand_generated_path, $generated_image_data) === false) {
+            echo json_encode(['error' => 'Unable to save generated image.']);
+            exit();
+        }
+        
+        $web_path = '../images/brands/' . $brand_generated_filename; // used for JSON response
+        $brand_logo_db_filename = $brand_generated_filename; // store only filename in DB
+>>>>>>> 7fad789807b8f063b25c191d3823f2857e46ddd8
     } else {
         // AI failed — return original as preview
         $web_path = '../images/brands/' . $brand_original_filename;
@@ -638,8 +694,14 @@ async function generateBrandBanner() {
         fd.append('logo_base64', b64);
         fd.append('logo_mime',   mime);
 
-        const res  = await fetch('admin_profile.php', { method: 'POST', body: fd });
-        const data = await res.json();
+        const res = await fetch('admin_profile.php', { method: 'POST', body: fd });
+        const text = await res.text();
+        let data;
+        try {
+            data = JSON.parse(text);
+        } catch (parseErr) {
+            throw new Error('Invalid server response: ' + text.substring(0, 300));
+        }
 
         if (data.error) {
             Swal.fire({ icon: 'error', title: 'Generation Failed', text: data.error, confirmButtonColor: '#FF8C00' });

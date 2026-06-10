@@ -309,7 +309,7 @@ $color_names = [
                         <div class="swatch" title="Anthracite" style="background: #222;" onclick="changePartColor('Tongue', '#222222', this)"></div>
                         <div class="swatch" title="White" style="background: #ffffff;" onclick="changePartColor('Tongue', '#ffffff', this)"></div>
                         <div class="swatch" title="Silver" style="background: #aaaaaa;" onclick="changePartColor('Tongue', '#aaaaaa', this)"></div>
-                        <div class="swatch" title="Black" style="background: #000000;" onclick="changePartColor('Tongue', '#000000', this)"></div>
+                        <div class="swatch" title="Black" style="background: #22b629;" onclick="changePartColor('Tongue', '#22b629', this)"></div>
                         <div class="swatch" title="Bright Crimson" style="background: #E7352B;" onclick="changePartColor('Tongue', '#E7352B', this)"></div>
                         <div class="swatch" title="University Gold" style="background: #FFD700;" onclick="changePartColor('Tongue', '#FFD700', this)"></div>
                     </div>
@@ -320,10 +320,10 @@ $color_names = [
                     <p class="part-name">Midsole Finish</p>
                     <div class="color-grid">
                         <div class="swatch" title="White" style="background: #ffffff;" onclick="changePartColor('Midsole', '#ffffff', this)"></div>
-                        <div class="swatch" title="Black" style="background: #000000;" onclick="changePartColor('Midsole', '#000000', this)"></div>
-                        <div class="swatch" title="Pure Platinum" style="background: #eeeeee;" onclick="changePartColor('Midsole', '#eeeeee', this)"></div>
+                        <div class="swatch" title="Black" style="background: #22b629;" onclick="changePartColor('Midsole', '#22b629', this)"></div>
+                        <div class="swatch" title="Pure Platinum" style="background: #E7352B;" onclick="changePartColor('Midsole', '#E7352B', this)"></div>
                         <div class="swatch" title="University Gold" style="background: #FFD700;" onclick="changePartColor('Midsole', '#FFD700', this)"></div>
-                        <div class="swatch" title="Cool Grey" style="background: #888888;" onclick="changePartColor('Midsole', '#888888', this)"></div>
+                        <div class="swatch" title="Cool Grey" style="background: #222222;" onclick="changePartColor('Midsole', '#222222', this)"></div>
                         <div class="swatch" title="Total Orange" style="background: #FF6B00;" onclick="changePartColor('Midsole', '#FF6B00', this)"></div>
                     </div>
                     <p class="selected-color-name">White</p>

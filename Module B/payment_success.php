@@ -26,12 +26,33 @@ if ($res_order->num_rows == 0) {
 }
 $order = $res_order->fetch_assoc();
 
+// 1.5 获取此订单是否使用Promo
+$promo_info = null;
+$promo_applied_text = 'No promo used';
+$promo_discount_amount = 0.00;
+$promo_id = intval($order['Promo_Id'] ?? 0);
+if ($promo_id > 0) {
+    $promo_res = $conn->query("SELECT Promo_Name, Promo_Code, Promo_Type, Promo_Value FROM promo WHERE Promo_Id = $promo_id");
+    if ($promo_res && $promo_res->num_rows > 0) {
+        $promo_info = $promo_res->fetch_assoc();
+        $promo_applied_text = htmlspecialchars($promo_info['Promo_Code'] ?: $promo_info['Promo_Name']);
+    }
+}
+
 // 2. 获取订单详情
 $sql_details = "SELECT od.*, p.Pro_Name, p.Pro_Price, p.Pro_Image, od.Custom_Preview 
                 FROM ORDER_DETAIL od 
                 JOIN product p ON od.Pro_Id = p.Pro_Id 
                 WHERE od.Order_Id = '$order_id'";
 $res_details = $conn->query($sql_details);
+$order_items = [];
+$total_items_amount = 0.00;
+if ($res_details) {
+    while ($row = $res_details->fetch_assoc()) {
+        $order_items[] = $row;
+        $total_items_amount += floatval($row['Order_Subtotal']);
+    }
+}
 ?>
 
 <!DOCTYPE html>
@@ -122,7 +143,7 @@ $res_details = $conn->query($sql_details);
                 </tr>
             </thead>
             <tbody>
-                <?php while($item = $res_details->fetch_assoc()): ?>
+                <?php foreach ($order_items as $item): ?>
                 <tr class="border-bottom">
                     <td>
                         <div class="d-flex align-items-center py-2">
@@ -147,7 +168,7 @@ $res_details = $conn->query($sql_details);
                     <td class="text-center"><?php echo $item['Order_Qty']; ?></td>
                     <td class="text-end fw-bold">RM <?php echo number_format($item['Order_Subtotal'], 2); ?></td>
                 </tr>
-                <?php endwhile; ?>
+                <?php endforeach; ?>
             </tbody>
         </table>
 
@@ -161,6 +182,23 @@ $res_details = $conn->query($sql_details);
                     <span class="text-muted">Order Status:</span>
                     <span class="fw-bold text-primary"><?php echo $order['Order_Status']; ?></span>
                 </div>
+                <div class="d-flex justify-content-between mb-2">
+                    <span class="text-muted">Promo Used:</span>
+                    <span class="fw-bold"><?php echo $promo_applied_text; ?></span>
+                </div>
+                <?php if ($promo_info): ?>
+                <div class="d-flex justify-content-between mb-2">
+                    <span class="text-muted">Promo Discount:</span>
+                    <?php
+                    if (strcasecmp($promo_info['Promo_Type'], 'Percentage') === 0) {
+                        $promo_discount_amount = round($total_items_amount * floatval($promo_info['Promo_Value']) / 100, 2);
+                    } else {
+                        $promo_discount_amount = floatval($promo_info['Promo_Value']);
+                    }
+                    ?>
+                    <span class="fw-bold text-success">- RM <?php echo number_format($promo_discount_amount, 2); ?></span>
+                </div>
+                <?php endif; ?>
                 <hr>
                 <div class="d-flex justify-content-between align-items-center">
                     <h4 class="fw-bold">Total Paid:</h4>
