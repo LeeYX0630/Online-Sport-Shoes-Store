@@ -16,10 +16,13 @@ if ($order_id <= 0) {
 }
 
 // Fixed MySQL reserved words conflict by wrapping tables in backticks ``
+// Enhanced to include shipment tracking information
 $stmt = $conn->prepare("
-    SELECT o.*, u.`User_Name` 
+    SELECT o.*, u.`User_Name`,
+           s.`Ship_Tracking_num`, s.`Estimated_Arrival_Date`, s.`Shipped_Date`, s.`Delivered_Date`
     FROM `order` o 
-    JOIN `user` u ON o.`User_Id` = u.`User_Id` 
+    JOIN `user` u ON o.`User_Id` = u.`User_Id`
+    LEFT JOIN `shipment` s ON o.`Order_Id` = s.`Order_Id`
     WHERE o.`Order_Id` = ? AND o.`User_Id` = ?
 ");
 $stmt->bind_param('ii', $order_id, $user_id);
@@ -152,9 +155,23 @@ function getOrderStatusStepLevel(string $status): int {
     }
 }
 
+// Helper function to safely format nullable datetime from database
+function format_nullable_datetime($dt, $fmt = 'd M Y, h:i A') {
+    if (empty($dt) || $dt === '0000-00-00 00:00:00') return '--';
+    $ts = strtotime($dt);
+    if ($ts === false || $ts <= 0) return '--';
+    return date($fmt, $ts);
+}
+
 $order_status = normalizeOrderStatus($order['Order_Status'] ?? 'Pending');
 $order_status_step = getOrderStatusStepLevel($order_status);
 $order_status_progress = ($order_status_step - 1) * 33.3333333;
+
+// Extract shipment data
+$shipment_tracking = !empty($order['Ship_Tracking_num']) ? $order['Ship_Tracking_num'] : 'Not assigned';
+$estimated_arrival = !empty($order['Estimated_Arrival_Date']) ? date('d M Y', strtotime($order['Estimated_Arrival_Date'])) : 'Pending Assignment';
+$shipped_date_formatted = format_nullable_datetime($order['Shipped_Date'] ?? null, 'd M Y, H:i');
+$delivered_date_formatted = format_nullable_datetime($order['Delivered_Date'] ?? null, 'd M Y, H:i');
 
 include '../includes/header.php';
 ?>
@@ -602,7 +619,10 @@ include '../includes/header.php';
                     <div class="tracker-status">Fulfillment: <?php echo htmlspecialchars($order_status); ?></div>
                     <div class="tracker-subtext">Order progress tracker</div>
                 </div>
-                <div class="tracker-status" style="font-size: 1rem; opacity: 0.75;">Ref: <?php echo htmlspecialchars($tracking_number); ?></div>
+                <div style="text-align: right;">
+                    <div class="tracker-status" style="font-size: 1rem; opacity: 0.75;">Ref: <?php echo htmlspecialchars($tracking_number); ?></div>
+                    <div class="tracker-subtext" style="margin-top: 8px; font-size: 0.9rem;">Est. Arrival: <strong><?php echo htmlspecialchars($estimated_arrival); ?></strong></div>
+                </div>
             </div>
             <div class="status-stepper">
                 <span class="status-progress-fill" style="width: <?php echo $order_status_progress; ?>%;"></span>
@@ -612,10 +632,10 @@ include '../includes/header.php';
                 <div class="step <?php echo $order_status_step >= 4 ? 'active' : ''; ?>" title="Delivered"></div>
             </div>
             <div class="tracker-labels">
-                <span>Pending</span>
-                <span>Processing</span>
-                <span>Shipped</span>
-                <span>Delivered</span>
+                <span>Pending<br><small style="font-weight: 400; font-size: 0.7rem; opacity: 0.6; margin-top: 4px; display: block;"><?php echo htmlspecialchars(date('d M Y', strtotime($order['Order_Date'] ?? 'now'))); ?></small></span>
+                <span>Processing<br><small style="font-weight: 400; font-size: 0.7rem; opacity: 0.6; margin-top: 4px; display: block;"><?php echo $order_status_step >= 2 ? htmlspecialchars(format_nullable_datetime($order['Order_Processing_Date'] ?? null, 'd M Y')) : '--'; ?></small></span>
+                <span>Shipped<br><small style="font-weight: 400; font-size: 0.7rem; opacity: 0.6; margin-top: 4px; display: block;"><?php echo $order_status_step >= 3 ? htmlspecialchars($shipped_date_formatted) : '--'; ?></small></span>
+                <span>Delivered<br><small style="font-weight: 400; font-size: 0.7rem; opacity: 0.6; margin-top: 4px; display: block;"><?php echo $order_status_step >= 4 ? htmlspecialchars($delivered_date_formatted) : '--'; ?></small></span>
             </div>
         </div>
 
