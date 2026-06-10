@@ -113,14 +113,14 @@ if (isset($_GET['id'])) {
 
 // --- 后端保存处理逻辑 (Add & Edit 通用) ---
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_product'])) {
-    $pro_name = mysqli_real_escape_string($conn, $_POST['product_name']);
-    
-    // 修复：如果 brand 被禁用，则从 hidden 字段或旧数据中获取，防止外键报错
-    $brand_id = isset($_POST['brand']) ? intval($_POST['brand']) : ($is_edit ? $product_data['Brand_Id'] : 0); 
-    
-    $price    = abs(floatval($_POST['selling_price'])); 
-    // 从请求中获取 description 并清理（支持来自表单或其他来源）
-    $desc     = mysqli_real_escape_string($conn, $_REQUEST['description'] ?? '');
+    $pro_name  = mysqli_real_escape_string($conn, $_POST['product_name']);
+    $brand_id  = isset($_POST['brand']) ? intval($_POST['brand']) : ($is_edit ? $product_data['Brand_Id'] : 0);
+    $price     = abs(floatval($_POST['selling_price']));
+    $desc      = mysqli_real_escape_string($conn, $_REQUEST['description'] ?? '');
+    $gender    = $_POST['gender'];
+    $age_group = $_POST['age_group'];
+    $status    = ($_POST['status'] == 'Active') ? 'Available' : 'Unavailable';
+
     // 强制服务器端验证：Description 不能为空
     if (trim($desc) === '') {
         $_SESSION['swal_status'] = 'desc_required';
@@ -128,9 +128,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_product'])) {
         header('Location: ' . $redirect);
         exit();
     }
-    $gender   = $_POST['gender'];
-    $age_group = $_POST['age_group'];
-    $status   = ($_POST['status'] == 'Active') ? 'Available' : 'Unavailable';
 
     // 处理 Category 逻辑
     $cat_id = 0;
@@ -140,10 +137,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_product'])) {
         $check_cat->bind_param("s", $new_cat_name);
         $check_cat->execute();
         $res_cat = $check_cat->get_result();
-        
         if ($res_cat->num_rows > 0) {
-            $existing_cat = $res_cat->fetch_assoc();
-            $cat_id = $existing_cat['Cat_Id'];
+            $cat_id = $res_cat->fetch_assoc()['Cat_Id'];
         } else {
             $insert_cat = $conn->prepare("INSERT INTO category (Cat_Name) VALUES (?)");
             $insert_cat->bind_param("s", $new_cat_name);
@@ -157,11 +152,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_product'])) {
     }
 
     // 图片命名处理
-    $pure_name = strtolower(str_replace(' ', '', $_POST['product_name']));
-    // 如果是编辑且没传新图，先默认使用数据库旧图名
+    $pure_name     = strtolower(str_replace(' ', '', $_POST['product_name']));
     $db_main_image = $is_edit ? $product_data['Pro_Image'] : ($pure_name . ".jpg");
 
-    // 上传照片处理 (增强：支持保留旧图并按需删除/重命名)
+    // 上传照片处理
     $upload_dir = '../uploads/';
     if (!is_dir($upload_dir)) mkdir($upload_dir, 0777, true);
 
@@ -170,77 +164,31 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_product'])) {
     if (isset($_FILES['color_photos'])) {
         foreach ($_FILES['color_photos']['tmp_name'] as $color => $tmp_names) {
             $color_clean = strtolower(str_replace(' ', '_', $color));
+            $keep_files  = $_POST['keep_photos'][$color] ?? [];
 
-            // ── 获取前端传来的要保留的旧图列表（basename）
-            $keep_files = $_POST['keep_photos'][$color] ?? [];
-
-            // ── 检查这个颜色是否有新图上传
-            $has_new_for_this_color = false;
-            foreach ($tmp_names as $tmp_name) {
-                if (!empty($tmp_name) && is_uploaded_file($tmp_name)) {
-                    $has_new_for_this_color = true;
-                    break;
-                }
-            }
-
-if ($is_edit) {
-                $path_info     = pathinfo($product_data['Pro_Image']);
-                $img_base_name = $path_info['filename'];
-
-                // 找出这个颜色所有旧图
+            if ($is_edit) {
+                $img_base_name = pathinfo($product_data['Pro_Image'], PATHINFO_FILENAME);
                 $all_old = glob($upload_dir . $img_base_name . '_' . $color_clean . '_*.*') ?: [];
 
-                // 1. 只删除用户在前端移除了的旧图（不在 keep_photos 里的）
+                // 删除前端移除的旧图
                 foreach ($all_old as $f) {
-                    $basename = basename($f);
-                    if (!in_array($basename, $keep_files) && is_file($f)) {
+                    if (!in_array(basename($f), $keep_files) && is_file($f)) {
                         unlink($f);
                     }
                 }
-                
-                // 2. 重新按序号命名留下来（没有被删）的旧文件，保持连续性
+
+                // 重新按序号命名剩余旧图
                 $remaining = glob($upload_dir . $img_base_name . '_' . $color_clean . '_*.*') ?: [];
                 sort($remaining);
                 foreach ($remaining as $idx => $f) {
                     $ext      = pathinfo($f, PATHINFO_EXTENSION);
                     $new_name = $upload_dir . $img_base_name . '_' . $color_clean . '_' . ($idx + 1) . '.' . $ext;
-                    if ($f !== $new_name) {
-                        rename($f, $new_name);
-                    }
+                    if ($f !== $new_name) rename($f, $new_name);
                 }
             }
 
-            // ── 3. 重要修复：确定统一的文件名前缀（编辑模式用旧前缀，新增模式用新商品名） ──
             $final_base_name = $is_edit ? pathinfo($product_data['Pro_Image'], PATHINFO_FILENAME) : $pure_name;
-
-            // ── 4. 重新计算当前文件夹中该颜色实际留下的有效旧图数量 ──
-            $existing_count = count(glob($upload_dir . $final_base_name . '_' . $color_clean . '_*.*') ?: []);
-            $count = $existing_count;
-
-            // ── 5. 追加新图 ──
-            foreach ($tmp_names as $index => $tmp_name) {
-                if ($count >= 4) break; // 确保总数（旧图+新图）不超过4张
-                if (!empty($tmp_name) && is_uploaded_file($tmp_name)) {
-                    $original_name = $_FILES['color_photos']['name'][$color][$index];
-                    $ext = strtolower(pathinfo($original_name, PATHINFO_EXTENSION));
-                    if (empty($ext)) $ext = 'jpg';
-
-                    if (!$first_image_uploaded) {
-                        // 统一保持主图扩展名一致
-                        $db_main_image        = $final_base_name . '.' . $ext;
-                        $first_image_uploaded = true;
-                    }
-
-                    // 使用统一确定的 $final_base_name 追加编号，绝对不会覆盖旧图
-                    $new_filename = $final_base_name . '_' . $color_clean . '_' . ($count + 1) . '.' . $ext;
-                    move_uploaded_file($tmp_name, $upload_dir . $new_filename);
-                    $count++;
-                }
-            }
-            // ── 上传新图：从现有文件数开始计数，避免覆盖留下的旧图
-            $base_name_for_count = $is_edit ? pathinfo($product_data['Pro_Image'], PATHINFO_FILENAME) : $pure_name;
-            $existing_count = count(glob($upload_dir . $base_name_for_count . '_' . $color_clean . '_*.*') ?: []);
-            $count = $existing_count;
+            $count = count(glob($upload_dir . $final_base_name . '_' . $color_clean . '_*.*') ?: []);
 
             foreach ($tmp_names as $index => $tmp_name) {
                 if ($count >= 4) break;
@@ -248,27 +196,91 @@ if ($is_edit) {
                     $original_name = $_FILES['color_photos']['name'][$color][$index];
                     $ext = strtolower(pathinfo($original_name, PATHINFO_EXTENSION));
                     if (empty($ext)) $ext = 'jpg';
-
                     if (!$first_image_uploaded) {
-                        $db_main_image        = $pure_name . '.' . $ext;
+                        $db_main_image        = $final_base_name . '.' . $ext;
                         $first_image_uploaded = true;
                     }
-
-                    $new_filename = $pure_name . '_' . $color_clean . '_' . ($count + 1) . '.' . $ext;
+                    $new_filename = $final_base_name . '_' . $color_clean . '_' . ($count + 1) . '.' . $ext;
                     move_uploaded_file($tmp_name, $upload_dir . $new_filename);
                     $count++;
                 }
             }
-                }
-
-        // ── 【添加此段逻辑】检查数据库执行状态并设置提示变量 ──
-        // 注意：请确保你的主要 SQL 执行（如 $stmt->execute()）在这里已经完成。
-        if (!isset($conn->error) || empty($conn->error)) {
-            $_SESSION['swal_status'] = 'success';
-        } else {
-            $_SESSION['swal_status'] = 'failed';
         }
     }
+
+    // ── UPDATE product 主表 ──────────────────────────────────────
+    if ($is_edit) {
+        $stmt_update = $conn->prepare(
+            "UPDATE product SET
+                Pro_Name = ?, Cat_Id = ?, Brand_Id = ?, Pro_Price = ?,
+                Pro_Description = ?, Pro_Gender = ?, Pro_Age_Group = ?,
+                Pro_Status = ?, Pro_Image = ?
+             WHERE Pro_Id = ?"
+        );
+        $stmt_update->bind_param(
+            "siidsssssi",
+            $pro_name, $cat_id, $brand_id, $price,
+            $desc, $gender, $age_group,
+            $status, $db_main_image,
+            $edit_pro_id
+        );
+        $stmt_update->execute();
+        $update_ok = ($stmt_update->affected_rows >= 0 && $stmt_update->errno === 0);
+        $stmt_update->close();
+    } else {
+        // 新增产品
+        $stmt_insert = $conn->prepare(
+            "INSERT INTO product (Pro_Name, Cat_Id, Brand_Id, Pro_Price, Pro_Description, Pro_Gender, Pro_Age_Group, Pro_Status, Pro_Image)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        );
+        $stmt_insert->bind_param(
+            "siidsssss",
+            $pro_name, $cat_id, $brand_id, $price,
+            $desc, $gender, $age_group,
+            $status, $db_main_image
+        );
+        $stmt_insert->execute();
+        $edit_pro_id = $conn->insert_id;
+        $update_ok   = ($edit_pro_id > 0);
+        $stmt_insert->close();
+    }
+
+    // ── UPDATE / INSERT product_stock ────────────────────────────
+    if (!empty($_POST['stock'])) {
+        foreach ($_POST['stock'] as $color => $sizes) {
+            foreach ($sizes as $size => $qty) {
+                $qty = max(0, intval($qty));
+
+                $stmt_check = $conn->prepare(
+                    "SELECT Stock_Id FROM product_stock WHERE Pro_Id = ? AND Pro_Colour = ? AND Pro_Size = ?"
+                );
+                $stmt_check->bind_param("iss", $edit_pro_id, $color, $size);
+                $stmt_check->execute();
+                $res_check = $stmt_check->get_result();
+
+                if ($res_check->num_rows > 0) {
+                    $stmt_stock = $conn->prepare(
+                        "UPDATE product_stock SET Quantity = ? WHERE Pro_Id = ? AND Pro_Colour = ? AND Pro_Size = ?"
+                    );
+                    $stmt_stock->bind_param("iiss", $qty, $edit_pro_id, $color, $size);
+                } else {
+                    $stmt_stock = $conn->prepare(
+                        "INSERT INTO product_stock (Pro_Id, Pro_Colour, Pro_Size, Quantity) VALUES (?, ?, ?, ?)"
+                    );
+                    $stmt_stock->bind_param("issi", $edit_pro_id, $color, $size, $qty);
+                }
+                $stmt_stock->execute();
+                $stmt_stock->close();
+                $stmt_check->close();
+            }
+        }
+    }
+
+    // ── 设置提示 & 跳转（防止刷新重复 submit）───────────────────
+    $_SESSION['swal_status'] = ($conn->errno === 0) ? 'success' : 'failed';
+    $redirect = 'edit_product.php?id=' . intval($edit_pro_id);
+    header('Location: ' . $redirect);
+    exit();
 }
 
 

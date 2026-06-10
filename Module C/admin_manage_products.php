@@ -98,7 +98,7 @@ $brands = $conn->query("SELECT * FROM brand");
 
 // 智能匹配图片函数
 function getSmartProductImage($filename, $colors = []) {
-    if (empty($filename)) return '../assets/no-image.png';
+    if (empty($filename)) return '../images/picture/none picture.jpg';
     $info = pathinfo($filename);
     $baseName = $info['filename'];
     $extension = isset($info['extension']) ? "." . $info['extension'] : ".jpg";
@@ -110,7 +110,7 @@ function getSmartProductImage($filename, $colors = []) {
         }
     }
     $default_img = "../uploads/" . $baseName . "_1" . $extension;
-    return file_exists($default_img) ? $default_img : '../assets/no-image.png';
+    return file_exists($default_img) ? $default_img : '../images/picture/none picture.jpg';
 }
 ?>
 
@@ -320,15 +320,15 @@ function getSmartProductImage($filename, $colors = []) {
                             }
                             
                             foreach ($color_galleries as $c => &$images) {
-                                if (empty($images)) $images[] = empty($base_img) ? '../assets/no-image.png' : "../uploads/" . $base_img;
-                                while (count($images) < 4) $images[] = "../assets/no-image.png";
+                                if (empty($images)) $images[] = empty($base_img) ? '../images/picture/none picture.jpg' : "../uploads/" . $base_img;
+                                while (count($images) < 4) $images[] = '../images/picture/none picture.jpg';
                             }
                             unset($images);
                             $row['colorGalleries'] = $color_galleries;
                             $img_path = $color_galleries[$colors[0]][0];
                         ?>
                         <tr>
-                            <td><img src="<?php echo $img_path; ?>" class="product-img" onerror="this.onerror=null; this.outerHTML='<div class=\'text-muted small\'>N/A</div>';"></td>
+                            <td><img src="<?php echo $img_path; ?>" class="product-img" onerror="this.onerror=null; this.src='../images/picture/none picture.jpg';"></td>
                             <td>
                                 <div class="fw-bold"><?php echo $row['Pro_Name']; ?></div>
                                 <small class="text-muted">#<?php echo $row['Pro_Id']; ?> <?php if(!empty($colors)) echo "| Colors: ".implode(', ', $colors); ?></small>
@@ -360,7 +360,7 @@ function getSmartProductImage($filename, $colors = []) {
                     <div class="row g-4">
                         <div class="col-lg-6">
                             <div class="main-img-box mb-3 border rounded d-flex align-items-center justify-content-center" style="height: 420px; background: #fff; overflow: hidden;">
-                                <img id="main_view_img" src="" class="img-fluid" style="max-height: 100%; object-fit: contain;" onerror="this.onerror=null; this.outerHTML='N/A';">
+                                <img id="main_view_img" src="" class="img-fluid" style="max-height: 100%; object-fit: contain;" onerror="this.onerror=null; this.src='../images/picture/none picture.jpg';">
                             </div>
                             <div class="row g-2" id="thumbnail_container"></div>
                         </div>
@@ -513,7 +513,7 @@ function getSmartProductImage($filename, $colors = []) {
             img.style.height = '80px'; img.style.width = '100%'; img.style.objectFit = 'cover';
             img.src = imgSrc;
             if (idx === 0) mainImg.src = imgSrc;
-            img.onclick = function() { if (!this.src.includes('no-image.png')) mainImg.src = this.src; };
+            img.onclick = function() { if (!this.src.includes('none picture.jpg')) mainImg.src = this.src; };
             col.appendChild(img); thumbContainer.appendChild(col);
         });
     }

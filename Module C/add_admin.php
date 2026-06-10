@@ -58,7 +58,8 @@ function generateRandomPassword($length = 10) {
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $real_name = trim($_POST['real_name']);     
     $admin_email = trim($_POST['admin_email']);
-    $admin_level = $_POST['admin_level'];
+    // 强制新建管理员只能为 Normal Admin (level 2)，避免创建 Super Admin
+    $admin_level = '2';
 
     if (empty($real_name) || empty($admin_email)) {
         $msg = "Error: All fields are required.";
@@ -106,7 +107,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                                 <p>Hello,</p>
                                 <p>An administrator account has been created for you at SS Sport Shoes Store.</p>
                                 <p><b>Email:</b> $admin_email</p>
-                                <p><b>Password:</b> $generated_password</p>
                                 <p style='color: red;'>Please change your password after your first login.</p>
                             </div>";
 
@@ -269,10 +269,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
         <div class="col-12">
             <label class="form-label">Admin Level</label>
-            <select name="admin_level" class="form-select" required>
-                <option value="1" <?php if ($admin_level == "1") echo "selected"; ?>>Super Admin</option>
-                <option value="2" <?php if ($admin_level == "2") echo "selected"; ?>>Normal Admin</option>
-            </select>
+            <input type="hidden" name="admin_level" value="2">
+            <div class="form-control">Normal Admin (default)</div>
         </div>
 
         <div class="col-12 mt-2">

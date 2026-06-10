@@ -434,6 +434,77 @@ $json_ai_products = json_encode($ai_products_data);
         .btn-regen:hover { text-decoration: underline; }
 
         @media (max-width: 991px) { .main-content { margin-left: 0; padding: 15px; } }
+
+        /* === NEW: AI Innovation Button === */
+        .btn-ai-innovation { 
+            background: linear-gradient(135deg, #0f172a, #1e293b);
+            color: #10b981; 
+            border: 1px solid #334155; 
+            padding: 10px 18px; 
+            border-radius: 10px; 
+            font-weight: 600;
+            font-size: 14px;
+            display: inline-flex; 
+            align-items: center; 
+            gap: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-ai-innovation:hover { background: #1e293b; color: #34d399; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(16,185,129,0.2); }
+
+        /* ===================== AI INNOVATION MODAL (Dark Theme) ===================== */
+        .ai-innov-overlay {
+            display: none; position: fixed; inset: 0;
+            background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(8px);
+            z-index: 9999; align-items: center; justify-content: center; padding: 20px;
+        }
+        .ai-innov-overlay.active { display: flex; }
+
+        .ai-innov-modal {
+            background: #0f172a; border: 1px solid #1e293b; border-radius: 20px;
+            width: 100%; max-width: 1000px; max-height: 90vh; overflow: hidden;
+            display: flex; flex-direction: column; box-shadow: 0 25px 60px rgba(0,0,0,0.5);
+            animation: modalIn 0.3s ease; color: #f8fafc;
+        }
+        .ai-innov-header {
+            padding: 20px 30px; border-bottom: 1px solid #1e293b;
+            display: flex; align-items: center; justify-content: space-between; background: #0f172a;
+        }
+        .ai-innov-close {
+            width: 36px; height: 36px; border-radius: 50%; border: 1px solid #334155;
+            background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center;
+            font-size: 20px; color: #94a3b8; transition: all 0.2s;
+        }
+        .ai-innov-close:hover { background: #1e293b; color: white; }
+        .ai-innov-body { padding: 30px; overflow-y: auto; flex: 1; }
+
+        .concept-images-container { display: flex; justify-content: space-between; gap: 20px; margin-bottom: 30px; }
+        .concept-img-box {
+            flex: 1; background: #1e293b; border-radius: 16px; padding: 20px;
+            text-align: center; border: 1px solid #334155; position: relative; overflow: hidden;
+        }
+        .concept-img-box::before {
+            content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
+            background: radial-gradient(circle, rgba(16,185,129,0.1) 0%, rgba(30,41,59,0) 70%); z-index: 0;
+        }
+        .concept-placeholder {
+            width: 100%; height: 140px; object-fit: contain; position: relative; z-index: 1;
+            background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='1' stroke-linecap='round' stroke-linejoin='round'><path d='M22 12h-4l-3 9L9 3l-3 9H2'/></svg>");
+            background-repeat: no-repeat; background-position: center; opacity: 0.5;
+        }
+        .concept-label { margin-top: 15px; font-size: 13px; color: #cbd5e1; position: relative; z-index: 1; }
+        
+        .innov-grid { display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 20px; }
+        @media(max-width: 900px) { .innov-grid { grid-template-columns: 1fr; } .concept-images-container { flex-direction: column; } }
+        .innov-card { background: #1e293b; border-radius: 16px; padding: 20px; border: 1px solid #334155; display: flex; flex-direction: column; }
+        .innov-card-title { font-size: 12px; font-weight: 600; color: #94a3b8; text-transform: uppercase; margin-bottom: 12px; letter-spacing: 0.5px; }
+        .innov-metric-row { display: flex; justify-content: space-between; margin-bottom: 10px; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 10px; }
+        .innov-metric-row:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+        .innov-metric-label { font-size: 14px; color: #cbd5e1; }
+        .innov-metric-val { font-size: 16px; font-weight: 700; color: #f8fafc; }
+        .innov-text-body { font-size: 13px; color: #cbd5e1; line-height: 1.6; }
+        .btn-launch { background: #10b981; color: white; border: none; padding: 12px; border-radius: 10px; font-weight: 700; width: 100%; margin-top: 15px; cursor: pointer; transition: background 0.2s; }
+        .btn-launch:hover { background: #059669; }
     </style>
 </head>
 <body>
@@ -473,11 +544,12 @@ $json_ai_products = json_encode($ai_products_data);
                     <p class="text-muted small mb-0">Managing <strong><?php echo $display_brand_name; ?></strong> Store</p>
                 </div>
                 <div class="d-flex gap-2 align-items-center">
-                    <!-- NEW: AI Predict Button -->
-                    <button class="btn-ai" onclick="openAIPrediction()">
-                        <i class="bi bi-stars"></i> AI Predict Hot Products
+                    <button class="btn-ai-innovation" onclick="openAIInnovation()">
+                        <i class="bi bi-rocket-takeoff"></i> AI Innovation Engine
                     </button>
-                    <!-- Original: Sales Report Button -->
+                    <button class="btn-ai" onclick="openAIPrediction()">
+                        <i class="bi bi-stars"></i> Predict Hot Products
+                    </button>
                     <a href="sales_weekly_report.php" class="btn btn-orange shadow-sm" target="_blank">
                         <i class="bi bi-file-earmark-pdf"></i> Sales Report
                     </a>
@@ -565,13 +637,32 @@ $json_ai_products = json_encode($ai_products_data);
     <div class="ai-modal" id="aiModal">
         <div class="ai-modal-header">
             <div class="ai-header-icon"><i class="bi bi-stars"></i></div>
-            <div>
+            <div class="flex-grow-1 ms-3">
                 <div class="ai-modal-title">AI Hot Product Prediction</div>
                 <div class="ai-modal-subtitle">Powered by Gemini AI &middot; Based on your store's sales data</div>
             </div>
+            <button class="btn-ai-innovation me-3" onclick="closeAIPrediction(); openAIInnovation();" style="padding: 8px 14px; font-size: 13px;">
+                <i class="bi bi-cpu"></i> Switch to Innovation Engine
+            </button>
             <button class="ai-modal-close" onclick="closeAIPrediction()"><i class="bi bi-x"></i></button>
         </div>
         <div class="ai-modal-body" id="aiModalBody"></div>
+    </div>
+</div>
+
+<!-- ===================== AI INNOVATION MODAL (Dark Theme) ===================== -->
+<div class="ai-innov-overlay" id="aiInnovOverlay" onclick="handleInnovOverlayClick(event)">
+    <div class="ai-innov-modal">
+        <div class="ai-innov-header">
+            <div>
+                <h4 style="margin:0; font-weight:700; color:#10b981;">
+                    <i class="bi bi-rocket-takeoff me-2"></i> AI Product Intelligence
+                </h4>
+                <div style="font-size:13px; color:#94a3b8; margin-top:5px;">Market Gap Analysis &amp; New Concept Generation</div>
+            </div>
+            <button class="ai-innov-close" onclick="closeAIInnovation()"><i class="bi bi-x"></i></button>
+        </div>
+        <div class="ai-innov-body" id="aiInnovBody"></div>
     </div>
 </div>
 
@@ -777,6 +868,334 @@ function renderPredictions(data) {
             </button>
         </div>`;
 }
+
+// ===================== AI INNOVATION ENGINE =====================
+let innovationGenerated = false;
+let innovChartInstance = null;
+
+function openAIInnovation() {
+    document.getElementById('aiInnovOverlay').classList.add('active');
+    if (!innovationGenerated) generateAIInnovation();
+}
+
+function closeAIInnovation() {
+    document.getElementById('aiInnovOverlay').classList.remove('active');
+}
+
+function handleInnovOverlayClick(e) {
+    if (e.target === document.getElementById('aiInnovOverlay')) closeAIInnovation();
+}
+
+async function generateAIInnovation() {
+    innovationGenerated = true;
+    const body = document.getElementById('aiInnovBody');
+    body.innerHTML = `
+        <div class="ai-loading" style="padding: 100px 20px;">
+            <div class="ai-spinner" style="border-top-color: #10b981; border-color: #1e293b; border-top-color: #10b981;"></div>
+            <div style="font-size: 18px; font-weight: 600; color: #f8fafc; margin-bottom: 8px;">Synthesizing Market Data...</div>
+            <div style="font-size: 13px; color: #94a3b8;">Analyzing gaps, running predictive models, and generating new product concept.</div>
+        </div>`;
+
+    const dataStr = aiProductsData.map(p =>
+        `- ${p.Pro_Name} (${p.Cat_Name}, RM${p.Pro_Price}, Sold: ${p.total_sold}, This Month: ${p.this_month_sold}, Last Month: ${p.last_month_sold})`
+    ).join('\n');
+
+    const prompt = `Act as an Expert Footwear Product Manager and Data Analyst for a Malaysian brand. Based on the historical sales data below, identify a MARKET GAP and propose ONE highly profitable NEW shoe concept for us to develop next.
+
+SALES DATA:
+${dataStr}
+
+Return ONLY a JSON object with this EXACT structure (No markdown, no extra text):
+{
+  "product_name": "Provide a cool, modern name for the shoe (e.g., Velocity One)",
+  "opportunity_score": "Number between 85-98",
+  "predicted_sales": "Predicted pairs sold per month (e.g., 1350)",
+  "confidence_level": "Percentage number (e.g., 87)",
+  "executive_summary": "Short 2 sentence explanation of why this blend of features addresses a market gap.",
+  "market_trends": [
+    {"feature": "Feature 1 (e.g., White Shoes)", "growth": "+22"},
+    {"feature": "Feature 2 (e.g., Retro Style)", "growth": "+18"}
+  ],
+  "customer_analysis": "Target demographic info (e.g., 18-30 year olds represent 64% of volume)",
+  "market_gap": "Explain exactly what combination is currently missing in the market.",
+  "sales_forecast": [1000, 1350, 1620, 1800]
+}`;
+
+    const GEMINI_KEY = '<?php echo htmlspecialchars(getenv("GEMINI_API_KEY")); ?>';
+
+    try {
+        const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_KEY}`,
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }],
+                    generationConfig: { temperature: 0.8, maxOutputTokens: 1000 }
+                })
+            }
+        );
+
+        const data = await response.json();
+        const rawText = data.candidates[0].content.parts[0].text;
+        const cleaned = rawText.replace(/```json|```/g, '').trim();
+        renderInnovationDashboard(JSON.parse(cleaned));
+
+    } catch (err) {
+        body.innerHTML = `
+            <div style="text-align:center; padding:50px 20px;">
+                <div style="font-size:36px; margin-bottom:16px;">⚠️</div>
+                <div style="font-size:16px; font-weight:700; color:#f8fafc; margin-bottom:8px;">System Overload</div>
+                <div style="font-size:13px; color:#94a3b8; margin-bottom:20px;">Could not connect to the Innovation Engine. Please try again.</div>
+                <button onclick="innovationGenerated=false; generateAIInnovation();" class="btn-launch" style="width: auto; padding: 10px 30px;">
+                    Retry Analysis
+                </button>
+            </div>`;
+    }
+}
+
+// Random color palette for shoe concept generation
+const SHOE_COLORS = [
+    'Midnight Black', 'Arctic White', 'Solar Orange', 'Ocean Blue',
+    'Forest Green', 'Cherry Red', 'Ash Grey', 'Desert Sand',
+    'Electric Purple', 'Coral Pink', 'Slate Navy', 'Olive Khaki'
+];
+
+// Picked once per generation session — all 3 images share this color
+let currentSessionColor = '';
+
+function pickSessionColor() {
+    const shuffled = [...SHOE_COLORS].sort(() => Math.random() - 0.5);
+    currentSessionColor = shuffled[0];
+    return currentSessionColor;
+}
+
+function renderInnovationDashboard(data) {
+    const body = document.getElementById('aiInnovBody');
+
+    const trendsHTML = data.market_trends.map(t => `
+        <div class="innov-metric-row">
+            <span class="innov-metric-label">${t.feature}</span>
+            <span style="color: #10b981; font-weight: 600; font-size: 13px;"><i class="bi bi-arrow-up-short"></i>${t.growth}%</span>
+        </div>
+    `).join('');
+
+    // Pick ONE color for this entire generation session — all 3 views share it
+    const sessionColor = pickSessionColor();
+    const views  = ['Front View', 'Side Profile', '45° Angle'];
+
+    const skeletonBoxes = views.map((view, i) => `
+        <div class="concept-img-box" id="imgBox_${i}">
+            <div class="img-skeleton" id="imgSkeleton_${i}" style="
+                width:100%; height:140px; border-radius:10px;
+                background: linear-gradient(90deg, #1e293b 25%, #293548 50%, #1e293b 75%);
+                background-size: 200% 100%;
+                animation: shimmer 1.4s infinite;
+                position:relative; z-index:1;
+                display:flex; align-items:center; justify-content:center;
+                flex-direction:column; gap:8px;
+            ">
+                <div style="width:32px;height:32px;border:2px solid #334155;border-top-color:#10b981;border-radius:50%;animation:spin 0.8s linear infinite;"></div>
+                <span style="font-size:11px;color:#64748b;">Generating image...</span>
+            </div>
+            <div class="concept-label">${view} &nbsp;<span style="font-size:11px;color:#10b981;font-weight:600;" id="colorTag_${i}">· ${sessionColor}</span></div>
+        </div>
+    `).join('');
+
+    body.innerHTML = `
+        <style>
+            @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+        </style>
+
+        <div class="concept-images-container">${skeletonBoxes}</div>
+
+        <div class="innov-grid">
+            <div style="display: flex; flex-direction: column; gap: 20px;">
+                <div class="innov-card">
+                    <div class="innov-card-title">Product Specifications</div>
+                    <div style="font-size: 18px; font-weight: 700; color: #fff; margin-bottom: 15px;">${data.product_name}</div>
+                    <div class="innov-metric-row">
+                        <span class="innov-metric-label">Opportunity Score</span>
+                        <span class="innov-metric-val" style="color: #10b981;">${data.opportunity_score}/100</span>
+                    </div>
+                    <div class="innov-metric-row">
+                        <span class="innov-metric-label">Predicted Sales</span>
+                        <span class="innov-metric-val">${data.predicted_sales} /Mo</span>
+                    </div>
+                    <div class="innov-metric-row">
+                        <span class="innov-metric-label">Confidence Level</span>
+                        <span class="innov-metric-val">${data.confidence_level}%</span>
+                    </div>
+                </div>
+                <div class="innov-card">
+                    <div class="innov-card-title">Market Trend Analysis</div>
+                    ${trendsHTML}
+                </div>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 20px;">
+                <div class="innov-card">
+                    <div class="innov-card-title">Executive Summary</div>
+                    <div class="innov-text-body">${data.executive_summary}</div>
+                </div>
+                <div class="innov-card" style="flex: 1;">
+                    <div class="innov-card-title">Market Gap Analysis</div>
+                    <div class="innov-text-body" style="margin-bottom: 15px;">${data.market_gap}</div>
+                    <div class="innov-card-title">Customer Insights</div>
+                    <div class="innov-text-body">${data.customer_analysis}</div>
+                </div>
+            </div>
+
+            <div class="innov-card">
+                <div class="innov-card-title">4-Month Sales Forecast</div>
+                <div style="height: 180px; width: 100%; margin-bottom: 20px;">
+                    <canvas id="innovForecastChart"></canvas>
+                </div>
+                <div style="margin-top: auto;">
+                    <div class="innov-card-title" style="text-align: center; margin-bottom: 5px;">Final Recommendation</div>
+                    <button class="btn-launch"><i class="bi bi-check2-circle"></i> Approve for Development</button>
+                    <div style="text-align: center; margin-top: 15px;">
+                        <button style="background: none; border: none; color: #64748b; font-size: 12px; cursor: pointer;" onclick="innovationGenerated=false; generateAIInnovation();">
+                            <i class="bi bi-arrow-clockwise"></i> Generate Alternative Concept
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+
+    renderInnovChart(data.sales_forecast);
+
+    const GEMINI_KEY = '<?php echo htmlspecialchars(getenv("GEMINI_API_KEY")); ?>';
+    const anglePrompts = [
+        `direct front-facing view, facing the camera straight on`,
+        `perfect side profile view, facing left`,
+        `dynamic 45-degree three-quarter angle view`
+    ];
+
+    views.forEach((view, i) => {
+        const imagePrompt = `Product photography of a single sports shoe called "${data.product_name}".
+Style: ${data.executive_summary}
+Color: ${sessionColor} colorway, consistent color across the entire shoe.
+Shot: ${anglePrompts[i]}.
+Background: completely transparent / pure white — NO background, NO floor shadow, NO studio props, NO environment, shoe only floating on empty white space.
+Quality: photorealistic, high-end commercial shoe photography, 4K crisp detail, no text, no watermark, single shoe only.`;
+
+        generateShoeImage(imagePrompt, i, GEMINI_KEY);
+    });
+}
+
+async function generateShoeImage(prompt, index, apiKey) {
+    const skeleton = document.getElementById(`imgSkeleton_${index}`);
+
+    // Try gemini-2.5-flash-image first, fallback to gemini-2.0-flash-exp-image-generation
+    const modelsToTry = [
+        'gemini-2.5-flash-image',
+        'gemini-2.0-flash-exp-image-generation'
+    ];
+
+    for (const model of modelsToTry) {
+        try {
+            const response = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: prompt }] }],
+                        generationConfig: { responseModalities: ['TEXT', 'IMAGE'] }
+                    })
+                }
+            );
+
+            const data = await response.json();
+            console.log(`[ImgGen #${index}] model=${model} status=${response.status}`, data);
+
+            // Check for API-level error
+            if (data.error) {
+                console.warn(`[ImgGen #${index}] API error with ${model}:`, data.error.message);
+                continue; // try next model
+            }
+
+            const parts = data?.candidates?.[0]?.content?.parts ?? [];
+            const imgPart = parts.find(p => p.inlineData);
+
+            if (!imgPart) {
+                console.warn(`[ImgGen #${index}] No inlineData in response for ${model}. Parts:`, parts);
+                continue; // try next model
+            }
+
+            // ✅ Success — render the image
+            const mimeType = imgPart.inlineData.mimeType || 'image/png';
+            const b64      = imgPart.inlineData.data;
+
+            if (!document.getElementById('fadeInStyle')) {
+                const s = document.createElement('style');
+                s.id = 'fadeInStyle';
+                s.textContent = '@keyframes fadeInImg { from{opacity:0;transform:scale(0.95)} to{opacity:1;transform:scale(1)} }';
+                document.head.appendChild(s);
+            }
+
+            const img = document.createElement('img');
+            img.src   = `data:${mimeType};base64,${b64}`;
+            img.style.cssText = `
+                width:100%; height:160px; object-fit:contain;
+                border-radius:10px; position:relative; z-index:1;
+                animation: fadeInImg 0.5s ease;
+            `;
+            if (skeleton) skeleton.replaceWith(img);
+            return; // done, no need to try next model
+
+        } catch (err) {
+            console.error(`[ImgGen #${index}] Fetch error with ${model}:`, err);
+        }
+    }
+
+    // All models failed — show fallback
+    if (skeleton) {
+        skeleton.innerHTML = `
+            <i class="bi bi-exclamation-triangle" style="font-size:24px;color:#ef4444;display:block;margin-bottom:6px;"></i>
+            <span style="font-size:11px;color:#64748b;">Image generation failed.<br>Check console for details.</span>`;
+        skeleton.style.animation = 'none';
+        skeleton.style.background = '#1a2234';
+        skeleton.style.justifyContent = 'center';
+    }
+}
+
+function renderInnovChart(forecastData) {
+    const ctx2 = document.getElementById('innovForecastChart').getContext('2d');
+    if (innovChartInstance) innovChartInstance.destroy();
+
+    let gradient = ctx2.createLinearGradient(0, 0, 0, 180);
+    gradient.addColorStop(0, 'rgba(16, 185, 129, 0.4)');
+    gradient.addColorStop(1, 'rgba(16, 185, 129, 0)');
+
+    innovChartInstance = new Chart(ctx2, {
+        type: 'line',
+        data: {
+            labels: ['Month 1', 'Month 2', 'Month 3', 'Month 4'],
+            datasets: [{
+                label: 'Projected Sales',
+                data: forecastData,
+                borderColor: '#10b981',
+                backgroundColor: gradient,
+                borderWidth: 3,
+                pointBackgroundColor: '#fff',
+                pointBorderColor: '#10b981',
+                pointRadius: 4, fill: true, tension: 0.4
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: { display: false },
+                x: { grid: { display: false }, ticks: { color: '#94a3b8', font: { size: 11 } } }
+            }
+        }
+    });
+}
+
+
 </script>
 </body>
 </html>

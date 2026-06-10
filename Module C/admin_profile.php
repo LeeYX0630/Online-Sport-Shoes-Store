@@ -33,6 +33,7 @@ $admin_image = !empty($admin['Admin_Image'])
     : ($_SESSION['admin_image'] ?? 'default_admin.png');
 
 // ── 处理 Logo 上传与 AI 背景生成（使用 gemini-3.1-flash-image generateContent） ──
+// ── Action: generate_logo_bg — AI 生成，存临时文件，不写 DB ──
 if (isset($_POST['action']) && $_POST['action'] === 'generate_logo_bg') {
     header('Content-Type: application/json');
 
@@ -48,17 +49,10 @@ if (isset($_POST['action']) && $_POST['action'] === 'generate_logo_bg') {
         echo json_encode(['error' => 'API key not found.']); exit();
     }
 
-    $brand_logo_path_db = "";
-
-    // Ensure upload dir exists (resolve project root to avoid saving under Module C)
-    $project_root = realpath(__DIR__ . '/..');
-    if ($project_root === false) $project_root = __DIR__ . '/..';
+    $project_root = realpath(__DIR__ . '/..') ?: (__DIR__ . '/..');
     $save_dir = rtrim($project_root, '/\\') . '/images/brands/';
     if (!is_dir($save_dir)) mkdir($save_dir, 0777, true);
 
-    // ── 开始替换的部分 ──
-    
-    // 1. 接收前端传过来的 Base64 图片数据
     $logo_base64 = $_POST['logo_base64'] ?? '';
     $logo_mime   = $_POST['logo_mime'] ?? 'image/png';
 
@@ -66,17 +60,15 @@ if (isset($_POST['action']) && $_POST['action'] === 'generate_logo_bg') {
         echo json_encode(['error' => 'No logo file uploaded.']); exit();
     }
 
-    $brand_name_sanitized = str_replace(array(' ', '/', '\\', ':', '*', '?', '"', '<', '>', '|'), '_', $brand_name);
-    
-    // 2. 将 Base64 保存为实体的原图文件
+    $brand_name_sanitized = str_replace([' ','/','\\',':','*','?','"','<','>','|'], '_', $brand_name);
+
+    // Save original logo file
     $ext = ($logo_mime === 'image/jpeg') ? 'jpg' : 'png';
     $brand_original_filename = $brand_name_sanitized . "_original." . $ext;
-    $brand_original_path = $save_dir . $brand_original_filename;
-    
-    file_put_contents($brand_original_path, base64_decode($logo_base64));
+    file_put_contents($save_dir . $brand_original_filename, base64_decode($logo_base64));
 
-    // 3. 构建专业的 AI Prompt
-$prompt = "A high-end cinematic sports brand product photography banner (16:9). 
+    // Build AI prompt
+    $prompt = "A high-end cinematic sports brand product photography banner (16:9). 
 CORE ELEMENTS (FIXED): A pair of premium athletic sneakers prominently displayed in the center, occupying at least 60% of the frame. The brand logo must be integrated as a 3D matte-white embossed element on the shoe or on the central display surface, ensuring it is clear, sharp, and perfectly legible.
 ENVIRONMENT (RANDOMIZED): Generate a unique and professional commercial background each time. Choose one of the following distinct settings:
 - A soft, moody studio setting with dark silk fabric drapes and cinematic spotlighting.
@@ -85,71 +77,96 @@ ENVIRONMENT (RANDOMIZED): Generate a unique and professional commercial backgrou
 - A sleek, modern podium setup in a dark, atmospheric space with subtle glowing edges.
 STYLE: Ultra-realistic, 8k resolution, professional advertising quality, deep color grading, dynamic depth of field with the sneakers in sharp focus and background softly blurred.";
 
-    // 4. 构建发给 Gemini 的请求（直接使用前端传来的 Base64 数据）
     $request_data = [
         "contents" => [[
             "parts" => [
                 ["text" => $prompt],
-                ["inlineData" => [
-                    "mimeType" => $logo_mime,
-                    "data" => $logo_base64
-                ]]
+                ["inlineData" => ["mimeType" => $logo_mime, "data" => $logo_base64]]
             ]
         ]]
     ];
 
-    $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image:generateContent?key=" . $apiKey;
-
-    $ch = curl_init($url);
+    $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=" . $apiKey;
+    $ch  = curl_init($url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($request_data));
     curl_setopt($ch, CURLOPT_TIMEOUT, 120);
-
     $result = curl_exec($ch);
-    if (curl_errno($ch)) {
-        $err = curl_error($ch); curl_close($ch);
-        echo json_encode(['error' => 'Curl error: ' . $err]); exit();
-    }
+    if (curl_errno($ch)) { $err = curl_error($ch); curl_close($ch); echo json_encode(['error' => 'Curl error: ' . $err]); exit(); }
     curl_close($ch);
 
-    $decoded_result = json_decode($result, true);
-
-    // 5. 解析 AI 返回的图片
+    $decoded_result       = json_decode($result, true);
     $generated_image_data = null;
     if (isset($decoded_result['candidates'][0]['content']['parts'])) {
         foreach ($decoded_result['candidates'][0]['content']['parts'] as $part) {
-            if (isset($part['inlineData']['data'])) {
-                $generated_image_data = base64_decode($part['inlineData']['data']);
-                break;
-            }
+            if (isset($part['inlineData']['data'])) { $generated_image_data = base64_decode($part['inlineData']['data']); break; }
         }
     }
 
     if ($generated_image_data) {
-        $brand_generated_filename = $brand_name_sanitized . ".png";
-        $brand_generated_path = $save_dir . $brand_generated_filename;
-        
-        file_put_contents($brand_generated_path, $generated_image_data);
-        
-        $web_path = '../images/brands/' . $brand_generated_filename; // used for JSON response
-        $brand_logo_db_filename = $brand_generated_filename; // store only filename in DB
+        // Save to a TEMP file — NOT the final filename, NOT written to DB yet
+        $temp_filename = $brand_name_sanitized . "_preview_" . time() . ".png";
+        $temp_path     = $save_dir . $temp_filename;
+        file_put_contents($temp_path, $generated_image_data);
+        $web_path = '../images/brands/' . $temp_filename;
+        echo json_encode(['success' => true, 'img_url' => $web_path . '?t=' . time(), 'temp_filename' => $temp_filename]);
     } else {
-        // 如果 AI 生成失败，降级使用保存的原图
+        // AI failed — return original as preview
         $web_path = '../images/brands/' . $brand_original_filename;
-        $brand_logo_db_filename = $brand_original_filename; // store original filename in DB
+        echo json_encode(['success' => true, 'img_url' => $web_path . '?t=' . time(), 'temp_filename' => $brand_original_filename]);
+    }
+    exit();
+}
+
+// ── Action: confirm_logo_bg — 用户确认后才重命名并写入 DB ──
+if (isset($_POST['action']) && $_POST['action'] === 'confirm_logo_bg') {
+    header('Content-Type: application/json');
+
+    $brand_id      = intval($_POST['brand_id'] ?? 0);
+    $brand_name    = trim($_POST['brand_name'] ?? '');
+    $temp_filename = basename($_POST['temp_filename'] ?? ''); // basename防路径穿越
+
+    if (!$brand_id || !$brand_name || !$temp_filename) {
+        echo json_encode(['error' => 'Missing parameters.']); exit();
     }
 
-    // ── 替换到此结束 ──
+    $project_root = realpath(__DIR__ . '/..') ?: (__DIR__ . '/..');
+    $save_dir     = rtrim($project_root, '/\\') . '/images/brands/';
+    $temp_path    = $save_dir . $temp_filename;
 
-    // Update DB if we have a path
-    if (!empty($brand_logo_db_filename)) {
-        $esc_filename = $conn->real_escape_string($brand_logo_db_filename);
-        $conn->query("UPDATE brand SET Brand_Logo = '$esc_filename' WHERE Brand_Id = $brand_id");
-        echo json_encode(['success' => true, 'img_url' => $web_path . '?t=' . time()]);
-        exit();
+    if (!file_exists($temp_path)) {
+        echo json_encode(['error' => 'Preview file not found. Please regenerate.']); exit();
     }
+
+    $brand_name_sanitized = str_replace([' ','/','\\',':','*','?','"','<','>','|'], '_', $brand_name);
+    $final_filename = $brand_name_sanitized . ".png";
+    $final_path     = $save_dir . $final_filename;
+
+    // Rename temp → final
+    rename($temp_path, $final_path);
+
+    // Write to DB
+    $esc = $conn->real_escape_string($final_filename);
+    $conn->query("UPDATE brand SET Brand_Logo = '$esc' WHERE Brand_Id = $brand_id");
+
+    $web_path = '../images/brands/' . $final_filename;
+    echo json_encode(['success' => true, 'img_url' => $web_path . '?t=' . time()]);
+    exit();
+}
+
+// ── Action: discard_logo_bg — 用户点 No，删除临时文件 ──
+if (isset($_POST['action']) && $_POST['action'] === 'discard_logo_bg') {
+    header('Content-Type: application/json');
+    $temp_filename = basename($_POST['temp_filename'] ?? '');
+    if ($temp_filename) {
+        $project_root = realpath(__DIR__ . '/..') ?: (__DIR__ . '/..');
+        $temp_path    = rtrim($project_root, '/\\') . '/images/brands/' . $temp_filename;
+        if (file_exists($temp_path)) @unlink($temp_path);
+    }
+    echo json_encode(['success' => true]);
+    exit();
 }
 
 // ── 处理 Profile 更新 ──────────────────────────────────────────
@@ -396,18 +413,9 @@ if ($brand_info && !empty($brand_info['Brand_Logo'])) {
             <div class="profile-banner banner-ai" id="profileBanner">
                 <img src="<?php echo htmlspecialchars($brand_logo_web); ?>?t=<?php echo time(); ?>"
                      class="banner-bg" id="bannerBgImg" alt="Brand Banner">
-                <button type="button" class="banner-gen-btn" id="genLogoBtn">
-                    <i class="bi bi-stars"></i> Regenerate Banner
-                </button>
             </div>
             <?php else: ?>
             <div class="profile-banner banner-orange" id="profileBanner">
-
-                <?php if ($admin_level == 3 && $brand_info): ?>
-                <button type="button" class="banner-gen-btn" id="genLogoBtn">
-                    <i class="bi bi-stars"></i> Generate Brand Banner
-                </button>
-                <?php endif; ?>
             </div>
             <?php endif; ?>
 
@@ -446,14 +454,10 @@ if ($brand_info && !empty($brand_info['Brand_Logo'])) {
                 </div>
 
                 <!-- Stats -->
-                <div class="stats-row">
+                <div class="stats-row" style="grid-template-columns: repeat(2,1fr);">
                     <div class="stat-card">
                         <div class="stat-val"><?php echo $orders_count !== null ? $orders_count : 'ALL'; ?></div>
                         <div class="stat-lbl">Orders managed</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-val"><?php echo !empty($admin['Admin_Brand']) ? htmlspecialchars($admin['Admin_Brand']) : 'ALL'; ?></div>
-                        <div class="stat-lbl">Brand access</div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-val"><?php echo $products_count !== null ? $products_count : 'ALL'; ?></div>
@@ -475,7 +479,11 @@ if ($brand_info && !empty($brand_info['Brand_Logo'])) {
                     <div class="form-grid">
                         <div>
                             <label>Full Name</label>
-                            <input type="text" name="admin_name" value="<?php echo htmlspecialchars($admin['Admin_Name']); ?>" required>
+                            <input type="text" name="admin_name" value="<?php echo htmlspecialchars($admin['Admin_Name']); ?>" required
+                                   maxlength="80"
+                                   pattern="[A-Za-z\s]+"
+                                   title="Full name may only contain letters and spaces."
+                                   oninput="this.value = this.value.replace(/[^A-Za-z\s]/g, '')">
                         </div>
                         <div>
                             <label>Email Address</label>
@@ -485,18 +493,23 @@ if ($brand_info && !empty($brand_info['Brand_Logo'])) {
                             <label>Assigned Brand</label>
                             <div class="brand-pill">
                                 <i class="bi bi-tag-fill"></i>
-                                <?php echo !empty($admin['Admin_Brand']) ? htmlspecialchars($admin['Admin_Brand']) : 'ALL ACCESS'; ?>
+                                <?php
+                                if ($admin_level == 1 || $admin_level == 2) {
+                                    echo 'All Access';
+                                } elseif ($admin_level == 3 && $brand_info) {
+                                    echo htmlspecialchars($brand_info['Brand_Name']);
+                                } else {
+                                    echo 'All Access';
+                                }
+                                ?>
                             </div>
                         </div>
-                        <div>
-                            <label>Account Level</label>
-                            <input type="text" value="Level <?php echo $admin['Admin_Level']; ?> — <?php echo ($admin['Admin_Level'] == 1) ? 'Super Admin' : 'Manager'; ?>" readonly>
-                        </div>
+                        <!-- Account Level hidden per design spec -->
 
                         <?php if ($admin_level == 3 && $brand_info): ?>
                         <!-- Logo upload for AI generation -->
                         <div class="col-span-2" style="grid-column: span 2;">
-                            <label>Brand Logo <span style="color:#bbb; font-weight:400;">(Upload to generate banner)</span></label>
+                            <label>Brand Logo</label>
                             <div class="logo-upload-zone" onclick="document.getElementById('logoFileInput').click()">
                                   <img id="logoPreview"
                                       src="<?php echo ($has_brand_logo ? htmlspecialchars($brand_logo_web) : ''); ?>"
@@ -510,6 +523,9 @@ if ($brand_info && !empty($brand_info['Brand_Logo'])) {
                                 <i class="bi bi-stars"></i>
                                 <span><span class="ai-label">AI Generate</span> Logo Background</span>
                             </button>
+                            <p style="margin:6px 0 0; font-size:12px; color:#bbb; text-align:center;">
+                                You can upload your brand logo to generate a new Logo Background
+                            </p>
                         </div>
                         <?php endif; ?>
                     </div>
@@ -574,34 +590,22 @@ function previewLogo(input) {
 const BRAND_ID   = <?php echo intval($brand_info['Brand_Id']); ?>;
 const BRAND_NAME = <?php echo json_encode($brand_info['Brand_Name']); ?>;
 
-document.getElementById('genLogoBtn')?.addEventListener('click', async function () {
-    await generateBrandBanner();
-});
 document.getElementById('genLogoBtn2')?.addEventListener('click', async function () {
     await generateBrandBanner();
 });
 
 async function generateBrandBanner() {
-    // 检查是否有 logo（新上传 or 已有）
     const existingLogoUrl = <?php echo json_encode($brand_logo_web ?? ''); ?>;
 
-    // ── button loading state ──
-    const btn1 = document.getElementById('genLogoBtn');
     const btn2 = document.getElementById('genLogoBtn2');
-    [btn1, btn2].forEach(b => { if (b) { b.disabled = true; b.innerHTML = '<i class="bi bi-hourglass-split"></i> <span>Generating…</span>'; } });
+    if (btn2) { btn2.disabled = true; btn2.innerHTML = '<i class="bi bi-hourglass-split"></i> <span>Generating…</span>'; }
 
     if (!logoBase64 && !existingLogoUrl) {
-        Swal.fire({
-            icon: 'warning',
-            title: 'No Logo Found',
-            text: 'Please upload your brand logo first before generating a banner.',
-            confirmButtonColor: '#FF8C00'
-        });
-        [btn1, btn2].forEach(b => { if (b) { b.disabled = false; b.innerHTML = '<i class="bi bi-stars"></i> <span><span class="ai-label">AI Generate</span> Logo Background</span>'; } });
+        Swal.fire({ icon: 'warning', title: 'No Logo Found', text: 'Please upload your brand logo first before generating a banner.', confirmButtonColor: '#FF8C00' });
+        if (btn2) { btn2.disabled = false; btn2.innerHTML = '<i class="bi bi-stars"></i> <span><span class="ai-label">AI Generate</span> Logo Background</span>'; }
         return;
     }
 
-    // 如果没有新上传但有旧 logo，需要用 fetch 把旧图转 base64
     let b64 = logoBase64;
     let mime = logoMime;
 
@@ -611,19 +615,14 @@ async function generateBrandBanner() {
             const resp = await fetch(existingLogoUrl);
             const blob = await resp.blob();
             mime = blob.type || 'image/png';
-            b64  = await new Promise(res => {
-                const r = new FileReader();
-                r.onload = () => res(r.result.split(',')[1]);
-                r.readAsDataURL(blob);
-            });
+            b64  = await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result.split(',')[1]); r.readAsDataURL(blob); });
         } catch(e) {
             Swal.fire({ icon: 'error', title: 'Failed to load logo', text: e.message, confirmButtonColor: '#FF8C00' });
-            [btn1, btn2].forEach(b => { if (b) { b.disabled = false; b.innerHTML = '<i class="bi bi-stars"></i> <span><span class="ai-label">AI Generate</span> Logo Background</span>'; } });
+            if (btn2) { btn2.disabled = false; btn2.innerHTML = '<i class="bi bi-stars"></i> <span><span class="ai-label">AI Generate</span> Logo Background</span>'; }
             return;
         }
     }
 
-    // 显示生成中
     Swal.fire({
         title: '✨ Generating Banner...',
         html: `<p style="color:#666;font-size:14px;">AI is creating a professional brand banner for <b>${BRAND_NAME}</b>.<br>This may take 15–30 seconds.</p>`,
@@ -633,51 +632,92 @@ async function generateBrandBanner() {
 
     try {
         const fd = new FormData();
-        fd.append('action',       'generate_logo_bg');
-        fd.append('brand_id',     BRAND_ID);
-        fd.append('brand_name',   BRAND_NAME);
-        fd.append('logo_base64',  b64);
-        fd.append('logo_mime',    mime);
+        fd.append('action',      'generate_logo_bg');
+        fd.append('brand_id',    BRAND_ID);
+        fd.append('brand_name',  BRAND_NAME);
+        fd.append('logo_base64', b64);
+        fd.append('logo_mime',   mime);
 
         const res  = await fetch('admin_profile.php', { method: 'POST', body: fd });
         const data = await res.json();
 
         if (data.error) {
             Swal.fire({ icon: 'error', title: 'Generation Failed', text: data.error, confirmButtonColor: '#FF8C00' });
-            [btn1, btn2].forEach(b => { if (b) { b.disabled = false; b.innerHTML = '<i class="bi bi-stars"></i> <span><span class="ai-label">AI Generate</span> Logo Background</span>'; } });
+            if (btn2) { btn2.disabled = false; btn2.innerHTML = '<i class="bi bi-stars"></i> <span><span class="ai-label">AI Generate</span> Logo Background</span>'; }
             return;
         }
 
-        // 更新 Banner 显示
-        const banner = document.getElementById('profileBanner');
-        banner.classList.remove('banner-orange');
-        banner.classList.add('banner-ai');
-
-        let bgImg = document.getElementById('bannerBgImg');
-        if (!bgImg) {
-            bgImg = document.createElement('img');
-            bgImg.id        = 'bannerBgImg';
-            bgImg.className = 'banner-bg';
-            bgImg.alt       = 'Brand Banner';
-            banner.insertBefore(bgImg, banner.firstChild);
-            // 移除橙色 banner 里的文字
-            banner.querySelectorAll('.banner-title, .banner-sub').forEach(el => el.remove());
-        }
-        bgImg.src = data.img_url;
-
-        Swal.fire({
-            icon: 'success',
-            title: 'Banner Generated!',
-            text: 'Your brand banner has been saved successfully.',
-            confirmButtonColor: '#FF8C00',
-            timer: 2500,
-            showConfirmButton: false
+        // ── Show preview + Yes / No / Regenerate ──
+        const previewResult = await Swal.fire({
+            title: 'Banner Preview',
+            html: `
+                <p style="color:#666;font-size:13px;margin-bottom:12px;">Here's your AI-generated banner. Would you like to use this?</p>
+                <img src="${data.img_url}" style="width:100%;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,0.15);" alt="Banner Preview">
+            `,
+            width: 680,
+            showConfirmButton: true,
+            showDenyButton: true,
+            showCancelButton: true,
+            confirmButtonText: '<i class="bi bi-check-lg"></i> Yes, use this',
+            denyButtonText:    '<i class="bi bi-arrow-clockwise"></i> Regenerate',
+            cancelButtonText:  '<i class="bi bi-x-lg"></i> No',
+            confirmButtonColor: '#16A34A',
+            denyButtonColor:    '#FF8C00',
+            cancelButtonColor:  '#6b7280',
+            reverseButtons: false,
+            allowOutsideClick: false,
         });
-        [btn1, btn2].forEach(b => { if (b) { b.disabled = false; b.innerHTML = '<i class="bi bi-stars"></i> <span><span class="ai-label">AI Regenerate</span> Logo Background</span>'; } });
+
+        if (previewResult.isConfirmed) {
+            // ── YES: commit temp file → final, write DB ──
+            Swal.fire({ title: 'Saving...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+            const fd2 = new FormData();
+            fd2.append('action',        'confirm_logo_bg');
+            fd2.append('brand_id',      BRAND_ID);
+            fd2.append('brand_name',    BRAND_NAME);
+            fd2.append('temp_filename', data.temp_filename);
+            const res2  = await fetch('admin_profile.php', { method: 'POST', body: fd2 });
+            const data2 = await res2.json();
+            if (data2.error) {
+                Swal.fire({ icon: 'error', title: 'Save Failed', text: data2.error, confirmButtonColor: '#FF8C00' });
+            } else {
+                // Update banner display
+                const banner = document.getElementById('profileBanner');
+                banner.classList.remove('banner-orange');
+                banner.classList.add('banner-ai');
+                let bgImg = document.getElementById('bannerBgImg');
+                if (!bgImg) {
+                    bgImg = document.createElement('img');
+                    bgImg.id = 'bannerBgImg'; bgImg.className = 'banner-bg'; bgImg.alt = 'Brand Banner';
+                    banner.insertBefore(bgImg, banner.firstChild);
+                    banner.querySelectorAll('.banner-title, .banner-sub').forEach(el => el.remove());
+                }
+                bgImg.src = data2.img_url;
+                Swal.fire({ icon: 'success', title: 'Banner Saved!', text: 'Your brand banner has been saved successfully.', confirmButtonColor: '#FF8C00', timer: 2000, showConfirmButton: false });
+                if (btn2) { btn2.disabled = false; btn2.innerHTML = '<i class="bi bi-stars"></i> <span><span class="ai-label">AI Regenerate</span> Logo Background</span>'; }
+            }
+
+        } else if (previewResult.isDenied) {
+            // ── REGENERATE: discard temp and generate again ──
+            const fd3 = new FormData();
+            fd3.append('action',        'discard_logo_bg');
+            fd3.append('temp_filename', data.temp_filename);
+            fetch('admin_profile.php', { method: 'POST', body: fd3 }); // fire-and-forget
+            if (btn2) { btn2.disabled = false; btn2.innerHTML = '<i class="bi bi-stars"></i> <span><span class="ai-label">AI Generate</span> Logo Background</span>'; }
+            await generateBrandBanner(); // recurse
+
+        } else {
+            // ── NO: discard temp file ──
+            const fd4 = new FormData();
+            fd4.append('action',        'discard_logo_bg');
+            fd4.append('temp_filename', data.temp_filename);
+            fetch('admin_profile.php', { method: 'POST', body: fd4 }); // fire-and-forget
+            if (btn2) { btn2.disabled = false; btn2.innerHTML = '<i class="bi bi-stars"></i> <span><span class="ai-label">AI Generate</span> Logo Background</span>'; }
+        }
 
     } catch (err) {
         Swal.fire({ icon: 'error', title: 'Network Error', text: err.message, confirmButtonColor: '#FF8C00' });
-        [btn1, btn2].forEach(b => { if (b) { b.disabled = false; b.innerHTML = '<i class="bi bi-stars"></i> <span><span class="ai-label">AI Generate</span> Logo Background</span>'; } });
+        if (btn2) { btn2.disabled = false; btn2.innerHTML = '<i class="bi bi-stars"></i> <span><span class="ai-label">AI Generate</span> Logo Background</span>'; }
     }
 }
 <?php endif; ?>

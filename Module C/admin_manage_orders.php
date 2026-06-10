@@ -63,6 +63,143 @@ function sendShipmentNotificationEmail($user_email, $user_name, $order_id, $trac
     }
 }
 
+// ─────────────────────────────────────────────────────────────
+// 发送 Issue / Canceled / Resumed-Processing 通知邮件给客户
+// ─────────────────────────────────────────────────────────────
+function sendOrderStatusEmail($type, $user_email, $user_name, $order_tracking_num, $reason, $superadmin_email, $brand_admin_email) {
+    $mail = new PHPMailer(true);
+    try {
+        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        $order_link = "http://{$host}/Online-Sport-Shoes-Store/Module A/order_view.php?order_id={$order_tracking_num}";
+
+        $mail->isSMTP();
+        $mail->Host       = 'smtp.gmail.com';
+        $mail->SMTPAuth   = true;
+        $mail->Username   = SMTP_EMAIL;
+        $mail->Password   = SMTP_PASS;
+        $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+        $mail->Port       = 587;
+        $mail->CharSet    = 'UTF-8';
+        $mail->setFrom('sportshoes.system@gmail.com', 'STRYDEX SPORT SHOES STORE');
+        $mail->addAddress($user_email, $user_name);
+        $mail->isHTML(true);
+
+        // ── 共用 header HTML (匹配 send_receipt_handler.php 样式) ──
+        $header = "
+            <div style='background-color:#000; padding:30px; text-align:center;'>
+                <h1 style='color:#FF6B00; margin:0; font-size:24px; text-transform:uppercase; letter-spacing:2px;'>STRYDEX Sport Shoes Store</h1>
+                <p style='color:#fff; margin:5px 0 0; font-size:12px; opacity:0.8;'>Multimedia University, Melaka, Malaysia | +60 12-345 6789</p>
+            </div>";
+
+        // ── 共用 contact footer ──
+        $contact_block = "";
+        if (!empty($superadmin_email) || !empty($brand_admin_email)) {
+            $contact_block .= "<div style='margin-top:28px; padding:16px 20px; background:#fff8f0; border-left:4px solid #FF6B00; border-radius:6px;'>";
+            $contact_block .= "<p style='margin:0 0 6px; font-size:13px; color:#555; font-weight:600;'>If you have any questions, please contact us:</p>";
+            if (!empty($superadmin_email)) {
+                $contact_block .= "<p style='margin:2px 0; font-size:13px; color:#333;'>📧 Support: <a href='mailto:{$superadmin_email}' style='color:#FF6B00;'>{$superadmin_email}</a></p>";
+            }
+            if (!empty($brand_admin_email) && $brand_admin_email !== $superadmin_email) {
+                $contact_block .= "<p style='margin:2px 0; font-size:13px; color:#333;'>📧 Brand Manager: <a href='mailto:{$brand_admin_email}' style='color:#FF6B00;'>{$brand_admin_email}</a></p>";
+            }
+            $contact_block .= "</div>";
+        }
+
+        $footer = "<div style='background-color:#f4f4f4; padding:20px; text-align:center; font-size:12px;'>
+                        <p style='margin:0; color:#999;'>&copy; " . date('Y') . " STRYDEX Sport Shoes Store. All Rights Reserved.</p>
+                   </div>";
+
+        // ── 根据类型构建邮件内容 ──
+        if ($type === 'Issue') {
+            $mail->Subject = "Your Order #ODR{$order_tracking_num} — Action Required";
+            $icon  = "⚠️";
+            $title = "Your Order Has Been Flagged";
+            $accent = "#f59e0b";
+            $body_content = "
+                <p style='font-size:15px; color:#333;'>Hello <strong>{$user_name}</strong>,</p>
+                <p style='color:#555; line-height:1.8;'>
+                    We would like to inform you that your order <strong>#ODR{$order_tracking_num}</strong> has been temporarily placed on hold due to an issue that requires our attention.
+                </p>
+                <div style='background:#fffbea; border:1px solid #fde68a; border-radius:10px; padding:16px 20px; margin:20px 0;'>
+                    <p style='margin:0 0 6px; font-size:13px; color:#92400e; font-weight:700; text-transform:uppercase; letter-spacing:.5px;'>Reason</p>
+                    <p style='margin:0; font-size:15px; color:#111; font-weight:600;'>{$reason}</p>
+                </div>
+                <p style='color:#555; line-height:1.8;'>
+                    Our team is actively working to resolve this as quickly as possible. Please allow <strong>1–3 working days</strong> for us to investigate and get back to you.
+                    We apologise for any inconvenience caused and appreciate your patience.
+                </p>
+                {$contact_block}
+                <div style='text-align:center; margin-top:24px;'>
+                    <a href='{$order_link}' style='display:inline-block; padding:12px 28px; border-radius:8px; background:#FF8C00; color:#fff; text-decoration:none; font-weight:700; font-size:14px;'>View My Order</a>
+                </div>";
+
+        } elseif ($type === 'Canceled') {
+            $mail->Subject = "Your Order #ODR{$order_tracking_num} Has Been Cancelled";
+            $icon  = "❌";
+            $title = "Your Order Has Been Cancelled";
+            $accent = "#ef4444";
+            $body_content = "
+                <p style='font-size:15px; color:#333;'>Hello <strong>{$user_name}</strong>,</p>
+                <p style='color:#555; line-height:1.8;'>
+                    We regret to inform you that your order <strong>#ODR{$order_tracking_num}</strong> has been cancelled. Below is the reason provided by our team:
+                </p>
+                <div style='background:#fff5f5; border:1px solid #fecaca; border-radius:10px; padding:16px 20px; margin:20px 0;'>
+                    <p style='margin:0 0 6px; font-size:13px; color:#b91c1c; font-weight:700; text-transform:uppercase; letter-spacing:.5px;'>Reason</p>
+                    <p style='margin:0; font-size:15px; color:#111; font-weight:600;'>{$reason}</p>
+                </div>
+                <p style='color:#555; line-height:1.8;'>
+                    If you believe this is a mistake or would like to place a new order, please don't hesitate to reach out to us. We're here to help.
+                </p>
+                {$contact_block}
+                <div style='text-align:center; margin-top:24px;'>
+                    <a href='{$order_link}' style='display:inline-block; padding:12px 28px; border-radius:8px; background:#FF8C00; color:#fff; text-decoration:none; font-weight:700; font-size:14px;'>View My Order</a>
+                </div>";
+
+        } elseif ($type === 'IssueResolved') {
+            $mail->Subject = "Good News! Your Order #ODR{$order_tracking_num} Is Back On Track";
+            $icon  = "✅";
+            $title = "Issue Resolved — Order Resumed";
+            $accent = "#10b981";
+            $body_content = "
+                <p style='font-size:15px; color:#333;'>Hello <strong>{$user_name}</strong>,</p>
+                <p style='color:#555; line-height:1.8;'>
+                    Great news! The issue with your order <strong>#ODR{$order_tracking_num}</strong> has been resolved and your order is now back in processing. Thank you for your patience!
+                </p>
+                <div style='background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:16px 20px; margin:20px 0;'>
+                    <p style='margin:0; font-size:15px; color:#065f46; font-weight:600;'>✔ Your order is now being processed and will be shipped soon.</p>
+                </div>
+                <p style='color:#555; line-height:1.8;'>
+                    We sincerely apologise for the delay and appreciate your understanding. If you have any further questions, feel free to contact us below.
+                </p>
+                {$contact_block}
+                <div style='text-align:center; margin-top:24px;'>
+                    <a href='{$order_link}' style='display:inline-block; padding:12px 28px; border-radius:8px; background:#FF8C00; color:#fff; text-decoration:none; font-weight:700; font-size:14px;'>View My Order</a>
+                </div>";
+        } else {
+            return false;
+        }
+
+        $mail->Body = "
+            <div style='font-family: \"Segoe UI\", Helvetica, Arial, sans-serif; max-width:700px; margin:auto; border:1px solid #ddd; border-radius:8px; overflow:hidden; color:#444;'>
+                {$header}
+                <div style='padding:10px 28px 4px; text-align:center; border-bottom:2px solid {$accent};'>
+                    <p style='font-size:28px; margin:16px 0 4px;'>{$icon}</p>
+                    <h2 style='margin:0 0 14px; color:#111; font-size:20px;'>{$title}</h2>
+                </div>
+                <div style='padding:24px 28px;'>
+                    {$body_content}
+                </div>
+                {$footer}
+            </div>";
+
+        $mail->send();
+        return true;
+    } catch (Exception $e) {
+        error_log('Order status email failed: ' . $mail->ErrorInfo);
+        return false;
+    }
+}
+
 // 1. 安全检查[cite: 2]
 if (!isset($_SESSION['role'])) {
     header("Location: admin_login.php");
@@ -108,6 +245,9 @@ if ($_SESSION['role'] == 3) {
     )";
 }
 
+// 【修改】让未完成的订单按最新排在前面，把已经 Delivered 的订单沉到底部
+$sql .= " ORDER BY CASE WHEN o.Order_Status = 'Delivered' THEN 1 ELSE 0 END ASC, o.Order_Id DESC";
+
 // 🌟【新增修复代码】执行查询，生成 $result 结果集供下方表格循环使用
 $result = mysqli_query($conn, $sql);
 
@@ -115,28 +255,56 @@ $result = mysqli_query($conn, $sql);
 if (isset($_POST['update_status'])) {
     $order_id = mysqli_real_escape_string($conn, $_POST['order_id']);
     $new_status = mysqli_real_escape_string($conn, $_POST['new_status']);
-    $current_time = date('Y-m-d H:i:s'); // 获取当前系统时间
     
-    $extra_query = ""; // 用于动态拼接 order 表的更新字段
+    // 【新增】获取 Reason
+    $reason = '';
+    $reason_query = '';
+    if (isset($_POST['reason']) && !empty($_POST['reason'])) {
+        $reason = mysqli_real_escape_string($conn, $_POST['reason']);
+        $reason_query = ", Reason = '$reason'";
+    }
 
-    // 为了在通知和邮件中显示订单编号与客户信息，先查出该订单的 Tracking Number 以及用户 Email/Name
+    $current_time = date('Y-m-d H:i:s'); 
+    $extra_query = ""; 
+
+    // 获取订单基础信息 + Super Admin email + Brand Admin email
     $order_info_res = mysqli_query($conn, "SELECT o.Order_Tracking_Num, u.User_Email, u.User_Name FROM `order` o JOIN `user` u ON o.User_Id = u.User_Id WHERE o.Order_Id = '$order_id'");
     $order_tracking_num = '';
     $customer_email = '';
     $customer_name = '';
     if ($order_info_res && $order_row = mysqli_fetch_assoc($order_info_res)) {
         $order_tracking_num = $order_row['Order_Tracking_Num'];
-        $customer_email = $order_row['User_Email'];
-        $customer_name = $order_row['User_Name'];
+        $customer_email     = $order_row['User_Email'];
+        $customer_name      = $order_row['User_Name'];
     }
 
+    // 获取 Super Admin (Admin_Id = 1) 的 Email
+    $superadmin_email = '';
+    $sa_res = mysqli_query($conn, "SELECT Admin_Email FROM admin WHERE Admin_Id = 1 LIMIT 1");
+    if ($sa_res && $sa_row = mysqli_fetch_assoc($sa_res)) {
+        $superadmin_email = $sa_row['Admin_Email'];
+    }
+
+    // 获取该订单所属品牌的 Brand Admin Email
+    $brand_admin_email = '';
+    $ba_res = mysqli_query($conn, "
+        SELECT DISTINCT a.Admin_Email
+        FROM order_detail od
+        JOIN product p  ON od.Pro_Id   = p.Pro_Id
+        JOIN brand b    ON p.Brand_Id  = b.Brand_Id
+        JOIN admin a    ON b.Admin_Id  = a.Admin_Id
+        WHERE od.Order_Id = '$order_id'
+        LIMIT 1
+    ");
+    if ($ba_res && $ba_row = mysqli_fetch_assoc($ba_res)) {
+        $brand_admin_email = $ba_row['Admin_Email'];
+    }
+
+    // 状态流转处理
     if ($new_status == 'Processing') {
-        // Processing 时，订单处理时间留在 order 表
         $extra_query = ", Order_Processing_Date = '$current_time'";
-        
         include 'generate_estimated_arrival_date.php';
         
-        // 预计到达时间写入 shipment 表
         $check_shipment = mysqli_query($conn, "SELECT * FROM `shipment` WHERE Order_Id = '$order_id'");
         if (mysqli_num_rows($check_shipment) > 0) {
             $shipment_sql = "UPDATE `shipment` SET Estimated_Arrival_Date = '$estimated_arrival_date' WHERE Order_Id = '$order_id'";
@@ -146,32 +314,20 @@ if (isset($_POST['update_status'])) {
         mysqli_query($conn, $shipment_sql);
     } 
     elseif ($new_status == 'Shipped') {
-        // Shipped 时不更新 order 表其他字段
-        $extra_query = "";
-        
         $month_day = date('md');
         $permitted_chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
         $random_str = substr(str_shuffle($permitted_chars), 0, 2);
         $tracking_number = "SSPMY" . $month_day . $random_str;
 
-        // 追踪单号(Ship_Tracking_Number) 和 发货时间(Shipped_Date) 存入 shipment 表
         $check_shipment = mysqli_query($conn, "SELECT * FROM `shipment` WHERE Order_Id = '$order_id'");
         if (mysqli_num_rows($check_shipment) > 0) {
-            $shipment_sql = "UPDATE `shipment` 
-                             SET Ship_Tracking_num = '$tracking_number', 
-                                 Shipped_Date = '$current_time' 
-                             WHERE Order_Id = '$order_id'";
+            $shipment_sql = "UPDATE `shipment` SET Ship_Tracking_num = '$tracking_number', Shipped_Date = '$current_time' WHERE Order_Id = '$order_id'";
         } else {
-            $shipment_sql = "INSERT INTO `shipment` (Order_Id, Ship_Tracking_num, Shipped_Date) 
-                             VALUES ('$order_id', '$tracking_number', '$current_time')";
+            $shipment_sql = "INSERT INTO `shipment` (Order_Id, Ship_Tracking_num, Shipped_Date) VALUES ('$order_id', '$tracking_number', '$current_time')";
         }
         mysqli_query($conn, $shipment_sql);
     } 
     elseif ($new_status == 'Delivered') {
-        // Delivered 时不更新 order 表其他字段
-        $extra_query = "";
-        
-        // 将 Delivered_Date 存入 shipment 表
         $check_shipment = mysqli_query($conn, "SELECT * FROM `shipment` WHERE Order_Id = '$order_id'");
         if (mysqli_num_rows($check_shipment) > 0) {
             $shipment_sql = "UPDATE `shipment` SET Delivered_Date = '$current_time' WHERE Order_Id = '$order_id'";
@@ -181,74 +337,52 @@ if (isset($_POST['update_status'])) {
         mysqli_query($conn, $shipment_sql);
     }
 
-    // 最后，只更新 order 表中的 Status（以及 Processing 时的处理时间）
-    $update_sql = "UPDATE `order` SET Order_Status = '$new_status' $extra_query WHERE Order_Id = '$order_id'";
+    // 【新增】合并 $reason_query 更新 order 表
+    $update_sql = "UPDATE `order` SET Order_Status = '$new_status' $extra_query $reason_query WHERE Order_Id = '$order_id'";
     
-
-if (mysqli_query($conn, $update_sql)) {
+    if (mysqli_query($conn, $update_sql)) {
         
-        // ── 🌟 自动触发状态变更通知（精准路由给对应品牌的 Level 3 管理员） ──
         $notif_type = 'status_change';
         $notif_title = "Order Status Updated";
 
-        // 如果订单刚标记为 Shipped，则发邮件通知客户，并把发货跟踪号写入通知内容
         if ($new_status === 'Shipped' && !empty($customer_email)) {
             $sent_email = sendShipmentNotificationEmail($customer_email, $customer_name ?: 'Customer', $order_id, $tracking_number, $current_time);
-            if (!$sent_email) {
-                error_log("Failed to send shipped notification email for order {$order_id} to {$customer_email}");
-            }
+        }
+
+        // 发送 Issue / Canceled 通知邮件给客户
+        if (in_array($new_status, ['Issue', 'Canceled']) && !empty($customer_email)) {
+            sendOrderStatusEmail(
+                $new_status,
+                $customer_email,
+                $customer_name ?: 'Customer',
+                $order_tracking_num,
+                $reason ?: 'No reason specified.',
+                $superadmin_email,
+                $brand_admin_email
+            );
+        }
+
+        // 发送 Issue 已解决、恢复 Processing 的通知邮件
+        if ($new_status === 'Processing' && !empty($reason) && strpos($reason, 'Issue Resolved') !== false && !empty($customer_email)) {
+            sendOrderStatusEmail(
+                'IssueResolved',
+                $customer_email,
+                $customer_name ?: 'Customer',
+                $order_tracking_num,
+                $reason,
+                $superadmin_email,
+                $brand_admin_email
+            );
         }
         
-        // 根据变更为何种状态，定制人性化的通知内容
+        // 【新增】为 Canceled 和 Issue 增加专属通知文字，附带 Reason
         switch ($new_status) {
-            case 'Processing':
-                $notif_msg = "Order #ODR{$order_tracking_num} is now being processed and prepared.";
-                break;
-            case 'Shipped':
-                $notif_msg = "Order #ODR{$order_tracking_num} has been shipped out.";
-                break;
-            case 'Delivered':
-                $notif_msg = "Order #ODR{$order_tracking_num} has been successfully delivered.";
-                break;
-            default:
-                $notif_msg = "Order #ODR{$order_tracking_num} status changed to {$new_status}.";
-                break;
-        }
-        
-        $notif_link = "admin_manage_orders.php"; 
-
-        // 【核心修改】：通过当前 Order_Id 查出这个订单里包含了哪些 Level 3 品牌管理员的产品
-        $brand_admin_sql = "
-            SELECT DISTINCT b.Admin_Id 
-            FROM order_detail od
-            JOIN product p ON od.Pro_Id = p.Pro_Id
-            JOIN brand b ON p.Brand_Id = b.Brand_Id
-            WHERE od.Order_Id = '$order_id' AND b.Admin_Id IS NOT NULL
-        ";
-        $brand_admin_res = mysqli_query($conn, $brand_admin_sql);
-        
-        // 用于记录是否成功发给了特定品牌管理员
-        $has_sent_to_brand_admin = false;
-
-        if ($brand_admin_res && mysqli_num_rows($brand_admin_res) > 0) {
-            // 遍历所有涉及到的 Level 3 品牌管理员，给他们每个人单独插入一条带有个体 Admin_Id 的通知
-            $stmt_notif = $conn->prepare("INSERT INTO notification (Notif_Type, Notif_Title, Notif_Message, Notif_Link, Admin_Id, Related_Id) VALUES (?, ?, ?, ?, ?, ?)");
-            
-            while ($brand_admin_row = mysqli_fetch_assoc($brand_admin_res)) {
-                $target_admin_id = intval($brand_admin_row['Admin_Id']);
-                $stmt_notif->bind_param("ssssii", $notif_type, $notif_title, $notif_msg, $notif_link, $target_admin_id, $order_id);
-                $stmt_notif->execute();
-                $has_sent_notif = true;
-            }
-            $stmt_notif->close();
-        }
-
-        // 【兜底机制】：如果这个订单里没有查到任何 Level 3 管理员的产品（比如普通全站产品），则以 NULL 形式发给 Level 1 & 2 系统大管理员
-        if (!$has_sent_notif) {
-            $stmt_global = $conn->prepare("INSERT INTO notification (Notif_Type, Notif_Title, Notif_Message, Notif_Link, Admin_Id, Related_Id) VALUES (?, ?, ?, ?, NULL, ?)");
-            $stmt_global->bind_param("ssssi", $notif_type, $notif_title, $notif_msg, $notif_link, $order_id);
-            $stmt_global->execute();
-            $stmt_global->close();
+            case 'Processing': $notif_msg = "Order #ODR{$order_tracking_num} is now being processed."; break;
+            case 'Shipped':    $notif_msg = "Order #ODR{$order_tracking_num} has been shipped out."; break;
+            case 'Delivered':  $notif_msg = "Order #ODR{$order_tracking_num} has been successfully delivered."; break;
+            case 'Canceled':   $notif_msg = "Order #ODR{$order_tracking_num} was CANCELED. Reason: " . ($reason ?: 'None'); break;
+            case 'Issue':      $notif_msg = "Order #ODR{$order_tracking_num} flagged with ISSUE. Reason: " . ($reason ?: 'None'); break;
+            default:           $notif_msg = "Order #ODR{$order_tracking_num} status changed to {$new_status}."; break;
         }
         // ──────────────────────────────────────────────
         echo json_encode(['status' => 'success']);
@@ -258,38 +392,37 @@ if (mysqli_query($conn, $update_sql)) {
     exit();
 }
 
-// --- 统计订单状态数量 (为顶部的4个卡片提供数据) ---
-$stats = [
-    'pending' => 0,
-    'processing' => 0,
-    'shipped' => 0,
-    'delivered' => 0
-];
-
-$stat_sql = "SELECT Order_Status, COUNT(*) as count FROM `order` o";
-
-// 如果是 Level 3 品牌管理员，统计时也必须过滤出该管理员的订单
+// ==========================================
+// 顶部状态统计卡片数据获取 (增加异常统计)
+// ==========================================
 if ($_SESSION['role'] == 3) {
-    $stat_sql .= " WHERE EXISTS (
-        SELECT 1 FROM order_detail od
-        JOIN product p ON od.Pro_Id = p.Pro_Id
-        JOIN brand b ON p.Brand_Id = b.Brand_Id
-        WHERE od.Order_Id = o.Order_Id 
-        AND b.Admin_Id = '$current_admin_id'
-    )";
-}
+    $current_admin_id = $_SESSION['admin_id'];
+    $base_count_sql = "SELECT COUNT(DISTINCT o.Order_Id) as count FROM `order` o
+                       JOIN order_detail od ON o.Order_Id = od.Order_Id
+                       JOIN product p ON od.Pro_Id = p.Pro_Id
+                       JOIN brand b ON p.Brand_Id = b.Brand_Id
+                       WHERE b.Admin_Id = '$current_admin_id'";
 
-$stat_sql .= " GROUP BY Order_Status";
-$stat_result = mysqli_query($conn, $stat_sql);
-
-if ($stat_result) {
-    while ($row = mysqli_fetch_assoc($stat_result)) {
-        // 将数据库里的状态 (如 'Pending') 转成小写 ('pending') 以匹配我们的数组键名
-        $status = strtolower($row['Order_Status']); 
-        if (isset($stats[$status])) {
-            $stats[$status] = $row['count'];
-        }
-    }
+    $count_pending = mysqli_fetch_assoc(mysqli_query($conn, $base_count_sql . " AND o.Order_Status = 'Pending'"))['count'];
+    $count_processing = mysqli_fetch_assoc(mysqli_query($conn, $base_count_sql . " AND o.Order_Status = 'Processing'"))['count'];
+    $count_shipped = mysqli_fetch_assoc(mysqli_query($conn, $base_count_sql . " AND o.Order_Status = 'Shipped'"))['count'];
+    $count_delivered = mysqli_fetch_assoc(mysqli_query($conn, $base_count_sql . " AND o.Order_Status = 'Delivered'"))['count'];
+    
+    // 【新增】计算异常和已取消的订单
+    $count_issue_canceled = mysqli_fetch_assoc(mysqli_query($conn, $base_count_sql . " AND o.Order_Status IN ('Issue', 'Canceled')"))['count'];
+    
+    $total_orders = mysqli_fetch_assoc(mysqli_query($conn, $base_count_sql))['count'];
+} else {
+    $count_pending = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as count FROM `order` WHERE Order_Status = 'Pending'"))['count'];
+    $count_processing = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as count FROM `order` WHERE Order_Status = 'Processing'"))['count'];
+    $count_shipped = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as count FROM `order` WHERE Order_Status = 'Shipped'"))['count'];
+    $count_delivered = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as count FROM `order` WHERE Order_Status = 'Delivered'"))['count'];
+    
+    // 【新增】计算异常和已取消的订单
+    $count_issue_canceled = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as count FROM `order` WHERE Order_Status IN ('Issue', 'Canceled')"))['count'];
+    
+    $total_orders_result = mysqli_query($conn, "SELECT COUNT(*) as total FROM `order`");
+    $total_orders = mysqli_fetch_assoc($total_orders_result)['total'];
 }
 
 
@@ -447,9 +580,11 @@ if (isset($_GET['ajax_get_items'])) {
 
         /* 状态对应颜色方案 */
         .bg-pending { background-color: #FFF4E5; color: #FF8C00; border: 1px solid #FFE0B2; }    /* 橙色/警告 */
-        .bg-processing { background-color: #E8EAF6; color: #3F51B5; border: 1px solid #C5CAE9; } /* 紫色/处理 */
+        .bg-processing { background-color: #f3e8ff; color: #7e22ce; border: 1px solid #e9d5ff; }  /* 紫色/处理中 */
         .bg-shipped { background-color: #E3F2FD; color: #1976D2; border: 1px solid #BBDEFB; }    /* 蓝色/运输 */
         .bg-delivered { background-color: #E8F5E9; color: #2E7D32; border: 1px solid #C8E6C9; }  /* 绿色/完成 */
+        .bg-canceled { background-color: #ffebee; color: #c62828; border: 1px solid #ffcdd2; }  /* 红色/取消 */
+        .bg-issue { background-color: #fff8e1; color: #f57f17; border: 1px solid #ffecb3; }     /* 黄色/问题 */
 
         /* 移除下拉箭头的默认边距 */
         .dropdown-toggle::after {
@@ -458,7 +593,7 @@ if (isset($_GET['ajax_get_items'])) {
 
         .stat-icon { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 24px; }
         .icon-pending { background: #fff7ed; color: #f59e0b; }
-        .icon-processing { background: #eef2ff; color: #6366f1; }
+        .icon-processing { background: #f3e8ff; color: #7e22ce; }
         .icon-shipped { background: #eff6ff; color: #3b82f6; }
         .icon-delivered { background: #f0fdf4; color: #22c55e; }
 
@@ -481,10 +616,15 @@ if (isset($_GET['ajax_get_items'])) {
 
                 /* 让 4 个数据框可点击并带有悬浮动画 */
 .summary-card {
-    cursor: pointer;
-    transition: all 0.3s ease;
-    position: relative;
-}
+            background-color: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+            /* 这里加上了灰色的边框，让格子轮廓非常明显 */
+            border: 2px solid #e2e8f0; 
+            transition: all 0.2s ease-in-out;
+            cursor: pointer;
+            height: 100%; /* 确保所有格子高度一致 */
+        }
 /* 增加一个隐形的内边框，为“变厚”做准备 */
 .summary-card::after {
     content: '';
@@ -509,6 +649,17 @@ if (isset($_GET['ajax_get_items'])) {
     border-color: var(--orange-primary); /* 出现橙色加粗边框，看起来变厚了 */
 }
 
+        /* 超过3天仍是 Pending/Processing 的订单行 — 浅红色提醒 */
+        .overdue-row td {
+            background-color: #fff5f5 !important;
+        }
+        .overdue-row:hover td {
+            background-color: #ffe9e9 !important;
+        }
+        /* 左侧加一条红色细线作为视觉强调 */
+        .overdue-row td:first-child {
+            border-left: 3px solid #f87171 !important;
+        }
     </style>
 </head>
 <body>
@@ -546,27 +697,92 @@ if (isset($_GET['ajax_get_items'])) {
 
         <div class="container-fluid p-0">
             <!-- 概述卡片 -->
-            <div class="row g-4 mb-4">
-            <?php 
-            $cards = [
-                ['Pending', $stats['pending'], 'bi-clock-history', 'icon-pending'], 
-                ['Processing', $stats['processing'], 'bi-gear-wide-connected', 'icon-processing'], 
-                ['Shipped', $stats['shipped'], 'bi-truck', 'icon-shipped'], 
-                ['Delivered', $stats['delivered'], 'bi-check2-circle', 'icon-delivered']
-            ];
+            <div class="row g-3 mb-4">
             
-            foreach($cards as $c): ?>
-            <div class="col-md-3">
-                <div class="table-card summary-card d-flex align-items-center justify-content-between p-4 mb-0" 
-                    onclick="filterOrders('<?php echo $c[0]; ?>', this)">
-                    <div>
-                        <p class="text-muted small fw-bold mb-1 text-uppercase"><?php echo $c[0]; ?></p>
-                        <h3 class="fw-bold mb-0"><?php echo $c[1]; ?></h3>
+            <div class="col-6 col-md-4 col-lg-2">
+                <div class="summary-card p-3" onclick="filterOrders('All', this)">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <p class="text-muted mb-1 small fw-bold">All Orders</p>
+                            <h4 class="mb-0 fw-bold"><?php echo $total_orders; ?></h4>
+                        </div>
+                        <div class="icon-box bg-primary bg-opacity-10 text-primary">
+                            <i class="bi bi-collection"></i>
+                        </div>
                     </div>
-                    <div class="stat-icon <?php echo $c[3]; ?>"><i class="bi <?php echo $c[2]; ?>"></i></div>
                 </div>
             </div>
-            <?php endforeach; ?>
+
+            <div class="col-6 col-md-4 col-lg-2">
+                <div class="summary-card p-3" onclick="filterOrders('Pending', this)">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <p class="text-muted mb-1 small fw-bold">Pending</p>
+                            <h4 class="mb-0 fw-bold"><?php echo $count_pending; ?></h4>
+                        </div>
+                        <div class="icon-box bg-secondary bg-opacity-10 text-secondary">
+                            <i class="bi bi-hourglass-split"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-6 col-md-4 col-lg-2">
+                <div class="summary-card p-3" onclick="filterOrders('Processing', this)">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <p class="text-muted mb-1 small fw-bold">Processing</p>
+                            <h4 class="mb-0 fw-bold"><?php echo $count_processing; ?></h4>
+                        </div>
+                        <div class="icon-box bg-info bg-opacity-10 text-info">
+                            <i class="bi bi-box-seam"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-6 col-md-4 col-lg-2">
+                <div class="summary-card p-3" onclick="filterOrders('Shipped', this)">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <p class="text-muted mb-1 small fw-bold">Shipped</p>
+                            <h4 class="mb-0 fw-bold"><?php echo $count_shipped; ?></h4>
+                        </div>
+                        <div class="icon-box bg-warning bg-opacity-10 text-warning">
+                            <i class="bi bi-truck"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-6 col-md-4 col-lg-2">
+                <div class="summary-card p-3" onclick="filterOrders('Delivered', this)">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <p class="text-muted mb-1 small fw-bold">Delivered</p>
+                            <h4 class="mb-0 fw-bold"><?php echo $count_delivered; ?></h4>
+                        </div>
+                        <div class="icon-box bg-success bg-opacity-10 text-success">
+                            <i class="bi bi-check-circle"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-6 col-md-4 col-lg-2">
+                <div class="summary-card p-3" onclick="filterOrders('Exception', this)">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <p class="text-muted mb-1 small fw-bold">Issue / Cancel</p>
+                            <h4 class="mb-0 fw-bold text-danger"><?php echo $count_issue_canceled; ?></h4>
+                        </div>
+                        <div class="icon-box bg-danger bg-opacity-10 text-danger">
+                            <i class="bi bi-exclamation-octagon"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
         </div>
 
             <!-- 订单表格区域 -->
@@ -599,8 +815,20 @@ if (isset($_GET['ajax_get_items'])) {
                                 // 计算当前状态在流转链条中的位置
                                 $current_status = $row['Order_Status'];
                                 $current_index = array_search($current_status, $status_flow);
+
+                                // 检查是否 Pending/Processing 超过3天（浅红色提醒）
+                                $is_overdue = false;
+                                if (in_array($current_status, ['Pending', 'Processing'])) {
+                                    $order_date = new DateTime(date('Y-m-d', $order_timestamp));
+                                    $today      = new DateTime(date('Y-m-d'));
+                                    $days_diff  = (int)$today->diff($order_date)->days;
+                                    if ($days_diff > 3) {
+                                        $is_overdue = true;
+                                    }
+                                }
                             ?>
-                            <tr class="order-row" data-status="<?php echo ucfirst(strtolower($row['Order_Status'])); ?>">
+                            <tr class="order-row <?php echo $is_overdue ? 'overdue-row' : ''; ?>" data-status="<?php echo ucfirst(strtolower($row['Order_Status'])); ?>"
+                                <?php if ($is_overdue): ?>title="⚠️ This order has been <?php echo $current_status; ?> for more than 3 days"<?php endif; ?>>
                                 <td class="fw-bold">ODR<?php echo htmlspecialchars($row['Order_Tracking_Num']); ?></td>
                                 <td>
                                     <div class="fw-bold"><?php echo htmlspecialchars($row['User_Name']); ?></div>
@@ -610,8 +838,8 @@ if (isset($_GET['ajax_get_items'])) {
                                 <td>
                                     <div class="dropdown">
                                         <?php 
-                                        // 判断是否已经是最后一个状态 (Delivered)
-                                        $is_last_status = ($current_index === count($status_flow) - 1);
+                                        // 如果当前状态是 Canceled 或 Issue，它就不在正常流程里，禁止显示下拉菜单
+                                        $is_last_status = ($current_index === false || $current_index === count($status_flow) - 1);
                                         ?>
                                         
                                         <span class="badge-status bg-<?php echo strtolower($current_status); ?> <?php echo !$is_last_status ? 'dropdown-toggle' : ''; ?>" 
@@ -639,7 +867,20 @@ if (isset($_GET['ajax_get_items'])) {
                                 </td>
                                 <td class="fw-bold text-dark">RM <?php echo number_format($row['Order_Amount'], 2); ?></td>
                                 <td class="text-end">
-                                <button onclick="showItemPopup('<?php echo $row['Order_Id']; ?>', '<?php echo htmlspecialchars($row['Order_Tracking_Num']); ?>')" class="btn btn-sm btn-outline-dark rounded-pill px-3">Details</button>                                </td>
+                                    <div class="d-inline-flex gap-2">
+                                        <button onclick="showItemPopup('<?php echo $row['Order_Id']; ?>')" class="btn btn-sm btn-outline-dark rounded-pill px-3">Details</button>
+                                        
+                                        <?php if ($row['Order_Status'] === 'Issue'): ?>
+                                            <button onclick="resolveIssuePopup('<?php echo $row['Order_Id']; ?>')" class="btn btn-sm btn-outline-warning rounded-circle d-flex align-items-center justify-content-center text-dark" style="width: 32px; height: 32px; border-width: 2px;" title="Resolve Issue">
+                                                <i class="bi bi-exclamation-triangle-fill"></i>
+                                            </button>
+                                        <?php elseif ($row['Order_Status'] !== 'Canceled' && $row['Order_Status'] !== 'Delivered'): ?>
+                                            <button onclick="showIssuePopup('<?php echo $row['Order_Id']; ?>')" class="btn btn-sm btn-outline-danger rounded-circle d-flex align-items-center justify-content-center" style="width: 32px; height: 32px;" title="Report Issue / Cancel">
+                                                <i class="bi bi-exclamation-triangle-fill"></i>
+                                            </button>
+                                        <?php endif; ?>
+                                    </div>
+                                </td>
                             </tr>
                             <?php endwhile; ?>
                         </tbody>
@@ -729,12 +970,166 @@ function filterOrders(status, cardElement) {
     cardElement.classList.add('active-filter');
     currentFilter = status;
 
-    // 3. 秒速过滤下面的表格 List
+    // 3. 过滤行 (加入对 All 和 Exception 的特殊处理)
     rows.forEach(row => {
-        if (row.getAttribute('data-status') === status) {
-            row.style.display = ''; // 状态吻合，显示
+        const rowStatus = row.getAttribute('data-status');
+        
+        if (status === 'All') {
+            // 选择 All 时，显示所有行
+            row.style.display = '';
+        } else if (status === 'Exception') {
+            // 选择 Exception 时，显示 Issue 和 Canceled 的订单
+            if (rowStatus === 'Issue' || rowStatus === 'Canceled') {
+                row.style.display = '';
+            } else {
+                row.style.display = 'none';
+            }
         } else {
-            row.style.display = 'none'; // 状态不吻合，隐藏
+            // 普通状态 (Pending, Processing, Shipped, Delivered) 的精确匹配
+            if (rowStatus === status) {
+                row.style.display = '';
+            } else {
+                row.style.display = 'none';
+            }
+        }
+    });
+}
+
+// ============================================
+// 异常与取消订单处理 (Issue & Canceled)
+// ============================================
+
+function showIssuePopup(orderId) {
+    Swal.fire({
+        title: '<i class="bi bi-exclamation-triangle-fill text-danger fs-3 mb-2 d-block"></i> Exception Handling',
+        html: `
+            <div class="text-start mt-3">
+                <label class="form-label fw-bold small text-muted">Select Action Status:</label>
+                <select id="issueStatus" class="form-select mb-3 border-danger shadow-sm">
+                    <option value="Issue">Flag as Issue</option>
+                    <option value="Canceled">Cancel Order</option>
+                </select>
+                
+                <label class="form-label fw-bold small text-muted">Select Reason:</label>
+                <select id="issueReason" class="form-select mb-3 shadow-sm" onchange="toggleOtherReason()">
+                    <option value="Out of stock (缺货)">Out of stock</option>
+                    <option value="Customer requested cancellation (客户要求取消)">Customer requested cancellation</option>
+                    <option value="Payment verification failed (支付验证失败)">Payment verification failed</option>
+                    <option value="Invalid shipping address (无效的送货地址)">Invalid shipping address</option>
+                    <option value="Suspected fraudulent order (疑似欺诈订单)">Suspected fraudulent order</option>
+                    <option value="Logistics partner rejection (物流拒收)">Logistics partner rejection</option>
+                    <option value="Other">Other (Type your own)</option>
+                </select>
+                
+                <input type="text" id="otherReason" class="form-control shadow-sm border-warning" placeholder="Please specify the reason..." style="display: none;">
+            </div>
+        `,
+        showCancelButton: true,
+        confirmButtonText: 'Confirm Update',
+        cancelButtonText: 'Close',
+        confirmButtonColor: '#dc3545',
+        preConfirm: () => {
+            const status = document.getElementById('issueStatus').value;
+            const reasonSelect = document.getElementById('issueReason').value;
+            const otherReason = document.getElementById('otherReason').value;
+            
+            let finalReason = reasonSelect;
+            if (reasonSelect === 'Other') {
+                if (!otherReason.trim()) {
+                    Swal.showValidationMessage('Please type the custom reason');
+                    return false;
+                }
+                finalReason = otherReason.trim();
+            }
+            return { status: status, reason: finalReason };
+        }
+    }).then((result) => {
+        if (result.isConfirmed) {
+            submitIssueUpdate(orderId, result.value.status, result.value.reason);
+        }
+    });
+}
+
+// 切换显示“其他”输入框
+function toggleOtherReason() {
+    const select = document.getElementById('issueReason');
+    const input = document.getElementById('otherReason');
+    if (select.value === 'Other') {
+        input.style.display = 'block';
+        input.focus();
+    } else {
+        input.style.display = 'none';
+        input.value = '';
+    }
+}
+
+// 提交异常状态到后台
+function submitIssueUpdate(orderId, status, reason) {
+    Swal.fire({
+        title: 'Updating System...',
+        text: 'Recording reason and notifying customer...',
+        allowOutsideClick: false,
+        showConfirmButton: false,
+        didOpen: () => { Swal.showLoading(); }
+    });
+
+    let formData = new FormData();
+    formData.append('update_status', true);
+    formData.append('order_id', orderId);
+    formData.append('new_status', status); // 会是 'Canceled' 或 'Issue'
+    formData.append('reason', reason);     // 附带你选择或填写的 Reason
+
+    fetch('admin_manage_orders.php', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            Swal.fire({
+                icon: 'success',
+                title: status + ' Processed',
+                text: 'The order status and reason have been updated.',
+                timer: 2000,
+                showConfirmButton: false
+            }).then(() => location.reload());
+        } else {
+            Swal.fire('Error', data.message || 'Failed to update database.', 'error');
+        }
+    })
+    .catch(error => {
+        console.error(error);
+        Swal.fire('Error', 'Server response failed. Please check your PHP logs.', 'error');
+    });
+}
+
+// ============================================
+// 处理已标记为 Issue 的订单 (恢复 Process 或 Cancel)
+// ============================================
+function resolveIssuePopup(orderId) {
+    Swal.fire({
+        title: '<i class="bi bi-exclamation-triangle text-warning fs-1 d-block mb-2"></i> Resolve Issue',
+        text: "This order is currently on hold due to an Issue. How would you like to proceed?",
+        showCancelButton: true,
+        showDenyButton: true,
+        confirmButtonText: 'Continue Process',
+        denyButtonText: 'Cancel Order',
+        cancelButtonText: 'Close',
+        confirmButtonColor: '#10b981', // 绿色 (恢复进行)
+        denyButtonColor: '#dc3545',    // 红色 (直接取消)
+        customClass: {
+            actions: 'flex-wrap gap-2'
+        }
+    }).then((result) => {
+        if (result.isConfirmed) {
+            // 用户点击了 Continue Process
+            // 直接复用之前的提交函数，状态改为 Processing，附带一条自动生成的 Reason 记录
+            submitIssueUpdate(orderId, 'Processing', 'Issue Resolved - Resumed Processing');
+            
+        } else if (result.isDenied) {
+            // 用户点击了 Cancel Order
+            // 状态改为 Canceled
+            submitIssueUpdate(orderId, 'Canceled', 'Issue Unresolved - Order Canceled');
         }
     });
 }
