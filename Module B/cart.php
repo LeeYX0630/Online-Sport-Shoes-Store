@@ -160,7 +160,6 @@ $free_shipping_threshold = 250.00;
                                         <strong style="color:#333;"><?php echo $product['Pro_Name']; ?></strong>
                                         <div style="font-size:13px; color:#666; margin-top:5px;">Size: <?php echo $size; ?> | Col: <?php echo $display_color_name; ?></div>
                                         
-                                        <!-- 【核心修复 2】：同步定制款显示逻辑 -->
                                         <?php if (($pro_id == 16 || $pro_id == 17) && $display_color_name == 'Custom Design'): ?>
                                             <div style="font-size:11px; color:#008060; font-weight:bold;">
                                                 <i class="bi bi-hammer"></i> Custom Built to Order (Available)
@@ -171,10 +170,11 @@ $free_shipping_threshold = 250.00;
                                     </div>
                                     <div style="font-weight:bold;">RM <?php echo number_format($product['Pro_Price'], 2); ?></div>
                                     <div>
-                                        <!-- 注意这里的 name="qty[<?php echo $cart_key; ?>]" -->
                                         <input type="number" name="qty[<?php echo $cart_key; ?>]" 
                                                value="<?php echo $qty; ?>" 
+                                               min="1"
                                                class="qty-input" 
+                                               oninput="this.value = this.value.replace(/[^0-9]/g, '');"
                                                onchange="checkStockQty(this, '<?php echo $cart_key; ?>', <?php echo $current_stock; ?>)">
                                     </div>
                                     <div style="text-align: right;">
@@ -211,9 +211,22 @@ $free_shipping_threshold = 250.00;
 <script>
 function checkStockQty(input, cartKey, maxStock) {
     let val = parseInt(input.value);
+    
+    // 处理空值、0 或负数的情况
     if (val < 1 || isNaN(val)) {
-        input.value = 1;
-    } else if (val > maxStock) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'Invalid Quantity',
+            text: 'Minimum quantity is 1.',
+            confirmButtonColor: '#008060'
+        }).then(() => {
+            input.value = 1;
+            document.getElementById('cartForm').submit();
+        });
+        return;
+    } 
+    // 处理超出库存的情况
+    else if (val > maxStock) {
         Swal.fire({ 
             icon: 'warning', 
             title: 'Stock Limit', 
@@ -225,6 +238,8 @@ function checkStockQty(input, cartKey, maxStock) {
         });
         return;
     }
+    
+    // 正常数值，直接提交更新
     document.getElementById('cartForm').submit();
 }
 

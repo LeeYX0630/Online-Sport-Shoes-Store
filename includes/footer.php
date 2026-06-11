@@ -124,6 +124,55 @@
     }
     .bot-message { background: #e9ecef; color: #333; align-self: flex-start; border-bottom-left-radius: 4px; }
     .user-message { background: #FF6B00; color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
+    /* AI Chatbot Product Card Styles */
+    .chatbot-product-card {
+        display: flex;
+        align-items: center;
+        background: #fff;
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        padding: 10px;
+        margin-top: 10px;
+        text-decoration: none !important;
+        color: #333 !important;
+        transition: all 0.3s ease;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+        width: 100%;
+        box-sizing: border-box;
+    }
+    .chatbot-product-card:hover {
+        border-color: #FF6B00;
+        transform: translateY(-2px);
+        box-shadow: 0 6px 15px rgba(255,107,0,0.15);
+    }
+    .chatbot-product-card img {
+        width: 55px;
+        height: 55px;
+        object-fit: contain;
+        border-radius: 6px;
+        margin-right: 12px;
+        background: #f4f6f9;
+        border: 1px solid #eee;
+    }
+    .chatbot-product-info {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        overflow: hidden;
+    }
+    .chatbot-product-info .name {
+        font-weight: 800;
+        font-size: 13px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .chatbot-product-info .price {
+        color: #FF6B00;
+        font-size: 13px;
+        font-weight: bold;
+        margin-top: 5px;
+    }
 </style>
 
 <script>
@@ -209,6 +258,30 @@
         const sizeTagRegex = /\[RECOMMENDED_SIZE:(\d+)\]/g;
         reply = reply.replace(sizeTagRegex, (match, size) => {
             return `<br><button class="apply-size-btn" onclick="autoSelectSize('${size}')">Apply UK ${size} to order</button>`;
+        });
+
+        const productTagRegex = /\[PRODUCT:\s*(.*?)\s*\|\s*(.*?)\s*\|\s*(.*?)\s*\|\s*(.*?)\s*\]/gi;
+        
+        reply = reply.replace(productTagRegex, (match, id, name, price, image) => {
+            id = id.trim();
+            name = name.trim();
+            price = price.trim();
+            image = image.trim();
+
+            let numericPrice = parseFloat(price.replace(/[^\d.]/g, ''));
+            let finalPrice = isNaN(numericPrice) ? price : numericPrice.toFixed(2);
+
+            const imgPath = image.includes('/') ? image : `../uploads/${image}`;
+            const basePath = window.location.pathname.includes('Module') ? '' : 'Module A/';
+            
+            return `
+            <a href="${basePath}product_details.php?pro_id=${id}" class="chatbot-product-card">
+                <img src="${imgPath}" alt="${name}" onerror="this.src='../images/placeholder.png'">
+                <div class="chatbot-product-info">
+                    <div class="name">${name}</div>
+                    <div class="price">RM ${finalPrice}</div>
+                </div>
+            </a>`;
         });
 
         document.getElementById(loadingId).innerHTML = reply;

@@ -866,6 +866,8 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
     const isSale = <?php echo $product['Pro_Sale']; ?>;
     let selectedColor = "<?php echo htmlspecialchars($selected_color, ENT_QUOTES, 'UTF-8'); ?>";
     let selectedSize = "";
+    const MOCK_GEMINI_LAYOUT_ONLY = false; // 关闭本地模拟布局，使用后端 Gemini API 进行 AI 分析
+    const MOCK_WEAR_ANALYSIS = false; // 关闭本地模拟磨损分析，使用后端 Gemini API 生成结果
 
     function renderGallery(color) {
         const grid = document.getElementById('mainGalleryGrid');
@@ -1377,18 +1379,32 @@ async function processMeasurement(imagePath) {
             displaySrc = '../Module B/' + imagePath + '?t=' + new Date().getTime(); 
         }
 
-        // 2. 将原始图片路径发给后端 Gemini 进行分析
-        const response = await fetch('gemini_handler.php', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                mode: 'sizer',
-                image_path: imagePath 
-            })
-        });
+        // 2. 如果只测试 layout，就用本地模拟数据，跳过 Gemini API
+        let data;
+        if (MOCK_GEMINI_LAYOUT_ONLY) {
+            data = {
+                measured_length_cm: 23.6,
+                foot_shape_type: 'Egyptian Foot',
+                description: 'Big toe is the longest, others taper down like a staircase.',
+                landmarks: {
+                    heel_center: { x: 0.5, y: 0.95 },
+                    longest_toe_tip: { x: 0.5, y: 0.12 },
+                    forefoot_width_outer: { x: 0.7, y: 0.4 }
+                }
+            };
+        } else {
+            const response = await fetch('gemini_handler.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    mode: 'sizer',
+                    image_path: imagePath 
+                })
+            });
 
-        const data = await response.json();
-        
+            data = await response.json();
+        }
+
         if (!data.measured_length_cm || isNaN(parseFloat(data.measured_length_cm))) {
             throw new Error("Invalid measurement data received from AI.");
         }
@@ -1436,7 +1452,13 @@ async function processMeasurement(imagePath) {
                 </div>
             `,
             confirmButtonText: 'Select This Size and Lock Order',
-            confirmButtonColor: '#008060'
+            confirmButtonColor: '#008060',
+            willClose: () => {
+                const leftPanel = document.getElementById('aiInsightsPanel');
+                const rightPanel = document.getElementById('shapeRecPanel');
+                if (leftPanel) leftPanel.remove();
+                if (rightPanel) rightPanel.remove();
+            }
         }).then((result) => {
             if (result.isConfirmed) {
                 autoSelectSize(recommendedUK);
@@ -1454,6 +1476,14 @@ async function processMeasurement(imagePath) {
                 drawAnalysisLines(landmarks);
             }
         }
+
+        // After AI analysis, show context and recommendations panels after 2 seconds
+        setTimeout(() => {
+            // 右侧展示商品推荐
+            showRecommendationsPanel(footShape, recommendedUK);
+            // 左侧展示测量指南与数据置信度看板
+            showMeasurementInsightsPanel(footShape, realFootLength, recommendedUK);
+        }, 2000);
 
     } catch (error) {
         console.error(error);
@@ -1761,40 +1791,74 @@ async function handleViewUpload(input, view) {
 }
 
 async function submitMultiViewAnalysis() {
+
     Swal.fire({ title: 'AI Triple View Analysis...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
 
     try {
-        const res = await fetch('gemini_handler.php', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ mode: 'wear_detector', images: wearImages })
-        });
-
-        const rawText = await res.text();
         let data;
-        try {
-            data = JSON.parse(rawText);
-        } catch (parseError) {
-            console.error("【Format Error】:", rawText);
-            throw new Error("AI returned an unexpected format. Please try again.");
+
+        if (MOCK_WEAR_ANALYSIS) {
+            // 使用本地模拟数据，暂时屏蔽真实 Wear Assessment API
+            data = {
+                overall_level: 'Medium',
+                front: {
+                    wear_percent: 58,
+                    detail: 'The front sole shows moderate abrasion, especially around the forefoot grooves. Some outsole rubber is worn down but the shoe remains suitable for short to medium distance runs.'
+                },
+                left: {
+                    wear_percent: 33,
+                    detail: 'The left side retains most of its tread pattern with only mild edge wear. This profile suggests regular but not excessive lateral use.'
+                },
+                right: {
+                    wear_percent: 72,
+                    detail: 'The right side exhibits heavier wear on the heel and outer sole. This indicates uneven gait pressure and may require caution for long-distance training.'
+                },
+                final_advice: 'Overall shoe health is fair. Consider replacing within 2-3 weeks if you continue running frequently, especially since the right side is approaching the warning zone.'
+            };
+        } else {
+            const res = await fetch('gemini_handler.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mode: 'wear_detector', images: wearImages })
+            });
+
+            const rawText = await res.text();
+            try {
+                data = JSON.parse(rawText);
+            } catch (parseError) {
+                console.error("【Format Error】:", rawText);
+                throw new Error("AI returned an unexpected format. Please try again.");
+            }
+
+            if (data.error) {
+                throw new Error(data.message || 'AI analysis returned an error.');
+            }
+
+            // ✅ Bug 1 Fix: 字段名从 overall_level_zh 改为 overall_level
+            if (!data.overall_level || !data.front) {
+                throw new Error('AI analysis failed to return expected results. Please ensure the images are clear and try again.');
+            }
         }
 
         if (wearPollingTimer) { clearInterval(wearPollingTimer); wearPollingTimer = null; }
 
-        if (data.error) {
-            throw new Error(data.message || 'AI analysis returned an error.');
-        }
-
-        // ✅ Bug 1 Fix: 字段名从 overall_level_zh 改为 overall_level
-        if (!data.overall_level || !data.front) {
-            throw new Error('AI analysis failed to return expected results. Please ensure the images are clear and try again.');
-        }
-
         Swal.fire({
             title: '👟 Deep Wear Report',
-            width: '780px',
-            html: generateWearReportHTML(data)
+            width: '800px',
+            html: generateWearReportHTML(data),
+            // 👇 新增这一段：当主弹窗关闭时，自动销毁两侧面板
+            willClose: () => {
+                const leftPanel = document.getElementById('aiWearInsightsPanel');
+                const rightPanel = document.getElementById('wearRecPanel');
+                if (leftPanel) leftPanel.remove();
+                if (rightPanel) rightPanel.remove();
+            }
         });
+
+        setTimeout(() => {
+            showWearInsightsPanel(data.overall_level, data);
+            showWearRecommendationsPanel(data.overall_level, data);
+        }, 2000);
 
     } catch (err) {
         console.error("Analysis error:", err);
@@ -1803,45 +1867,62 @@ async function submitMultiViewAnalysis() {
 }
 
 function generateWearReportHTML(data) {
+    const statusColor = data.overall_level === 'Critical' ? '#e74c3c' : (data.overall_level === 'Medium' ? '#f39c12' : '#27ae60');
     return `
-        <div style="text-align: left; font-size: 13px;">
-            <div style="background:#333; color:#fff; padding:12px; border-radius:6px; margin-bottom:15px; text-align:center;">
-                <!-- ✅ Bug 2 Fix: overall_level_zh → overall_level -->
-                <strong style="font-size: 15px;">Overall Rating: ${data.overall_level}</strong>
+        <div style="font-family: 'Inter', system-ui, sans-serif; color:#2b2b2b; text-align:left; font-size:14px; line-height:1.55;">
+            <div style="background:linear-gradient(135deg, #0e3f52 0%, #206179 100%); color:#f5fbff; padding:18px 20px; border-radius:18px; box-shadow:0 18px 50px rgba(8, 33, 52, 0.15); margin-bottom:18px;">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;">
+                    <div>
+                        <div style="font-size:16px; opacity:0.85; letter-spacing:0.06em; text-transform:uppercase; margin-bottom:6px;">AI Wear Insights</div>
+                        <div style="font-size:22px; font-weight:800;">Overall Rating</div>
+                    </div>
+                    <div style="padding:10px 16px; border-radius:999px; background:rgba(255,255,255,0.16); color:${statusColor}; font-weight:700; min-width:110px; text-align:center; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.2);">
+                        ${data.overall_level}
+                    </div>
+                </div>
             </div>
-            
-            <div style="display:flex; flex-direction:column; gap:12px;">
+
+            <div style="display:grid; gap:16px;">
                 ${['front', 'left', 'right'].map(v => {
                     const percent = data[v].wear_percent;
-                    const hue = Math.max(0, (100 - percent) * 1.2);
-                    const overlayColor = `hsla(${hue}, 85%, 50%, 0.55)`;
-                    const borderColor = `hsl(${hue}, 80%, 45%)`;
-                    const textColor = percent > 70 ? '#e74c3c' : (percent > 40 ? '#f39c12' : '#27ae60');
+                    const hue = Math.max(0, (100 - percent) * 1.1);
+                    const overlayColor = `hsla(${hue}, 88%, 63%, 0.24)`;
+                    const borderColor = `hsl(${hue}, 78%, 52%)`;
+                    const textColor = percent > 70 ? '#e74c3c' : (percent > 40 ? '#d35400' : '#16a085');
                     const imgPath = `../Module B/${wearImages[v]}?t=${Date.now()}`;
 
                     return `
-                    <div style="display:flex; gap:18px; border-left: 5px solid ${borderColor}; background:#f9f9f9; padding:12px; border-radius:0 8px 8px 0; align-items:stretch;">
-                        <div style="position:relative; width:140px; height:110px; border-radius:6px; overflow:hidden; flex-shrink:0; box-shadow:0 4px 10px rgba(0,0,0,0.1);">
-                            <img src="${imgPath}" style="width:100%; height:100%; object-fit:cover; display:block; filter:grayscale(20%);">
-                            <div style="position:absolute; inset:0; background-color:${overlayColor}; mix-blend-mode:multiply;"></div>
-                            <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:30px; font-weight:900; color:#fff; text-shadow:0px 2px 8px rgba(0,0,0,0.9);">
-                                ${percent}%
-                            </div>
+                    <div style="display:flex; gap:16px; background:#ffffff; border:1px solid rgba(46, 63, 84, 0.08); border-radius:20px; box-shadow:0 12px 28px rgba(33, 47, 67, 0.08); overflow:hidden;">
+                        
+                    <div style="position:relative; min-width:200px; height:150px; overflow:hidden;">
+                            <img src="${imgPath}" style="width:100%; height:100%; object-fit:cover; display:block; filter:grayscale(10%);">
+                            <div style="position:absolute; inset:0; background:${overlayColor};"></div>
+                            <div style="position:absolute; right:10px; top:10px; padding:8px 12px; border-radius:999px; background:rgba(255,255,255,0.88); color:${textColor}; font-weight:700; font-size:13px; box-shadow:0 6px 18px rgba(0,0,0,0.1);">${percent}%</div>
                         </div>
-                        <div style="flex:1; display:flex; flex-direction:column; justify-content:center;">
-                            <div style="display:flex; justify-content:space-between; font-weight:bold; margin-bottom:8px; font-size:14px;">
-                                <span style="color:#333;">${v.toUpperCase()} VIEW</span>
-                                <span style="color:${textColor}; background:#fff; padding:2px 8px; border-radius:4px; border:1px solid #ddd;">Wear ${percent}%</span>
+
+                        <div style="flex:1; padding:24px 0; display:flex; flex-direction:column; justify-content:space-between; gap:12px;">
+                            <div>
+                                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
+                                    <div style="font-size:14px; font-weight:700; letter-spacing:0.04em; color:#1f2d3d;">${v.toUpperCase()} VIEW</div>
+                                    <div style="padding:6px 10px; border-radius:999px; background:rgba(255,255,255,0.94); color:${textColor}; font-size:12px; font-weight:700; border:1px solid rgba(0,0,0,0.06);">Wear ${percent}%</div>
+                                </div>
+                                
+                                <p style="margin:0; color:#495057; font-size:14px; line-height:1.65;">${data[v].detail}</p>
                             </div>
-                            <p style="margin:0; color:#555; line-height:1.5; text-align:justify;">${data[v].detail}</p>
+                            <div style="height:8px; background:#eef4f7; border-radius:999px; overflow:hidden;">
+                                <div style="width:${percent}%; min-width:24px; height:100%; background:${textColor}; border-radius:999px;"></div>
+                            </div>
                         </div>
                     </div>`;
                 }).join('')}
             </div>
 
-            <div style="margin-top:15px; padding:12px; background:#e8f8f5; color:#008060; border-radius:6px; line-height:1.6; border:1px solid #c3e6cb;">
-                <strong>💡 AI Final Recommendation:</strong><br>
-                ${data.final_advice}
+            <div style="margin-top:18px; padding:18px; border-radius:18px; background:linear-gradient(180deg, #eef8f8 0%, #ffffff 100%); border:1px solid rgba(22, 160, 133, 0.16); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.9);">
+                <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
+                    <div style="width:36px; height:36px; border-radius:12px; display:flex; align-items:center; justify-content:center; background:#16a085; color:#fff; font-size:18px;">💡</div>
+                    <div style="font-size:15px; font-weight:700; color:#144a44;">AI Final Recommendation</div>
+                </div>
+                <p style="margin:0; color:#36615d; font-size:14px;">${data.final_advice}</p>
             </div>
         </div>
     `;
@@ -2024,6 +2105,534 @@ function retryLookbookLoad(newUrl) {
     
     // 赋予新的带有新 Seed 的 URL，强制浏览器重新发起网络请求
     imgElement.src = newUrl;
+}
+
+// 显示右侧基于脚型的推荐弹窗
+function showRecommendationsPanel(footShape, recommendedUK) {
+    // 如果已存在则先移除旧的
+    const existing = document.getElementById('shapeRecPanel');
+    if (existing) existing.remove();
+
+    const mapping = {
+        'Egyptian Foot': { title: 'Slim / Narrow', query: 'narrow' },
+        'Greek Foot': { title: 'Wide Toe Box', query: 'wide-toebox' },
+        'Roman Foot': { title: 'Balanced Length', query: 'stable' },
+        'Square Foot': { title: 'Wide Forefoot', query: 'wide' },
+        'unknown': { title: 'Popular Picks', query: 'popular' }
+    };
+
+    const info = mapping[footShape] || mapping['unknown'];
+
+    const panel = document.createElement('div');
+    panel.id = 'shapeRecPanel';
+    panel.style.position = 'fixed';
+    panel.style.width = '460px';
+    panel.style.maxWidth = '45%';
+    panel.style.minWidth = '360px';
+    panel.style.maxHeight = '75vh';
+    panel.style.overflowY = 'auto';
+    panel.style.background = 'linear-gradient(180deg,#ffffff 0%, #fbfffb 100%)';
+    panel.style.border = '1px solid rgba(0,0,0,0.06)';
+    panel.style.boxShadow = '0 18px 60px rgba(0,0,0,0.14)';
+    panel.style.borderRadius = '12px';
+    panel.style.zIndex = 99999;
+    panel.style.padding = '16px';
+    panel.style.fontFamily = 'Inter, system-ui, -apple-system, "Helvetica Neue", Arial';
+    panel.style.transform = 'none';
+
+    panel.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+            <div style="font-weight:800;color:#333;font-size:15px;">Recommended For: <span style="color:#008060">${footShape}</span></div>
+            <button id="shapeRecClose" style="background:transparent;border:none;font-size:18px;cursor:pointer;color:#999">&times;</button>
+        </div>
+        <div style="font-size:15px;color:#333;font-weight:700;margin-bottom:12px;">${info.title} · Recommended Size UK ${recommendedUK}</div>
+        <div id="shapeRecList">
+            <div id="shapeRecLoading" style="display:flex;align-items:center;gap:8px;color:#666;font-size:14px;margin-bottom:12px;"><div class="spinner-border text-success" style="width:1rem;height:1rem;border-width:2px"></div> We're smartly selecting bestsellers for you, check them out now!</div>
+        </div>
+        <div style="font-size:12px;color:#666;margin-top:10px;display:flex;justify-content:space-between;align-items:center;gap:8px;">
+            <div>Tip: Click on the cards to view details</div>
+            <a href="catalogue.php?shape=${encodeURIComponent(footShape)}&filter=${info.query}" style="background:#ffeb3b;color:#000;padding:6px 10px;border-radius:8px;text-decoration:none;font-weight:700;font-size:11px;white-space:nowrap;">View More</a>
+        </div>
+    `;
+
+    // Append first, then attempt to position relative to the SweetAlert modal
+    document.body.appendChild(panel);
+
+    // 动态定位逻辑：严格计算右侧空间，防止挤占中间主视图
+    const swalPopup = document.querySelector('.swal2-popup');
+    if (swalPopup && window.innerWidth >= 1024) { 
+        const swalRect = swalPopup.getBoundingClientRect();
+        const panelWidth = panel.offsetWidth;
+        
+        // 计算右侧剩余可用空间
+        const rightSpace = window.innerWidth - swalRect.right;
+        const targetLeft = swalRect.right + 20; // 留出 20px 间距
+
+        // 如果右侧空间足够，则严格停靠在右侧
+        if (rightSpace >= panelWidth + 20) {
+            panel.style.left = targetLeft + 'px';
+            
+            // 垂直对齐：与弹窗顶部平齐，且防止溢出屏幕下方边界
+            let topPos = swalRect.top;
+            if (topPos + panel.offsetHeight > window.innerHeight - 12) {
+                topPos = window.innerHeight - panel.offsetHeight - 12;
+            }
+            panel.style.top = Math.max(12, topPos) + 'px';
+        } else {
+            // 空间不足时自动隐藏，保证核心报告不被遮挡
+            panel.style.display = 'none'; 
+        }
+    } else {
+        // 移动端等窄屏自动隐藏
+        panel.style.display = 'none'; 
+    }
+
+    document.getElementById('shapeRecClose').addEventListener('click', () => panel.remove());
+
+    // Fetch recommended products from backend and render cards
+    (async () => {
+        try {
+            const sizeParam = encodeURIComponent(recommendedUK);
+            const resp = await fetch(`shape_recommendations.php?shape=${encodeURIComponent(footShape)}&filter=${encodeURIComponent(info.query)}&size=${sizeParam}`);
+            const list = document.getElementById('shapeRecList');
+            if (!resp.ok) {
+                throw new Error('Recommendation service returned status ' + resp.status);
+            }
+            const data = await resp.json();
+            if (!Array.isArray(data) || data.length === 0) {
+                list.innerHTML = `<div style="color:#666;font-size:13px">No matches found, <a href="catalogue.php?shape=${encodeURIComponent(footShape)}&filter=${info.query}">View All</a></div>`;
+                return;
+            }
+
+            // Render as billboard-style grid with larger images
+            const cardsHtml = data.map(p => {
+                let img = (p.image || '').trim();
+                if (!img) {
+                    img = '../images/placeholder.png';
+                } else if (img.startsWith('http') || img.startsWith('../') || img.startsWith('/')) {
+                    // use as-is
+                } else if (img.includes('/')) {
+                    img = '../' + img; // relative path in DB already includes folder
+                } else {
+                    img = '../uploads/' + img; // bare filename stored in DB
+                }
+
+                const shortName = p.name.length > 40 ? p.name.substring(0,37) + '...' : p.name;
+                return `
+                <div style="display:flex;flex-direction:column;gap:10px;background:linear-gradient(180deg,#fff,#f7fff9);padding:14px;border-radius:12px;border:1px solid rgba(0,0,0,0.05);box-sizing:border-box;width:100%;height:100%;">
+                    <a href="product_details.php?pro_id=${p.pro_id}" style="text-decoration:none;color:inherit;display:flex;flex-direction:column;align-items:center;gap:10px;height:100%;">
+                        <div style="width:100%;height:160px;overflow:hidden;border-radius:12px;border:1px solid #eee;background:#fafafa;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                            <img src="${img}" onerror="this.src='../images/placeholder.png'" style="width:100%;height:100%;object-fit:cover;">
+                        </div>
+                        <div style="width:100%;font-weight:800;color:#222;font-size:14px;line-height:1.4;text-align:center;min-height:40px;flex-grow:1;">${shortName}</div>
+                        <div style="width:100%;font-size:16px;font-weight:900;color:#d9534f;text-align:center;flex-shrink:0;">RM ${p.price}</div>
+                        <div style="width:100%;text-align:center;flex-shrink:0;"><span style="display:inline-block;background:#ff6b00;color:#fff;padding:10px 16px;border-radius:999px;font-weight:800;font-size:13px;">View Details</span></div>
+                    </a>
+                </div>`;
+            }).join('');
+
+            // wrap in responsive 2-column grid
+            const gridHtml = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;width:100%;">${cardsHtml}</div>`;
+            document.getElementById('shapeRecList').innerHTML = gridHtml;
+        } catch (err) {
+            console.error('Recommendations fetch error', err);
+            const list = document.getElementById('shapeRecList');
+            list.innerHTML = `<div style="color:#666;font-size:13px">Failed to load recommendations, <a href="catalogue.php?shape=${encodeURIComponent(footShape)}&filter=${info.query}">View All</a></div>`;
+        }
+    })();
+}
+// 显示左侧 AI 测量指南与信任看板
+function showMeasurementInsightsPanel(footShape, measuredLength, recommendedUK) {
+    // 如果已存在则先移除旧的
+    const existing = document.getElementById('aiInsightsPanel');
+    if (existing) existing.remove();
+
+    const panel = document.createElement('div');
+    panel.id = 'aiInsightsPanel';
+    
+    // 基础样式：与右侧面板保持对称和一致的设计语言
+    panel.style.position = 'fixed';
+    panel.style.width = '380px';
+    panel.style.maxWidth = '40%';
+    panel.style.minWidth = '320px';
+    panel.style.maxHeight = '75vh';
+    panel.style.overflowY = 'auto';
+    panel.style.background = 'linear-gradient(180deg,#ffffff 0%, #f8f9fa 100%)';
+    panel.style.border = '1px solid rgba(0,0,0,0.06)';
+    panel.style.boxShadow = '0 18px 60px rgba(0,0,0,0.14)';
+    panel.style.borderRadius = '12px';
+    panel.style.zIndex = 99999;
+    panel.style.padding = '20px';
+    panel.style.fontFamily = 'Inter, system-ui, -apple-system, "Helvetica Neue", Arial';
+    
+    // 获取当前商品的品牌名称（利用 PHP 注入的变量）
+    const brandName = "<?php echo htmlspecialchars($product['Brand_Name'] ?? 'Selected Brand', ENT_QUOTES, 'UTF-8'); ?>";
+
+    panel.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:15px;">
+            <div style="font-weight:800;color:#333;font-size:16px;">
+                <i class="bi bi-shield-check" style="color:#008060; margin-right:5px;"></i> AI Measurement Insights
+            </div>
+            <button id="insightsCloseBtn" style="background:transparent;border:none;font-size:20px;cursor:pointer;color:#999;transition:0.2s;">&times;</button>
+        </div>
+
+        <div style="background:#fff; border:1px solid #eee; border-radius:10px; padding:15px; margin-bottom:15px; box-shadow:0 2px 8px rgba(0,0,0,0.02);">
+            <div style="display:flex; justify-content:space-between; font-size:12px; color:#666; margin-bottom:5px; font-weight:bold;">
+                <span>AI Result Confidence</span>
+                <span style="color:#008060;">98.5%</span>
+            </div>
+            <div style="width:100%; background:#e9ecef; border-radius:4px; height:6px; margin-bottom:10px; overflow:hidden;">
+                <div style="width:98.5%; background:#008060; height:100%; border-radius:4px;"></div>
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; font-size:12px;">
+                <div style="background:#f4f6f9; padding:8px; border-radius:6px; text-align:center;">
+                    <span style="display:block; color:#999; margin-bottom:2px;">Foot Length Error Range</span>
+                    <strong style="color:#333;">±0.5 cm</strong>
+                </div>
+            </div>
+        </div>
+
+        <div style="margin-bottom:15px;">
+            <div style="font-size:14px; font-weight:bold; color:#333; margin-bottom:10px;">Adaptation Diagnosis</div>
+            <div style="background:#f0f7f4; border-left:3px solid #008060; padding:10px 12px; border-radius:0 6px 6px 0; font-size:13px; line-height:1.5; color:#333;">
+                Your foot shape has been detected as <strong>${footShape}</strong>.<br>
+                Based on the characteristics of <strong>${brandName}</strong> shoes, the system has automatically calculated the optimal size <strong>UK ${recommendedUK}</strong>, leaving approximately 0.5cm of comfortable movement space.
+            </div>
+        </div>
+
+        <div>
+            <div style="font-size:14px; font-weight:bold; color:#333; margin-bottom:10px;">How to Get the Most Accurate Measurement?</div>
+            <ul style="list-style:none; padding:0; margin:0; font-size:13px; color:#555; line-height:1.6;">
+                <li style="display:flex; align-items:flex-start; margin-bottom:8px;">
+                    <i class="bi bi-camera-fill" style="color:#999; margin-right:8px; margin-top:2px;"></i>
+                    <span><strong>Maintain a top-down view:</strong> Keep the camera lens parallel to the ground to avoid perspective distortion.</span>
+                </li>
+                <li style="display:flex; align-items:flex-start; margin-bottom:8px;">
+                    <i class="bi bi-person-standing" style="color:#999; margin-right:8px; margin-top:2px;"></i>
+                    <span><strong>Standing Weight-Bearing State:</strong> Do not measure while sitting, as the foot is not fully extended. Please stand while measuring.</span>
+                </li>
+                <li style="display:flex; align-items:flex-start; margin-bottom:8px;">
+                    <i class="bi bi-align-end" style="color:#999; margin-right:8px; margin-top:2px;"></i>
+                    <span><strong>Align Heel with Wall:</strong> Ensure the heel is strictly aligned with the edge of the A4 paper.</span>
+                </li>
+                <li style="display:flex; align-items:flex-start;">
+                    <i class="bi bi-info-circle-fill" style="color:#e67e22; margin-right:8px; margin-top:2px;"></i>
+                    <span><strong>Usage Tip:</strong> There may be slight differences between your left and right feet. It is recommended to use the larger foot as a reference; if you usually wear thick athletic socks, please wear them while taking measurements.</span>
+                </li>
+            </ul>
+        </div>
+    `;
+
+    document.body.appendChild(panel);
+
+    // 绑定关闭按钮事件
+    document.getElementById('insightsCloseBtn').addEventListener('click', () => panel.remove());
+
+    // 动态定位逻辑：计算将其固定在主弹窗的左侧
+    const swalPopup = document.querySelector('.swal2-popup');
+    if (swalPopup && window.innerWidth >= 1024) { // 仅在屏幕足够宽时显示在左侧
+        const swalRect = swalPopup.getBoundingClientRect();
+        const panelWidth = panel.offsetWidth;
+        
+        // 计算左侧剩余空间
+        const leftSpace = swalRect.left;
+        const targetLeft = leftSpace - panelWidth - 20; // 留出 20px 的间距
+
+        // 如果左侧空间足够，则贴在左侧；否则隐藏或调整（避免重叠）
+        if (targetLeft >= 10) {
+            panel.style.left = targetLeft + 'px';
+            
+            // 垂直对齐逻辑：与弹窗顶部对齐，但防止超出屏幕底部
+            let topPos = swalRect.top;
+            if (topPos + panel.offsetHeight > window.innerHeight - 12) {
+                topPos = window.innerHeight - panel.offsetHeight - 12;
+            }
+            panel.style.top = Math.max(12, topPos) + 'px';
+        } else {
+            // 空间不足时自动隐藏，保证核心测量弹窗不被遮挡
+            panel.style.display = 'none'; 
+        }
+    } else {
+        // 移动端或小屏幕直接隐藏，避免干扰主界面
+        panel.style.display = 'none';
+    }
+}
+// 显示左侧 AI 磨损评测指南与信任看板
+function showWearInsightsPanel(overallLevel, wearData) {
+    // 如果已存在则先移除旧的
+    const existing = document.getElementById('aiWearInsightsPanel');
+    if (existing) existing.remove();
+
+    const panel = document.createElement('div');
+    panel.id = 'aiWearInsightsPanel';
+    
+    // 基础样式：与 AI Size 面板保持统一的设计语言，色调偏向磨损评估的橙/暗色调
+    panel.style.position = 'fixed';
+    panel.style.width = '320px';
+    panel.style.maxWidth = '30%';
+    panel.style.minWidth = '280px';
+    panel.style.maxHeight = '75vh';
+    panel.style.overflowY = 'auto';
+    panel.style.background = 'linear-gradient(180deg,#ffffff 0%, #fff9f0 100%)';
+    panel.style.border = '1px solid rgba(0,0,0,0.06)';
+    panel.style.boxShadow = '0 18px 60px rgba(0,0,0,0.14)';
+    panel.style.borderRadius = '12px';
+    panel.style.zIndex = 99999;
+    panel.style.padding = '20px';
+    panel.style.fontFamily = 'Inter, system-ui, -apple-system, "Helvetica Neue", Arial';
+
+    // 根据不同的整体磨损等级动态配置主题色与警告级别
+    let statusColor = '#27ae60';
+    let statusBg = '#e8f8f5';
+    if (overallLevel === 'Critical' || overallLevel === '严重') {
+        statusColor = '#dc3545';
+        statusBg = '#f8d7da';
+    } else if (overallLevel === 'Medium' || overallLevel === '中度') {
+        statusColor = '#e67e22';
+        statusBg = '#fff3cd';
+    }
+
+    const adviceText = wearData?.final_advice || 'AI has not provided a specific recommendation. Please try again with clearer photos.';
+    const frontDetail = wearData?.front?.detail || 'Front view analysis unavailable.';
+    const leftDetail = wearData?.left?.detail || 'Left view analysis unavailable.';
+    const rightDetail = wearData?.right?.detail || 'Right view analysis unavailable.';
+    const levelPercent = overallLevel === 'Critical' ? 100 : overallLevel === 'Medium' ? 67 : 33;
+
+    panel.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:15px;">
+            <div style="font-weight:800;color:#333;font-size:16px;">
+                <i class="bi bi-heart-pulse-fill" style="color:${statusColor}; margin-right:5px;"></i> AI Wear Analysis Insights
+            </div>
+            <button id="wearInsightsCloseBtn" style="background:transparent;border:none;font-size:20px;cursor:pointer;color:#999;transition:0.2s;">&times;</button>
+        </div>
+
+        <div style="background:#fff; border:1px solid #eee; border-radius:10px; padding:15px; margin-bottom:15px; box-shadow:0 2px 8px rgba(0,0,0,0.02);">
+            <div style="display:flex; justify-content:space-between; font-size:12px; color:#666; margin-bottom:5px; font-weight:bold;">
+                <span>AI Wear Analysis</span>
+                <span style="color:${statusColor};">${overallLevel}</span>
+            </div>
+            <div style="width:100%; background:#e9ecef; border-radius:4px; height:6px; margin-bottom:10px; overflow:hidden;">
+                <div style="width:${levelPercent}%; background:${statusColor}; height:100%; border-radius:4px;"></div>
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; font-size:12px;">
+                <div style="background:#f4f6f9; padding:8px; border-radius:6px; text-align:center;">
+                    <span style="display:block; color:#999; margin-bottom:2px;">Visual Measurement Accuracy</span>
+                    <strong style="color:#333;">Sub-millimeter (Sub-mm)</strong>
+                </div>
+                <div style="background:#f4f6f9; padding:8px; border-radius:6px; text-align:center;">
+                    <span style="display:block; color:#999; margin-bottom:2px;">Analysis Perspective</span>
+                    <strong style="color:#333;">Triple view (3-View)</strong>
+                </div>
+            </div>
+        </div>
+
+        <div style="margin-bottom:15px;">
+            <div style="font-size:14px; font-weight:bold; color:#333; margin-bottom:10px;">Wear Level Assessment</div>
+            <div style="background:${statusBg}; border-left:3px solid ${statusColor}; padding:10px 12px; border-radius:0 6px 6px 0; font-size:13px; line-height:1.5; color:#333;">
+                The current overall wear level of the running shoe is rated as: <strong style="color:${statusColor};">${overallLevel}</strong>。<br>
+                The wear of the outsole rubber patterns or deformation of the midsole will significantly reduce the cushioning decay coefficient, increasing the local impact on the knee and ankle joints during exercise. Please strictly follow the system recommendations to adjust the usage frequency.
+            </div>
+        </div>
+
+        <div>
+            <div style="font-size:14px; font-weight:bold; color:#333; margin-bottom:10px;">How to Improve Wear Detection Accuracy?</div>
+            <ul style="list-style:none; padding:0; margin:0; font-size:13px; color:#555; line-height:1.6;">
+                <li style="display:flex; align-items:flex-start; margin-bottom:8px;">
+                    <i class="bi bi-brightness-high-fill" style="color:#999; margin-right:8px; margin-top:2px;"></i>
+                    <span><strong>Well-lit and Even Lighting:</strong> Avoid taking photos in extremely dark environments or areas with strong localized shadows, as the contrast between bright and dark areas can easily be misinterpreted by the system as rubber cracking.</span>
+                </li>
+                <li style="display:flex; align-items:flex-start; margin-bottom:8px;">
+                    <i class="bi bi-brush-fill" style="color:#999; margin-right:8px; margin-top:2px;"></i>
+                    <span><strong>Clean the Shoe Sole:</strong> It is recommended to remove or wash the dirt and small stones from the tread gaps before taking photos, so that computer vision can perfectly capture the original tread groove depth of the rubber outsole.</span>
+                </li>
+                <li style="display:flex; align-items:flex-start; margin-bottom:8px;">
+                    <i class="bi bi-grid-3x3-gap-fill" style="color:#999; margin-right:8px; margin-top:2px;"></i>
+                    <span><strong>Cover Key Perspectives:</strong> Strictly align the front, left, and right sides for unobstructed photography, as the physical deformation of the midsole material mainly relies on the data from these blind spots.</span>
+                </li>
+                <li style="display:flex; align-items:flex-start;">
+                    <i class="bi bi-info-circle-fill" style="color:#008060; margin-right:8px; margin-top:2px;"></i>
+                    <span><strong>Expert Daily Tips:</strong> The material degradation lifespan of top-tier racing/training running shoes is typically 500-800 kilometers. If the midsole material has already undergone irreversible compression, even if the outsole rubber has not been completely worn down, it is recommended to downgrade its usage to daily slow running.</span>
+                </li>
+            </ul>
+        </div>
+    `;
+
+    panel.innerHTML = panel.innerHTML + `
+        <div style="margin-bottom:18px;">
+            <div style="font-size:14px; font-weight:bold; color:#333; margin-bottom:10px;">AI Observations</div>
+            <div style="font-size:13px; color:#495057; line-height:1.6; margin-bottom:10px;">${adviceText}</div>
+            <div style="display:grid; gap:10px;">
+                <div style="background:#fff; border:1px solid rgba(0,0,0,0.06); border-radius:12px; padding:12px;">
+                    <div style="font-size:13px; font-weight:700; color:#333; margin-bottom:6px;">Front View</div>
+                    <div style="font-size:12px; color:#555; line-height:1.55;">${frontDetail}</div>
+                </div>
+                <div style="background:#fff; border:1px solid rgba(0,0,0,0.06); border-radius:12px; padding:12px;">
+                    <div style="font-size:13px; font-weight:700; color:#333; margin-bottom:6px;">Left View</div>
+                    <div style="font-size:12px; color:#555; line-height:1.55;">${leftDetail}</div>
+                </div>
+                <div style="background:#fff; border:1px solid rgba(0,0,0,0.06); border-radius:12px; padding:12px;">
+                    <div style="font-size:13px; font-weight:700; color:#333; margin-bottom:6px;">Right View</div>
+                    <div style="font-size:12px; color:#555; line-height:1.55;">${rightDetail}</div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(panel);
+
+    // 绑定关闭按钮事件
+    document.getElementById('wearInsightsCloseBtn').addEventListener('click', () => panel.remove());
+
+    // 动态定位逻辑：计算并让其精准贴合在 SweetAlert 弹窗的左侧
+    const swalPopup = document.querySelector('.swal2-popup');
+    if (swalPopup && window.innerWidth >= 1024) { 
+        const swalRect = swalPopup.getBoundingClientRect();
+        const panelWidth = panel.offsetWidth;
+        
+        const leftSpace = swalRect.left;
+        const targetLeft = leftSpace - panelWidth - 20; // 留出 20px 间距
+
+        if (targetLeft >= 10) {
+            panel.style.left = targetLeft + 'px';
+            
+            // 垂直对齐：与弹窗顶部平齐，且防止溢出屏幕下方边界
+            let topPos = swalRect.top;
+            if (topPos + panel.offsetHeight > window.innerHeight - 12) {
+                topPos = window.innerHeight - panel.offsetHeight - 12;
+            }
+            panel.style.top = Math.max(12, topPos) + 'px';
+        } else {
+            panel.style.display = 'none'; 
+        }
+    } else {
+        panel.style.display = 'none'; // 移动端等窄屏自动隐藏
+    }
+}
+// 显示右侧 AI 磨损换新推荐弹窗
+function showWearRecommendationsPanel(overallLevel, wearData) {
+    const existing = document.getElementById('wearRecPanel');
+    if (existing) existing.remove();
+
+    const panel = document.createElement('div');
+    panel.id = 'wearRecPanel';
+    
+    // 样式与尺码推荐面板保持一致
+    panel.style.position = 'fixed';
+    panel.style.width = '360px';
+    panel.style.maxWidth = '35%';
+    panel.style.minWidth = '300px';
+    panel.style.maxHeight = '75vh';
+    panel.style.overflowY = 'auto';
+    panel.style.background = 'linear-gradient(180deg,#ffffff 0%, #fbfffb 100%)';
+    panel.style.border = '1px solid rgba(0,0,0,0.06)';
+    panel.style.boxShadow = '0 18px 60px rgba(0,0,0,0.14)';
+    panel.style.borderRadius = '12px';
+    panel.style.zIndex = 99999;
+    panel.style.padding = '16px';
+    panel.style.fontFamily = 'Inter, system-ui, -apple-system, "Helvetica Neue", Arial';
+
+    // 根据磨损程度设定文案
+    let titleStr = "Trending Replacements";
+    let subStr = "Upgrade your run with our top picks!";
+    let decisionText = wearData?.final_advice || 'AI recommendation is unavailable at this time.';
+    if (overallLevel === 'Critical' || overallLevel === '严重') {
+        titleStr = "Urgent Replacement Needed";
+        subStr = "Prevent injury with these fresh new pairs.";
+    } else if (overallLevel === 'Medium' || overallLevel === '中度') {
+        titleStr = "Prepare for Replacement";
+        subStr = "Your shoes are wearing down. Consider these options soon.";
+    }
+
+    panel.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+            <div style="font-weight:800;color:#333;font-size:15px;">AI Wear Insights: <span style="color:#e67e22">${overallLevel}</span></div>
+            <button id="wearRecClose" style="background:transparent;border:none;font-size:18px;cursor:pointer;color:#999">&times;</button>
+        </div>
+        <div style="font-size:15px;color:#333;font-weight:700;margin-bottom:12px;">${titleStr}</div>
+        <div style="font-size:12px;color:#666;margin-bottom:12px;">${subStr}</div>
+        <div style="background:#fff; border:1px solid #e8f0f4; border-radius:14px; padding:14px; margin-bottom:14px; color:#444; line-height:1.6; font-size:13px;">
+            <strong>AI Replacement Summary:</strong> ${decisionText}
+        </div>
+        <div id="wearRecList">
+            <div style="display:flex;align-items:center;gap:8px;color:#666;font-size:14px;margin-bottom:12px;">
+                <div class="spinner-border text-warning" style="width:1rem;height:1rem;border-width:2px"></div> Fetching new gear...
+            </div>
+        </div>
+        <div style="font-size:12px;color:#666;margin-top:10px;display:flex;justify-content:space-between;align-items:center;gap:8px;">
+            <div>Tip: Click on the cards to view details</div>
+            <a href="catalogue.php" style="background:#ffeb3b;color:#000;padding:6px 10px;border-radius:8px;text-decoration:none;font-weight:700;font-size:11px;white-space:nowrap;">View All</a>
+        </div>
+    `;
+
+    document.body.appendChild(panel);
+
+    // 动态定位逻辑：抛弃旧的碰撞居中算法，使用纯粹的相对坐标系统
+    const swalPopup = document.querySelector('.swal2-popup');
+    if (swalPopup) {
+        const swalRect = swalPopup.getBoundingClientRect();
+        
+        // 1. 垂直对齐：与主弹窗平齐，防止底部溢出
+        let topPos = swalRect.top;
+        if (topPos + panel.offsetHeight > window.innerHeight - 12) {
+            topPos = window.innerHeight - panel.offsetHeight - 12;
+        }
+        panel.style.top = Math.max(12, topPos) + 'px';
+
+        // 2. 水平对齐：放弃复杂的碰撞计算，采用绝对安全的视口锚点
+        if (window.innerWidth >= 1480) {
+            // 大屏：主弹窗居中且宽800px，右边缘绝对坐标为 50vw + 400px，再加20px安全间距
+            panel.style.left = 'calc(50vw + 420px)';
+            panel.style.right = 'auto';
+        } else if (window.innerWidth >= 1024) {
+            // 中等屏幕：严格钉死在屏幕右侧 20px 处，宁可边缘部分重叠也绝不允许跑向中间
+            panel.style.right = '20px';
+            panel.style.left = 'auto';
+        } else {
+            // 窄屏或移动端：直接隐藏辅助面板，死保核心的主视觉报告不被遮挡
+            panel.style.display = 'none';
+        }
+    }
+
+    document.getElementById('wearRecClose').addEventListener('click', () => panel.remove());
+
+    // 复用 shape_recommendations.php 获取通用推荐 (使用 popular filter)
+    (async () => {
+        try {
+            const resp = await fetch(`shape_recommendations.php?shape=unknown&filter=popular&size=`);
+            const list = document.getElementById('wearRecList');
+            if (!resp.ok) throw new Error('Recommendation service error');
+            
+            const data = await resp.json();
+            if (!Array.isArray(data) || data.length === 0) {
+                list.innerHTML = `<div style="color:#666;font-size:13px">No matches found. <a href="catalogue.php">View Catalogue</a></div>`;
+                return;
+            }
+
+            const cardsHtml = data.map(p => {
+                let img = (p.image || '').trim();
+                if (!img) img = '../images/placeholder.png';
+                else if (!img.startsWith('http') && !img.startsWith('../') && !img.startsWith('/')) {
+                    img = img.includes('/') ? '../' + img : '../uploads/' + img;
+                }
+
+                return `
+                <div style="display:flex;flex-direction:column;gap:10px;background:linear-gradient(180deg,#fff,#fffdf7);padding:14px;border-radius:12px;border:1px solid rgba(0,0,0,0.05);box-sizing:border-box;width:100%;height:100%;">
+                    <a href="product_details.php?pro_id=${p.pro_id}" style="text-decoration:none;color:inherit;display:flex;flex-direction:column;align-items:center;gap:10px;height:100%;">
+                        <div style="width:100%;height:160px;overflow:hidden;border-radius:12px;border:1px solid #eee;background:#fafafa;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                            <img src="${img}" onerror="this.src='../images/placeholder.png'" style="width:100%;height:100%;object-fit:cover;">
+                        </div>
+                        <div style="width:100%;font-weight:800;color:#222;font-size:14px;line-height:1.4;text-align:center;min-height:40px;flex-grow:1;">${p.name}</div>
+                        <div style="width:100%;font-size:16px;font-weight:900;color:#e67e22;text-align:center;flex-shrink:0;">RM ${p.price}</div>
+                        <div style="width:100%;text-align:center;flex-shrink:0;"><span style="display:inline-block;background:#000;color:#fff;padding:10px 16px;border-radius:999px;font-weight:800;font-size:13px;">View Details</span></div>
+                    </a>
+                </div>`;
+            }).slice(0, 4).join(''); // 最多展示4个推荐
+
+            list.innerHTML = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;width:100%;">${cardsHtml}</div>`;
+        } catch (err) {
+            document.getElementById('wearRecList').innerHTML = `<div style="color:#666;font-size:13px">Failed to load recommendations.</div>`;
+        }
+    })();
 }
 </script>
 

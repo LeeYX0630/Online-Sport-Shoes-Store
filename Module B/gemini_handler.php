@@ -108,7 +108,8 @@ elseif ($mode === 'designer') {
 // 💥 业务模式 3: 智能实时库存客服助手 (Chat)
 // ==========================================
 elseif ($mode === 'chat') {
-    $sql = "SELECT p.Pro_Name, p.Pro_Description, p.Pro_Price, s.Pro_Size, s.Pro_Colour, s.Quantity 
+    // 【修改】SQL 新增了 p.Pro_Id 和 p.Pro_Image 以便构建跳转链接和图片
+    $sql = "SELECT p.Pro_Id, p.Pro_Name, p.Pro_Description, p.Pro_Price, p.Pro_Image, s.Pro_Size, s.Pro_Colour, s.Quantity 
             FROM product p 
             JOIN product_stock s ON p.Pro_Id = s.Pro_Id 
             WHERE p.Pro_Status = 'Available'
@@ -118,7 +119,8 @@ elseif ($mode === 'chat') {
     $inventoryContext = "Current Store Inventory Data:\n";
     if ($result && $result->num_rows > 0) {
         while($row = $result->fetch_assoc()) {
-            $inventoryContext .= "- Product: {$row['Pro_Name']} | Color: {$row['Pro_Colour']} | Size: UK {$row['Pro_Size']} | Stock Left: {$row['Quantity']} | Price: RM {$row['Pro_Price']}\n";
+            // 【修改】注入了 Pro_Id 和 Pro_Image 作为上下文
+            $inventoryContext .= "- ID: {$row['Pro_Id']} | Product: {$row['Pro_Name']} | Color: {$row['Pro_Colour']} | Size: UK {$row['Pro_Size']} | Stock Left: {$row['Quantity']} | Price: RM {$row['Pro_Price']} | Image: {$row['Pro_Image']}\n";
         }
     }
 
@@ -130,7 +132,8 @@ elseif ($mode === 'chat') {
     3. If there are many sizes, organize them in a clean list or a simple HTML <table>.
     4. Product prices is unnessary to mention unless user ask for it.
     5. Be friendly.
-    
+    6. [CRITICAL NEW RULE] When recommending a specific product, you MUST include a product card tag at the end of your sentence in EXACTLY this format: [PRODUCT:{Pro_Id}|{Pro_Name}|{Pro_Price}|{Pro_Image}]
+
     $inventoryContext
     User Question: $userMessage";
 
