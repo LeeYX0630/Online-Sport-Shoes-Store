@@ -22,82 +22,87 @@ $error = "";
 
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_btn'])) {
     
-    $full_name = trim($_POST['full_name']);
-    $email = strtolower(trim($_POST['email']));
-    $phone_input = trim($_POST['phone']);
-    $password = $_POST['password'];
-
-    $clean_phone = preg_replace('/[^0-9]/', '', $phone_input);
-    
-    // 检查邮箱是否已注册
-    $checkUser = $conn->prepare("SELECT * FROM user WHERE User_Email = ?");
-    $checkUser->bind_param("s", $email);
-    $checkUser->execute();
-    $result = $checkUser->get_result();
-    $conn->begin_transaction();
-
-    if ($result->num_rows > 0) {
-        $error = "This Email is already registered. Please use another one.";
+    // 后端验证：检查用户是否勾选了条款
+    if (!isset($_POST['terms'])) {
+        $error = "You must agree to the Terms & Conditions to register.";
     } else {
-        // 生成 6 位随机 OTP
-        $otp = rand(100000, 999999);
-        $hashed_password = password_hash($password, PASSWORD_DEFAULT);
+        $full_name = trim($_POST['full_name']);
+        $email = strtolower(trim($_POST['email']));
+        $phone_input = trim($_POST['phone']);
+        $password = $_POST['password'];
+
+        $clean_phone = preg_replace('/[^0-9]/', '', $phone_input);
         
-        // 将用户信息存入临时 Session
-        $_SESSION['temp_user'] = [
-            'full_name' => $full_name,
-            'email'     => $email,
-            'phone'     => $clean_phone,
-            'address'   => trim($_POST['address']),
-            'postcode'  => trim($_POST['postcode']),
-            'state'     => trim($_POST['state']),
-            'dob'       => trim($_POST['dob']),
-            'password'  => $hashed_password,
-            'otp'       => $otp,
-            'expiry'    => strtotime("+5 minutes") // 5分钟有效
-        ];
+        // 检查邮箱是否已注册
+        $checkUser = $conn->prepare("SELECT * FROM user WHERE User_Email = ?");
+        $checkUser->bind_param("s", $email);
+        $checkUser->execute();
+        $result = $checkUser->get_result();
+        $conn->begin_transaction();
 
-        // 3. 调用 PHPMailer 发送邮件
-        $mail = new PHPMailer(true);
+        if ($result->num_rows > 0) {
+            $error = "This Email is already registered. Please use another one.";
+        } else {
+            // 生成 6 位随机 OTP
+            $otp = rand(100000, 999999);
+            $hashed_password = password_hash($password, PASSWORD_DEFAULT);
+            
+            // 将用户信息存入临时 Session
+            $_SESSION['temp_user'] = [
+                'full_name' => $full_name,
+                'email'     => $email,
+                'phone'     => $clean_phone,
+                'address'   => trim($_POST['address']),
+                'postcode'  => trim($_POST['postcode']),
+                'state'     => trim($_POST['state']),
+                'dob'       => trim($_POST['dob']),
+                'password'  => $hashed_password,
+                'otp'       => $otp,
+                'expiry'    => strtotime("+5 minutes") // 5分钟有效
+            ];
 
-        try {
-            // SMTP 配置
-            $mail->isSMTP();
-            $mail->Host       = 'smtp.gmail.com';
-            $mail->SMTPAuth   = true;
-            $mail->Username   = SMTP_EMAIL;
-            $mail->Password   = SMTP_PASS;
-            $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
-            $mail->Port       = 587;
+            // 3. 调用 PHPMailer 发送邮件
+            $mail = new PHPMailer(true);
 
-            // 收发件人设置
-            $mail->setFrom('sportshoes.system@gmail.com', 'STRYDEX Sport Shoes');
-            $mail->addAddress($email, $full_name);
+            try {
+                // SMTP 配置
+                $mail->isSMTP();
+                $mail->Host       = 'smtp.gmail.com';
+                $mail->SMTPAuth   = true;
+                $mail->Username   = SMTP_EMAIL;
+                $mail->Password   = SMTP_PASS;
+                $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+                $mail->Port       = 587;
 
-            // 邮件内容
-            $mail->isHTML(true);
-            $mail->Subject = 'Verify Your Stealth Sport Account';
-            $mail->Body    = "
-                <div style='font-family: sans-serif; text-align: center; padding: 20px; border: 1px solid #ddd; border-radius: 15px;'>
-                    <h2 style='color: #FF6B00;'>Account Verification</h2>
-                    <p>Your one-time password (OTP) is:</p>
-                    <div style='font-size: 32px; font-weight: 800; color: #333; padding: 10px; border: 2px dashed #FF6B00; display: inline-block; margin: 10px 0;'>
-                        $otp
-                    </div>
-                    <p style='color: #666;'>This code will expire in 5 minutes.</p>
-                </div>";
+                // 收发件人设置
+                $mail->setFrom('sportshoes.system@gmail.com', 'STRYDEX Sport Shoes');
+                $mail->addAddress($email, $full_name);
 
-            if ($mail->send()) {
-                // 发送成功，跳转到验证页面
-                echo "<script>
-                    alert('A verification code has been sent to $email');
-                    window.location.href='verify_otp.php';
-                </script>";
-                exit();
+                // 邮件内容
+                $mail->isHTML(true);
+                $mail->Subject = 'Verify Your Stealth Sport Account';
+                $mail->Body    = "
+                    <div style='font-family: sans-serif; text-align: center; padding: 20px; border: 1px solid #ddd; border-radius: 15px;'>
+                        <h2 style='color: #FF6B00;'>Account Verification</h2>
+                        <p>Your one-time password (OTP) is:</p>
+                        <div style='font-size: 32px; font-weight: 800; color: #333; padding: 10px; border: 2px dashed #FF6B00; display: inline-block; margin: 10px 0;'>
+                            $otp
+                        </div>
+                        <p style='color: #666;'>This code will expire in 5 minutes.</p>
+                    </div>";
+
+                if ($mail->send()) {
+                    // 发送成功，跳转到验证页面
+                    echo "<script>
+                        alert('A verification code has been sent to $email');
+                        window.location.href='verify_otp.php';
+                    </script>";
+                    exit();
+                }
+
+            } catch (Exception $e) {
+                $error = "Mail could not be sent. Error: {$mail->ErrorInfo}";
             }
-
-        } catch (Exception $e) {
-            $error = "Mail could not be sent. Error: {$mail->ErrorInfo}";
         }
     }
 }
@@ -219,6 +224,24 @@ include_once '../includes/header.php';
         box-shadow: 0 15px 30px rgba(255, 107, 0, 0.2); 
         color: white;
     }
+
+    /* 自定义条款勾选框样式以匹配品牌 */
+    .form-check-input:checked {
+        background-color: var(--brand-orange);
+        border-color: var(--brand-orange);
+    }
+    .form-check-label {
+        font-size: 0.85rem;
+        color: #475569;
+    }
+    .form-check-label a {
+        color: var(--brand-orange);
+        text-decoration: none;
+        font-weight: 600;
+    }
+    .form-check-label a:hover {
+        text-decoration: underline;
+    }
 </style>
 
 <div class="container">
@@ -322,6 +345,14 @@ include_once '../includes/header.php';
                         <label class="form-label">Confirm Password</label>
                         <input type="password" name="confirm_password" class="form-control no-group-radius" required>
                     </div>
+                </div>
+
+                <!-- 新加的内容：条款与条件勾选框 -->
+                <div class="mb-4 form-check ms-1 mt-4">
+                    <input type="checkbox" class="form-check-input" id="terms" name="terms" required>
+                    <label class="form-check-label" for="terms">
+                        I have read and agree to the <a href="terms.php" target="_blank">Terms & Conditions</a> and <a href="privacy.php" target="_blank">Privacy Policy</a>.
+                    </label>
                 </div>
 
                 <div class="mt-4 mb-2">
