@@ -119,6 +119,16 @@ if (isset($_GET['fetch_items_api']) && isset($_GET['order_id'])) {
     exit; // 必须截止，防止将整个仪表盘的 HTML 渲染进弹窗
 }
 
+// Customer review the comments
+// 查询所有买家留下的公共评价（带用户名）
+$all_reviews_query = "
+    SELECT r.*, u.`User_Name` 
+    FROM `review_and_rating` r 
+    JOIN `user` u ON r.`User_Id` = u.`User_Id` 
+    ORDER BY r.`RR_Date` DESC
+";
+$all_reviews_result = $conn->query($all_reviews_query);
+
 // ===============================
 // HANDLE POST REQUESTS
 // ===============================
@@ -168,7 +178,42 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             respondJson(['success' => true, 'message' => 'Identity verified. You may now change your password.']);
         }
     }
+// ===================================================
+    // ✨ 新增分支：处理来自 Reviews Feed 的讨论问答回复
+    // ===================================================
+    if (isset($_POST['action']) && $_POST['action'] === 'submit_review_reply') {
+        $rr_id = isset($_POST['RR_Id']) ? intval($_POST['RR_Id']) : 0;
+        $reply_content = trim($_POST['reply_content'] ?? '');
+        
+        // 过滤安全字符防止 SQL 注入与 XSS
+        $reply_content = mysqli_real_escape_string($conn, htmlspecialchars($reply_content));
+        
+        // 严格拉取你当前登录会话中的 user_id 和 user_name
+        $reply_user_id = intval($user_id);
+        $reply_username = $_SESSION['user_name'] ?? 'Guest Buyer';
+        
+        // 智能判断角色身份 (如果你们系统以后有区分权限等级，可以在这里读取)
+        $role = (isset($_SESSION['role']) && $_SESSION['role'] === 'admin') ? 'admin' : 'customer';
 
+        if ($rr_id > 0 && !empty($reply_content)) {
+            // 往我们刚刚创建的回复关系表中插入数据
+            $reply_sql = "INSERT INTO `review_replies` (`RR_Id`, `User_Id`, `User_Name`, `Role`, `Reply_Content`) 
+                          VALUES ($rr_id, $reply_user_id, '$reply_username', '$role', '$reply_content')";
+            
+            if ($conn->query($reply_sql)) {
+                // 成功后，重定向刷新当前页面，回到 Reviews Feed 选项卡
+                header("Location: " . $_SERVER['PHP_SELF'] . "?msg=Reply posted successfully&type=success");
+                exit;
+            } else {
+                $msg = "Database Error: Unable to post your reply.";
+                $msg_type = "danger";
+            }
+        } else {
+            $msg = "Reply content cannot be empty!";
+            $msg_type = "danger";
+        }
+    }
+    
     // --- HANDLE PASSWORD UPDATE ---
     if (isset($_POST['update_password'])) {
         $current_pass = trim($_POST['current_pass']); 
@@ -563,129 +608,159 @@ body::after {
 
                 <ul class="nav nav-tabs mb-4" id="dashboardTabs">
                     <li class="nav-item">
-                        <button class="nav-link active" id="identity-tab" data-bs-toggle="tab" data-bs-target="#identity">Identity Settings</button>
-                    </li>
-                    <li class="nav-item">
-                        <button class="nav-link" id="purchased-tab" data-bs-toggle="tab" data-bs-target="#purchased">Purchased Products</button>
-                    </li>
-                    <li class="nav-item">
-                        <button class="nav-link" id="security-tab" data-bs-toggle="tab" data-bs-target="#security">Security</button>
-                    </li>
+                    <button class="nav-link active" id="identity-tab" data-bs-toggle="tab" data-bs-target="#identity">
+                    <i class="bi bi-person-gear me-2"></i>Identity Settings
+                    </button>
+            </li>
+                <li class="nav-item">
+                    <button class="nav-link" id="purchased-tab" data-bs-toggle="tab" data-bs-target="#purchased">
+                    <i class="bi bi-bag-check-fill me-2"></i>Purchased Products
+                    </button>
+            </li>
+                <li class="nav-item">
+                    <button class="nav-link" id="security-tab" data-bs-toggle="tab" data-bs-target="#security">
+                    <i class="bi bi-shield-lock-fill me-2"></i>Security
+                    </button>
+            </li>
+                 <li class="nav-item">
+                <button class="nav-link" id="reviews-tab" data-bs-toggle="tab" data-bs-target="#public-reviews" type="button"><i class="bi bi-people-fill me-1"></i> Reviews Feed
+                </button>
+            </li>
                 </ul>
 
-                <div class="tab-content">
-                    <div class="tab-pane fade show active" id="identity">
-                        <form method="POST" enctype="multipart/form-data">
-                            <div class="row">
-                                <div class="col-md-6 mb-3">
-                                    <label class="small fw-bold text-muted">Full Name</label>
-                                    <input type="text" name="full_name" class="form-control bg-light border-0 py-2" 
-                                           value="<?php echo htmlspecialchars($user['User_Name']); ?>" 
-                                           oninput="this.value = this.value.replace(/[0-9]/g, '')" required>
-                                </div>
-                                <div class="col-md-6 mb-3">
-                                    <label class="small fw-bold text-muted">Phone Number</label>
-                                    <input type="text" name="phone" class="form-control bg-light border-0 py-2" 
-                                           value="<?php echo $user['User_Phone']; ?>" 
-                                           oninput="this.value = this.value.replace(/[^0-9]/g, '')" required>
-                                </div>
+               <div class="tab-content">
+    <div class="tab-pane fade show active" id="identity">
+        <form method="POST" enctype="multipart/form-data">
+            
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label class="small fw-bold text-muted">Full Name</label>
+                    <input type="text" name="full_name" class="form-control bg-light border-0 py-2" 
+                           value="<?php echo htmlspecialchars($user['User_Name']); ?>" 
+                           oninput="this.value = this.value.replace(/[0-9]/g, '')" required>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="small fw-bold text-muted">Phone Number</label>
+                    <input type="text" name="phone" class="form-control bg-light border-0 py-2" 
+                           value="<?php echo $user['User_Phone']; ?>" 
+                           oninput="this.value = this.value.replace(/[^0-9]/g, '')" required>
+                </div>
+            </div>
+            
+            <div class="mb-3">
+                <label class="small fw-bold text-muted">Email Address</label>
+                <input type="email" name="email" class="form-control bg-light border-0 py-2" 
+                       value="<?php echo $user['User_Email']; ?>" required>
+            </div>
+            
+            <div class="mb-4 address-book-shell rounded-4">
+                <div class="address-summary-card p-3">
+                    <div class="d-flex align-items-start gap-3">
+                        <span class="address-icon-badge"><i class="bi bi-truck"></i></span>
+                        <div class="flex-grow-1">
+                            <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+                                <label class="small fw-bold text-muted text-uppercase mb-0">Address Book</label>
+                                <span class="badge rounded-pill text-bg-light border" id="addressCountBadge"><?php echo count($address_book); ?> saved</span>
                             </div>
-                            <div class="mb-3">
-                                <label class="small fw-bold text-muted">Email Address</label>
-                                <input type="email" name="email" class="form-control bg-light border-0 py-2" 
-                                       value="<?php echo $user['User_Email']; ?>" required>
+                            <div id="selectedAddressPreview" class="address-summary-lines fw-semibold text-dark fs-6">
+                                <?php echo !empty($selected_address_text) ? htmlspecialchars($selected_address_text) : 'No address selected. Please add one.'; ?>
                             </div>
-                            <div class="mb-4 address-book-shell rounded-4">
-                                <div class="address-summary-card p-3">
-                                    <div class="d-flex align-items-start gap-3">
-                                        <span class="address-icon-badge"><i class="bi bi-truck"></i></span>
-                                        <div class="flex-grow-1">
-                                            <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
-                                                <label class="small fw-bold text-muted text-uppercase mb-0">Address Book</label>
-                                                <span class="badge rounded-pill text-bg-light border"><?php echo count($address_book); ?> saved</span>
-                                            </div>
-                                            <div id="selectedAddressPreview" class="address-summary-lines fw-semibold text-dark fs-6">
-                                                <?php echo !empty($selected_address_text) ? htmlspecialchars($selected_address_text) : 'No address selected. Please add one.'; ?>
-                                            </div>
+                        </div>
+                        <button class="btn btn-light btn-sm border address-toggle-btn rounded-circle" type="button" data-bs-toggle="collapse" data-bs-target="#collapseAddresses" aria-expanded="<?php echo empty($selected_address_text) ? 'true' : 'false'; ?>" aria-controls="collapseAddresses" id="addrChevronBtn" title="Edit addresses">
+                            <i class="bi bi-pencil-square" style="font-size: 1.05rem; color: var(--brand-orange);"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <input type="hidden" name="default_address_index" id="defaultAddressIndex" value="<?php echo $default_address_index; ?>">
+
+                <div class="collapse <?php echo empty($selected_address_text) ? 'show' : ''; ?>" id="collapseAddresses">
+                    <div class="p-3 border-top">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <div>
+                                <div class="small fw-bold text-uppercase text-muted" style="letter-spacing: 1px;">Saved Addresses</div>
+                            </div>
+                            <button type="button" class="btn btn-outline-orange btn-sm rounded-3 fw-bold" id="addNewAddressBtn">
+                                <i class="bi bi-plus-lg me-1"></i> Add
+                            </button>
+                        </div>
+
+                        <div id="addressBook">
+                            <?php foreach ($address_book as $index => $address): ?>
+                                <?php $is_current_selected = ($index == $default_address_index); ?>
+                                <div class="address-row mb-3 p-3 <?php echo $is_current_selected ? 'selected' : ''; ?>" data-index="<?php echo $index; ?>">
+                                    
+                                    <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+                                        <div>
+                                            <span class="badge id-addr-badge <?php echo $is_current_selected ? 'text-bg-warning' : 'text-bg-light border'; ?>">
+                                                <?php echo $is_current_selected ? 'Default Address' : 'Address ' . ($index + 1); ?>
+                                            </span>
                                         </div>
-                                        <button class="btn btn-light btn-sm border address-toggle-btn rounded-circle" type="button" data-bs-toggle="collapse" data-bs-target="#collapseAddresses" aria-expanded="<?php echo empty($selected_address_text) ? 'true' : 'false'; ?>" aria-controls="collapseAddresses" id="addrChevronBtn" title="Edit addresses">
-                                            <i class="bi bi-pencil-square" style="font-size: 1.05rem; color: var(--brand-orange);"></i>
-                                        </button>
-                                    </div>
-                                </div>
-
-                                <input type="hidden" name="default_address_index" id="defaultAddressIndex" value="<?php echo $default_address_index; ?>">
-
-                                <div class="collapse <?php echo empty($selected_address_text) ? 'show' : ''; ?>" id="collapseAddresses">
-                                    <div class="p-3 border-top">
-                                        <div class="d-flex justify-content-between align-items-center mb-3">
-                                            <div>
-                                                <div class="small fw-bold text-uppercase text-muted" style="letter-spacing: 1px;">Saved Addresses</div>
-                                            </div>
-                                            <button type="button" class="btn btn-outline-orange btn-sm rounded-3 fw-bold" id="addNewAddressBtn">
-                                                <i class="bi bi-plus-lg me-1"></i> Add
+                                        <div class="btn-group btn-group-sm address-book-actions">
+                                            <button type="button" class="btn btn-outline-success <?php echo $is_current_selected ? 'active' : ''; ?> id-check-btn" onclick="setAsDefaultAddress(this)" title="Set default">
+                                                <i class="bi bi-check2"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-outline-danger" onclick="removeAddressBox(this)" title="Remove address">
+                                                <i class="bi bi-trash3"></i>
                                             </button>
                                         </div>
+                                    </div>
 
-                                        <div id="addressBook">
-                                            <?php foreach ($address_book as $index => $address): ?>
-                                                <?php $is_current_selected = ($index == $default_address_index); ?>
-                                                <div class="address-row mb-3 p-3 <?php echo $is_current_selected ? 'selected' : ''; ?>" data-index="<?php echo $index; ?>">
-                                                    <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
-                                                        <div>
-                                                            <span class="badge id-addr-badge <?php echo $is_current_selected ? 'text-bg-warning' : 'text-bg-light border'; ?>">
-                                                                <?php echo $is_current_selected ? 'Default Address' : 'Address ' . ($index + 1); ?>
-                                                            </span>
-                                                        </div>
-                                                        <div class="btn-group btn-group-sm address-book-actions">
-                                                            <button type="button" class="btn btn-outline-success <?php echo $is_current_selected ? 'active' : ''; ?> id-check-btn" onclick="setAsDefaultAddress(this)" title="Set default">
-                                                                <i class="bi bi-check2"></i>
-                                                            </button>
-                                                            <button type="button" class="btn btn-outline-danger" onclick="removeAddressBox(this)" title="Remove address">
-                                                                <i class="bi bi-trash3"></i>
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                    <div class="row g-3">
-                                                        <div class="col-12">
-                                                            <label class="small fw-bold text-muted">Shipping Address</label>
-                                                            <textarea name="addresses[]" class="form-control address-text-field" rows="2" placeholder="House number, building, street name, city" oninput="updateSelectedAddressPreview()"><?php echo htmlspecialchars($address['text']); ?></textarea>
-                                                        </div>
-                                                        <div class="col-md-5">
-                                                            <label class="small fw-bold text-muted">Postcode</label>
-                                                            <input type="text" name="postcodes[]" class="form-control address-postcode-field" maxlength="5" placeholder="75450" value="<?php echo htmlspecialchars($address['postcode'] ?? ''); ?>" oninput="this.value = this.value.replace(/[^0-9]/g, ''); updateSelectedAddressPreview()">
-                                                        </div>
-                                                        <div class="col-md-7">
-                                                            <label class="small fw-bold text-muted">State</label>
-                                                            <select name="states[]" class="form-select address-state-field" onchange="updateSelectedAddressPreview()">
-                                                                <option value="">Select State</option>
-                                                                <?php
-                                                                $states = ['Johor','Kedah','Kelantan','Melaka','Negeri Sembilan','Pahang','Penang','Perak','Perlis','Sabah','Sarawak','Selangor','Terengganu','Kuala Lumpur','Putrajaya','Labuan'];
-                                                                foreach ($states as $st) {
-                                                                    $sel = (isset($address['state']) && $address['state'] === $st) ? 'selected' : '';
-                                                                    echo "<option value=\"".htmlspecialchars($st)."\" $sel>".htmlspecialchars($st)."</option>";
-                                                                }
-                                                                ?>
-                                                            </select>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            <?php endforeach; ?>
+                                    <div class="row g-3">
+                                        <div class="col-12">
+                                            <label class="small fw-bold text-muted">Shipping Address</label>
+                                            <textarea name="addresses[]" class="form-control address-text-field" rows="2" placeholder="House number, building, street name, city" oninput="updateSelectedAddressPreview()"><?php echo htmlspecialchars($address['text'] ?? ''); ?></textarea>
+                                        </div>
+                                        
+                                        <div class="col-md-5">
+                                            <label class="small fw-bold text-muted">Postcode</label>
+                                            <input type="text" name="postcodes[]" class="form-control address-postcode-field" maxlength="5" placeholder="75450" value="<?php echo htmlspecialchars($address['postcode'] ?? ''); ?>" oninput="this.value = this.value.replace(/[^0-9]/g, ''); updateSelectedAddressPreview()">
+                                        </div>
+                                        
+                                        <div class="col-md-7">
+                                            <label class="small fw-bold text-muted">State</label>
+                                            <select name="states[]" class="form-select address-state-field" onchange="updateSelectedAddressPreview()">
+                                                <option value="">Select State</option>
+                                                <?php
+                                                $states = ['Johor','Kedah','Kelantan','Melaka','Negeri Sembilan','Pahang','Penang','Perak','Perlis','Sabah','Sarawak','Selangor','Terengganu','Kuala Lumpur','Putrajaya','Labuan'];
+                                                foreach ($states as $st) {
+                                                    $sel = (isset($address['state']) && $address['state'] === $st) ? 'selected' : '';
+                                                    echo "<option value=\"".htmlspecialchars($st)."\" $sel>".htmlspecialchars($st)."</option>";
+                                                }
+                                                ?>
+                                            </select>
                                         </div>
                                     </div>
-                                </div>
-                            </div>
-                <div class="mb-4 mt-4">
-                    <label class="small fw-bold text-muted mb-2">Change Avatar</label>
-                    <input type="file" name="profile_image" class="form-control bg-light border-0 py-2 rounded-3">
-                </div>
 
-                <div class="mt-4">
-                    <button type="submit" class="btn btn-orange px-5 py-2 fw-bold rounded-3 text-white">Save Profile Changes</button>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
                 </div>
-            </form>
-        </div>
-                    <div class="tab-pane fade" id="purchased">
+            </div> <div class="mb-4">
+                <label class="small fw-bold text-muted d-block mb-2">Change Avatar</label>
+                <div class="d-flex align-items-center gap-3">
+                    <label for="avatarInput" class="btn btn-orange px-4 py-2 rounded-3 fw-bold text-white shadow-sm mb-0" style="cursor: pointer;">
+                        <i class="bi bi-camera me-2"></i>Upload Photo
+                    </label>
+                    <input type="file" id="avatarInput" name="avatar" accept="image/*" class="d-none" onchange="showSelectedFileName(this)">
+                    
+                    <span id="avatarFileName" class="small text-muted fw-semibold"></span>
+                </div>
+            </div>
+
+            <div class="row justify-content-end g-2">
+                <div class="col-6 col-md-4 d-flex gap-2 justify-content-end">
+                    <button type="button" class="btn btn-light px-3 rounded-3 fw-semibold text-muted w-50" onclick="window.location.reload();">Cancel</button>
+                    <button type="submit" name="update_profile" class="btn btn-orange px-3 rounded-3 fw-bold text-white shadow-sm w-50">Save</button>
+                </div>
+            </div>
+
+        </form>
+    </div>
+    
+                
+            <div class="tab-pane fade" id="purchased">
                         <?php
                         $today = date('Y-m-d');
                         $f_id = isset($_GET['search_id']) ? mysqli_real_escape_string($conn, $_GET['search_id']) : '';
@@ -694,10 +769,10 @@ body::after {
 
                         // 精确匹配你的数据库大写字段（Order_Id, User_Id, Order_Date, Order_Status, Order_Amount）
                         $query_str = "SELECT o.*, p.Pro_Image, p.Pro_Name 
-                                      FROM `order` o 
-                                      LEFT JOIN order_detail od ON o.Order_Id = od.Order_Id 
-                                      LEFT JOIN product p ON od.Pro_Id = p.Pro_Id 
-                                      WHERE o.User_Id = '$user_id' AND DATE(o.Order_Date) <= '$today'";
+                                    FROM `order` o 
+                                    LEFT JOIN order_detail od ON o.Order_Id = od.Order_Id 
+                                    LEFT JOIN product p ON od.Pro_Id = p.Pro_Id 
+                                    WHERE o.User_Id = '$user_id' AND DATE(o.Order_Date) <= '$today'";
 
                         if ($f_id != '') {
                             $clean_id = str_replace('ORD#', '', $f_id);
@@ -787,25 +862,20 @@ body::after {
                                             } elseif ($status == 'Delivered') {
                                                 $badge_color = "bg-success-subtle text-success";
                                             }
-                                            $product_image = "../images/brands/placeholder.png"; 
                                             
-                                            if (!empty($row['Pro_Image'])) {
-                                                $path_parts = pathinfo($row['Pro_Image']);
-                                                $filename = $path_parts['filename'];
-                                                
-                                                // 自动在文件夹里模糊寻找图片名称
-                                                $found_images = glob("../uploads/{$filename}*.*");
-                                                if (!empty($found_images)) {
-                                                    $product_image = $found_images[0];
-                                                }
-                                            }
+                                            // 提取并转换数据库里的时间
+                                            $db_order_date = $row['Order_Date'];
+                                            $formatted_date = date("Y-m-d", strtotime($db_order_date));
+                                            $formatted_time = date("h:i A", strtotime($db_order_date)); // 转换为类似 03:30 PM 的格式
                                         ?>
                                             <tr>
                                                 <td class="py-3 order-id-column" style="display: none;">
                                                     <span class="text-dark">ORD#<?php echo sprintf("%06d", $row['Order_Id']); ?></span>
                                                 </td>
-                                                <td><?php echo date("Y-m-d", strtotime($row['Order_Date'])); ?></td>
-                                                <td class="trans-time" data-order-time="<?php echo htmlspecialchars($row['Order_Date']); ?>">--</td>
+                                                <td><?php echo $formatted_date; ?></td>
+                                                <td class="trans-time" data-order-time="<?php echo htmlspecialchars($db_order_date); ?>">
+                                                    <?php echo $formatted_time; ?>
+                                                </td>
                                                 <td>RM <?php echo number_format($row['Order_Amount'] ?? 0, 2); ?></td>
                                                 <td>
                                                     <span class="badge rounded-pill <?php echo $badge_color; ?> px-3 py-2">
@@ -825,85 +895,163 @@ body::after {
                         </div>
                     </div>
 
-                    <div class="tab-pane fade" id="security">
-                        <form method="POST">
-                            <div class="row g-3">
-                                <div class="col-12 mb-3">
-                                    <div class="p-3 rounded-4 border border-secondary-subtle bg-white">
-                                        <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3 mb-3">
-                                            <div>
-                                                <h6 class="fw-bold mb-1">Identity Verification</h6>
-                                                <p class="small text-muted mb-0">A one-time verification code is required before updating your password.</p>
-                                            </div>
-                                            <button type="button" id="sendSecurityOTP" class="btn btn-outline-orange btn-sm">
-                                                Send OTP
-                                            </button>
-                                        </div>
-                                        <div id="securityOtpSection" class="d-none">
-                                            <div class="row g-3">
-                                                <div class="col-md-8">
-                                                    <label class="small fw-bold text-muted text-uppercase">Verification Code</label>
-                                                    <input type="text" id="security_otp" class="form-control bg-light border-0 py-2" maxlength="6" pattern="[0-9]*" placeholder="Enter 6-digit code">
-                                                </div>
-                                                <div class="col-md-4 align-self-end">
-                                                    <button type="button" id="verifySecurityOTP" class="btn btn-secondary w-100">Verify Code</button>
-                                                </div>
-                                            </div>
-                                            <div id="securityOtpMessage" class="mt-2 small text-muted"></div>
-                                        </div>
-                                        <div id="verifiedBadge" class="mt-3 small text-success fw-bold d-none">
-                                            <i class="bi bi-shield-check me-1"></i>Verified. You may now change your password.
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-md-12 mb-2">
-                                    <label class="small fw-bold text-muted text-uppercase">Current Password</label>
-                                    <input id="currentPassInput" type="password" name="current_pass" class="form-control bg-light border-0 py-2" <?php echo $passwordChangeDisabled; ?> required>
-                                </div>
-                                <div class="col-md-6 mb-2">
-                                    <label class="small fw-bold text-muted text-uppercase">New Password</label>
-                                    <input id="newPassInput" type="password" name="new_pass" class="form-control bg-light border-0 py-2" <?php echo $passwordChangeDisabled; ?> required>
-                                </div>
-                                <div class="col-md-6 mb-2">
-                                    <div class="d-flex justify-content-between align-items-center mb-2">
-                                        <label class="small fw-bold text-muted text-uppercase mb-0">Password Strength</label>
-                                        <small id="passwordStrengthLabel" class="text-muted fw-bold">Enter password</small>
-                                    </div>
-                                    <div class="progress rounded-pill" style="height: 8px;">
-                                        <div id="passwordStrengthBar" class="progress-bar bg-danger rounded-pill" role="progressbar" style="width: 0%;"></div>
-                                    </div>
-                                    <div class="d-flex gap-2 mt-2 justify-content-between align-items-center">
-                                        <small id="weakIndicator" class="fw-bold" style="font-size: 0.9rem; color: #ccc;">🔴 Weak</small>
-                                        <small id="mediumIndicator" class="fw-bold" style="font-size: 0.9rem; color: #ccc;">🟡 Medium</small>
-                                        <small id="strongIndicator" class="fw-bold" style="font-size: 0.9rem; color: #ccc;">🟢 Strong</small>
-                                    </div>
-                                    <small id="passwordStrengthHint" class="text-muted d-block mt-2">Use at least 8 characters with uppercase, number, and symbol.</small>
-                                </div>
-                                <div class="col-md-6 mb-2">
-                                    <label class="small fw-bold text-muted text-uppercase">Confirm New Password</label>
-                                    <input id="confirmPassInput" type="password" name="confirm_pass" class="form-control bg-light border-0 py-2" <?php echo $passwordChangeDisabled; ?> required>
-                                </div>
-                                <div class="col-12 mt-4">
-                                    <button id="updatePasswordBtn" type="submit" name="update_password" class="btn btn-orange px-5 py-2" <?php echo $passwordChangeDisabled; ?>>
-                                        Update Password
-                                    </button>
-                                </div>
+                    <script>
+                    document.addEventListener("DOMContentLoaded", function() {
+                        // 自动格式化未成功通过 PHP 转换的时区差异（可选，能让时间完全跟着用户本地手机/电脑系统走）
+                        document.querySelectorAll('.trans-time').forEach(function(el) {
+                            let rawDateStr = el.getAttribute('data-order-time');
+                            if (rawDateStr) {
+                                // 替换空格为 'T' 以兼容所有浏览器的 Date 解析
+                                let utcDate = new Date(rawDateStr.replace(' ', 'T'));
+                                if (!isNaN(utcDate.getTime())) {
+                                    let options = { hour: '2-digit', minute: '2-digit', hour12: true };
+                                    el.textContent = utcDate.toLocaleTimeString([], options);
+                                }
+                            }
+                        });
+                    });
+
+                    // 确保你的 toggleOrderIdColumn 函数依然存在
+                    function toggleOrderIdColumn() {
+                        let show = document.getElementById('showOrderId').checked;
+                        document.querySelectorAll('.order-id-column').forEach(el => {
+                            el.style.display = show ? '' : 'none';
+                        });
+                    }
+                    </script>
+<div class="tab-pane fade" id="security">
+    <form method="POST">
+        <div class="row g-3">
+            <div class="col-12 mb-3">
+                <div class="p-3 rounded-4 border border-secondary-subtle bg-white">
+                    <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3 mb-3">
+                        <div>
+                            <h6 class="fw-bold mb-1">Identity Verification</h6>
+                            <p class="small text-muted mb-0">A one-time verification code is required before updating your password.</p>
+                        </div>
+                        <button type="button" id="sendSecurityOTP" class="btn btn-outline-orange btn-sm">
+                            Send OTP
+                        </button>
+                    </div>
+                    <div id="securityOtpSection" class="d-none">
+                        <div class="row g-3">
+                            <div class="col-md-8">
+                                <label class="small fw-bold text-muted text-uppercase">Verification Code</label>
+                                <input type="text" id="security_otp" class="form-control bg-light border-0 py-2" maxlength="6" pattern="[0-9]*" placeholder="Enter 6-digit code">
                             </div>
-                        </form>
+                            <div class="col-md-4 align-self-end">
+                                <button type="button" id="verifySecurityOTP" class="btn btn-secondary w-100">Verify Code</button>
+                            </div>
+                        </div>
+                        <div id="securityOtpMessage" class="mt-2 small text-muted"></div>
+                    </div>
+                    <div id="verifiedBadge" class="mt-3 small text-success fw-bold d-none">
+                        <i class="bi bi-shield-check me-1"></i>Verified. You may now change your password.
                     </div>
                 </div>
             </div>
+            <div class="col-md-12 mb-2">
+                <label class="small fw-bold text-muted text-uppercase">Current Password</label>
+                <input id="currentPassInput" type="password" name="current_pass" class="form-control bg-light border-0 py-2" <?php echo $passwordChangeDisabled; ?> required>
+            </div>
+            <div class="col-md-6 mb-2">
+                <label class="small fw-bold text-muted text-uppercase">New Password</label>
+                <input id="newPassInput" type="password" name="new_pass" class="form-control bg-light border-0 py-2" <?php echo $passwordChangeDisabled; ?> required>
+            </div>
+            <div class="col-md-6 mb-2">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <label class="small fw-bold text-muted text-uppercase mb-0">Password Strength</label>
+                    <small id="passwordStrengthLabel" class="text-muted fw-bold">Enter password</small>
+                </div>
+                <div class="progress rounded-pill" style="height: 8px;">
+                    <div id="passwordStrengthBar" class="progress-bar bg-danger rounded-pill" role="progressbar" style="width: 0%;"></div>
+                </div>
+                <div class="d-flex gap-2 mt-2 justify-content-between align-items-center">
+                    <small id="weakIndicator" class="fw-bold" style="font-size: 0.9rem; color: #ccc;">🔴 Weak</small>
+                    <small id="mediumIndicator" class="fw-bold" style="font-size: 0.9rem; color: #ccc;">🟡 Medium</small>
+                    <small id="strongIndicator" class="fw-bold" style="font-size: 0.9rem; color: #ccc;">🟢 Strong</small>
+                </div>
+                <small id="passwordStrengthHint" class="text-muted d-block mt-2">Use at least 8 characters with uppercase, number, and symbol.</small>
+            </div>
+            <div class="col-md-6 mb-2">
+                <label class="small fw-bold text-muted text-uppercase">Confirm New Password</label>
+                <input id="confirmPassInput" type="password" name="confirm_pass" class="form-control bg-light border-0 py-2" <?php echo $passwordChangeDisabled; ?> required>
+            </div>
+            <div class="col-12 mt-4">
+                <button id="updatePasswordBtn" type="submit" name="update_password" class="btn btn-orange px-5 py-2" <?php echo $passwordChangeDisabled; ?>>
+                    Update Password
+                </button>
+            </div>
         </div>
-    </div>
+    </form>
+</div>
 
-    <div class="card p-4">
-        <h5 class="fw-800 mb-4"><i class="bi bi-tag-fill text-warning me-2"></i>Available Promo Codes</h5>
+<div class="tab-pane fade" id="public-reviews">
+    <div class="community-reviews-card p-4 p-md-5 mb-4" style="background: rgba(255, 255, 255, 0.72); backdrop-filter: blur(25px) saturate(160%); -webkit-backdrop-filter: blur(25px) saturate(160%); border: 1px solid rgba(255, 255, 255, 0.7); box-shadow: 0 24px 50px rgba(15, 23, 42, 0.04); border-radius: 20px;">
+        
+        <div class="community-reviews-title pb-2 mb-4 border-bottom border-secondary-subtle" style="font-size: 1.25rem; font-weight: 800; color: #0f172a;">
+            <i class="bi bi-chat-square-heart-fill me-2" style="color: #ff6600;"></i> Customer Reviews & Testimonials
+        </div>
+        
+        <?php if ($all_reviews_result && $all_reviews_result->num_rows > 0): ?>
+            <?php while ($rev = $all_reviews_result->fetch_assoc()): ?>
+                <div class="review-item py-3 border-bottom rgba-border" style="border-bottom: 1px solid rgba(15,23,42,0.06) !important;">
+                    
+                    <div class="review-user-info d-flex justify-content-between align-items-center mb-1" style="font-size: 0.9rem;">
+                        <span class="review-user-name fw-bold" style="color: #0f172a;"><?php echo htmlspecialchars($rev['User_Name']); ?></span>
+                        <span class="review-date text-muted" style="font-size: 0.8rem;"><?php echo date('d M Y, h:i A', strtotime($rev['RR_Date'])); ?></span>
+                    </div>
+                    
+                    <div class="review-stars-static mb-2" style="color: #ffb700; font-size: 0.9rem;">
+                        <?php 
+                        $stars_count = intval($rev['Rat_Star']);
+                        for ($i = 1; $i <= 5; $i++) {
+                            if ($i <= $stars_count) {
+                                echo '<i class="bi bi-star-fill"></i> ';
+                            } else {
+                                echo '<i class="bi bi-star" style="color: #cbd5e1;"></i> ';
+                            }
+                        }
+                        ?>
+                    </div>
+                    
+                    <div class="review-comment-text" style="font-size: 0.95rem; color: #334155; line-height: 1.5;">
+                        <?php echo !empty($rev['Rev_Content']) ? nl2br(htmlspecialchars($rev['Rev_Content'])) : '<em class="text-muted" style="font-style: italic;">No verbal comment left.</em>'; ?>
+                    </div>
+
+                    <?php if (!empty($rev['Rev_Image'])): ?>
+                        <div class="mt-2">
+                            <img src="../<?php echo htmlspecialchars($rev['Rev_Image']); ?>" class="review-uploaded-img border" style="width: 100px; height: 100px; object-fit: cover; border-radius: 8px; border-color: #e2e8f0; cursor: pointer;" alt="Review Photo" onclick="window.open(this.src)">
+                        </div>
+                    <?php endif; ?>
+                    
+                </div>
+            <?php endwhile; ?>
+        <?php else: ?>
+            <div class="text-center text-muted py-4">
+                <i class="bi bi-chat-left-dots fs-2 d-block mb-2"></i>
+                No reviews published yet. Be the first to leave one!
+            </div>
+        <?php endif; ?>
+        
+    </div>
+</div>
+
+</div> </div> </div> </div> <div class="clearfix"></div>
+
+                </form>
+            </div>
+                           
+                    
+<div class="container my-4">
+    <div class="card p-4 shadow-sm border-0" style="border-radius: 16px; background: #ffffff;">
+        <h5 class="fw-800 mb-4" style="color: #0f172a;"><i class="bi bi-tag-fill text-warning me-2"></i>Available Promo Codes</h5>
         <div class="row">
             <?php if ($available_promos && $available_promos->num_rows > 0): ?>
                 <?php while ($promo = $available_promos->fetch_assoc()): ?>
                     <div class="col-md-6 mb-3">
-                        <div class="voucher-box voucher-active">
-                            <div class="voucher-title"><?php echo htmlspecialchars($promo['Promo_Code']); ?></div>
+                        <div class="voucher-box voucher-active" style="border: 1px dashed #ff6600; border-radius: 12px; padding: 15px; background: #fffcf9;">
+                            <div class="voucher-title fw-bold text-uppercase" style="color: #ff6600; font-size: 1.1rem;"><?php echo htmlspecialchars($promo['Promo_Code']); ?></div>
                             <p class="small text-muted mb-1"><?php echo htmlspecialchars($promo['Promo_Name']); ?></p>
                             <p class="small text-dark mb-1 fw-bold">
                                 <?php echo ($promo['Promo_Type'] === 'Percentage') 
@@ -924,20 +1072,15 @@ body::after {
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
 <script>
-    // 隐藏/显示 Order ID 列的核心逻辑
     function toggleOrderIdColumn() {
         const checkbox = document.getElementById('showOrderId');
         const columns = document.querySelectorAll('.order-id-column');
         const display = checkbox.checked ? 'table-cell' : 'none';
-        columns.forEach(col => {
-            col.style.display = display;
-        });
+        columns.forEach(col => { col.style.display = display; });
     }
 
-    // 点击 Details 按钮加载异步订单明细弹窗
     function showItemPopup(orderId) {
         let paddedOrderId = String(orderId).padStart(6, '0');
-        
         Swal.fire({
             title: 'Order Items (ID: #ORD-' + paddedOrderId + ')',
             customClass: { title: 'text-start w-100 fs-5 mt-2 ms-2 fw-bold text-dark' },
@@ -948,27 +1091,19 @@ body::after {
             focusCancel: true,
             background: '#f8f9fa',
             didOpen: () => {
-                // 直接向自身页面发起 AJAX API 安全请求，完美防跨模块越权
                 const url = 'user_dashboard.php?fetch_items_api=1&order_id=' + orderId;
-                
                 fetch(url)
                     .then(response => response.text())
-                    .then(htmlData => {
-                        Swal.update({ html: htmlData });
-                    })
-                    .catch(() => {
-                        Swal.update({ html: '<div class="py-4 text-danger text-center">Failed to load items.</div>' });
-                    });
+                    .then(htmlData => { Swal.update({ html: htmlData }); })
+                    .catch(() => { Swal.update({ html: '<div class="py-4 text-danger text-center">Failed to load items.</div>' }); });
             }
         });
     }
 
-    // 动态时间显示
     function updateClock() {
         const clockEl = document.getElementById('live-clock');
         const dateEl = document.getElementById('live-date');
         if(!clockEl || !dateEl) return;
-        
         const now = new Date();
         clockEl.innerText = now.toLocaleTimeString('en-US', { hour12: true });
         dateEl.innerText = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
@@ -978,7 +1113,6 @@ body::after {
         document.querySelectorAll('.trans-time').forEach(el => {
             const orderTime = el.getAttribute('data-order-time');
             if (!orderTime) return;
-
             const normalizedOrderTime = orderTime.trim().replace(' ', 'T');
             const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalizedOrderTime);
             const date = new Date(hasTimezone ? normalizedOrderTime : `${normalizedOrderTime}Z`);
@@ -986,16 +1120,13 @@ body::after {
             if (!Number.isNaN(date.getTime())) {
                 el.textContent = date.toLocaleTimeString('en-US', {
                     timeZone: 'Asia/Kuala_Lumpur',
-                    hour: 'numeric',
-                    minute: '2-digit',
-                    hour12: true
+                    hour: 'numeric', minute: '2-digit', hour12: true
                 });
                 return;
             }
 
             const match = orderTime.match(/(\d{1,2}):(\d{2})(?::\d{2})?(?:\s*(AM|PM))?/i);
             if (!match) return;
-
             let hour = parseInt(match[1], 10);
             const minute = match[2];
             const suffix = match[3];
@@ -1005,7 +1136,6 @@ body::after {
                 if (normalizedSuffix === 'PM' && hour < 12) hour += 12;
                 if (normalizedSuffix === 'AM' && hour === 12) hour = 0;
             }
-
             const period = hour >= 12 ? 'PM' : 'AM';
             const displayHour = hour % 12 || 12;
             el.textContent = `${displayHour}:${minute} ${period}`;
@@ -1017,7 +1147,6 @@ body::after {
     updateClock();
     updateTransactionTimes();
 
-    // 密码强度的前端实时验证交互
     const newPassInput = document.getElementById('newPassInput');
     if (newPassInput) {
         newPassInput.addEventListener('input', function() {
@@ -1030,46 +1159,34 @@ body::after {
 
             const bar = document.getElementById('passwordStrengthBar');
             const label = document.getElementById('passwordStrengthLabel');
-            
             document.getElementById('weakIndicator').style.color = '#ccc';
             document.getElementById('mediumIndicator').style.color = '#ccc';
             document.getElementById('strongIndicator').style.color = '#ccc';
 
             if (val.length === 0) {
-                bar.style.width = '0%';
-                label.innerText = 'Enter password';
+                bar.style.width = '0%'; label.innerText = 'Enter password';
             } else if (score <= 1) {
-                bar.className = 'progress-bar bg-danger rounded-pill';
-                bar.style.width = '33%';
-                label.innerText = 'Weak';
+                bar.className = 'progress-bar bg-danger rounded-pill'; bar.style.width = '33%'; label.innerText = 'Weak';
                 document.getElementById('weakIndicator').style.color = '#dc3545';
             } else if (score <= 3) {
-                bar.className = 'progress-bar bg-warning rounded-pill';
-                bar.style.width = '66%';
-                label.innerText = 'Medium';
+                bar.className = 'progress-bar bg-warning rounded-pill'; bar.style.width = '66%'; label.innerText = 'Medium';
                 document.getElementById('mediumIndicator').style.color = '#ffc107';
             } else {
-                bar.className = 'progress-bar bg-success rounded-pill';
-                bar.style.width = '100%';
-                label.innerText = 'Strong';
+                bar.className = 'progress-bar bg-success rounded-pill'; bar.style.width = '100%'; label.innerText = 'Strong';
                 document.getElementById('strongIndicator').style.color = '#198754';
             }
         });
     }
 
-    // OTP 身份认证逻辑前端 AJAX 的处理绑定
     document.addEventListener('DOMContentLoaded', function() {
         const sendOtpBtn = document.getElementById('sendSecurityOTP');
         const verifyOtpBtn = document.getElementById('verifySecurityOTP');
         
         if (sendOtpBtn) {
             sendOtpBtn.addEventListener('click', function() {
-                sendOtpBtn.disabled = true;
-                sendOtpBtn.innerText = 'Sending...';
-                
+                sendOtpBtn.disabled = true; sendOtpBtn.innerText = 'Sending...';
                 const formData = new FormData();
                 formData.append('action', 'send_security_otp');
-
                 fetch('user_dashboard.php', { method: 'POST', body: formData })
                 .then(r => r.json())
                 .then(data => {
@@ -1077,14 +1194,8 @@ body::after {
                         document.getElementById('securityOtpSection').classList.remove('d-none');
                         document.getElementById('securityOtpMessage').innerText = data.message;
                         document.getElementById('securityOtpMessage').className = 'mt-2 small text-success';
-                    } else {
-                        alert(data.message);
-                    }
-                })
-                .finally(() => {
-                    sendOtpBtn.disabled = false;
-                    sendOtpBtn.innerText = 'Send OTP';
-                });
+                    } else { alert(data.message); }
+                }).finally(() => { sendOtpBtn.disabled = false; sendOtpBtn.innerText = 'Send OTP'; });
             });
         }
 
@@ -1094,7 +1205,6 @@ body::after {
                 const formData = new FormData();
                 formData.append('action', 'verify_security_otp');
                 formData.append('otp', otpVal);
-
                 fetch('user_dashboard.php', { method: 'POST', body: formData })
                 .then(r => r.json())
                 .then(data => {
@@ -1102,8 +1212,6 @@ body::after {
                         document.getElementById('securityOtpSection').classList.add('d-none');
                         sendOtpBtn.classList.add('d-none');
                         document.getElementById('verifiedBadge').classList.remove('d-none');
-                        
-                        // 移除禁用，允许修改密码
                         document.getElementById('currentPassInput').removeAttribute('disabled');
                         document.getElementById('newPassInput').removeAttribute('disabled');
                         document.getElementById('confirmPassInput').removeAttribute('disabled');
@@ -1119,25 +1227,15 @@ body::after {
 
     function setupWalletPIN() {
         Swal.fire({
-            title: 'Activate Your E-Wallet',
-            text: 'Please set a 6-digit secure PIN to protect your balance.',
-            input: 'password',
+            title: 'Activate Your E-Wallet', text: 'Please set a 6-digit secure PIN to protect your balance.', input: 'password',
             inputAttributes: { maxlength: 6, autocapitalize: 'off', autocorrect: 'off', pattern: '[0-9]*', inputmode: 'numeric' },
-            showCancelButton: true,
-            confirmButtonText: 'Set PIN',
-            confirmButtonColor: '#FF6B00',
-            inputValidator: (value) => {
-                if (!/^\d{6}$/.test(value)) { return 'PIN must be exactly 6 digits!'; }
-            }
+            showCancelButton: true, confirmButtonText: 'Set PIN', confirmButtonColor: '#FF6B00',
+            inputValidator: (value) => { if (!/^\d{6}$/.test(value)) { return 'PIN must be exactly 6 digits!'; } }
         }).then((result) => {
             if (result.isConfirmed) {
                 fetch('../Module B/update_pin_handler.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: `new_pin=${result.value}`
-                })
-                .then(res => res.json())
-                .then(data => {
+                    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: `new_pin=${result.value}`
+                }).then(res => res.json()).then(data => {
                     if (data.success) { Swal.fire('Activated!', 'Your wallet is now ready.', 'success').then(() => location.reload()); }
                 });
             }
@@ -1146,153 +1244,154 @@ body::after {
 
     async function forgotWalletPIN() {
         Swal.fire({
-            title: 'Reset Wallet PIN',
-            text: "We will send an OTP to your registered email.",
-            icon: 'info',
-            showCancelButton: true,
-            confirmButtonText: 'Send OTP',
-            confirmButtonColor: '#FF6B00',
-            showLoaderOnConfirm: true,
+            title: 'Reset Wallet PIN', text: "We will send an OTP to your registered email.", icon: 'info',
+            showCancelButton: true, confirmButtonText: 'Send OTP', confirmButtonColor: '#FF6B00', showLoaderOnConfirm: true,
             preConfirm: () => {
                 return fetch('../Module B/wallet_pin_reset_handler.php', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                    body: 'action=request_otp'
+                    method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: 'action=request_otp'
                 }).then(res => res.json());
             }
-        }).then((result) => {
-            if (result.isConfirmed && result.value.success) {
-                handleOTPInput();
-            }
-        });
+        }).then((result) => { if (result.isConfirmed && result.value.success) { handleOTPInput(); } });
     }
 
     function handleOTPInput() {
         Swal.fire({
             title: 'Verify OTP',
-            html: `
-                <input type="text" id="otp_code" class="swal2-input" placeholder="6-digit OTP" maxlength="6">
-                <input type="password" id="reset_pin" class="swal2-input" placeholder="Enter New 6-digit PIN" maxlength="6">
-            `,
-            confirmButtonText: 'Reset PIN',
-            confirmButtonColor: '#17735b',
+            html: `<input type="text" id="otp_code" class="swal2-input" placeholder="6-digit OTP" maxlength="6">
+                   <input type="password" id="reset_pin" class="swal2-input" placeholder="Enter New 6-digit PIN" maxlength="6">`,
+            confirmButtonText: 'Reset PIN', confirmButtonColor: '#17735b',
             preConfirm: () => {
                 const otp = document.getElementById('otp_code').value;
                 const pin = document.getElementById('reset_pin').value;
                 if (!/^\d{6}$/.test(otp)) return Swal.showValidationMessage('Invalid OTP format');
                 if (!/^\d{6}$/.test(pin)) return Swal.showValidationMessage('PIN must be 6 digits');
-                
                 let formData = new URLSearchParams();
-                formData.append('action', 'verify_and_reset');
-                formData.append('otp', otp);
-                formData.append('new_pin', pin);
-
+                formData.append('action', 'verify_and_reset'); formData.append('otp', otp); formData.append('new_pin', pin);
                 return fetch('../Module B/wallet_pin_reset_handler.php', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                    body: formData.toString()
+                    method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: formData.toString()
                 }).then(res => res.json());
             }
         }).then((result) => {
             if (result.value && result.value.success) {
                 Swal.fire('Success!', 'Your Wallet PIN has been updated.', 'success').then(() => location.reload());
-            } else if (result.value) {
-                Swal.fire('Failed', result.value.message, 'error');
-            }
+            } else if (result.value) { Swal.fire('Failed', result.value.message, 'error'); }
         });
     }
 
-    function toggleOrderIdColumn() {
-        const checkbox = document.getElementById('showOrderId');
-        const columns = document.querySelectorAll('.order-id-column');
-        const display = checkbox.checked ? 'table-cell' : 'none';
-        columns.forEach(col => {
-            col.style.display = display;
-        });
-    }
-
+    // 1. 核心修复：根据隐藏域的当前值，统一刷新所有行的 data-index、高亮状态和 Badge 标签
     function refreshAddressLabels() {
-        document.querySelectorAll('#addressBook .address-row').forEach((row, index) => {
+        const defaultIndexInput = document.getElementById('defaultAddressIndex');
+        // 如果隐藏域不存在或为空，默认为 0
+        const currentDefault = (defaultIndexInput && defaultIndexInput.value !== '') ? Number(defaultIndexInput.value) : 0;
+        const rows = document.querySelectorAll('#addressBook .address-row');
+
+        rows.forEach((row, index) => {
+            // 规范化写入 data-index
+            row.setAttribute('data-index', index);
             row.dataset.index = index;
+
             const badge = row.querySelector('.id-addr-badge');
             const defaultBtn = row.querySelector('.id-check-btn');
-            const isSelected = row.classList.contains('selected');
+            
+            // 纯粹根据当前索引 index 是否等于隐藏域记录的 currentDefault 来决定状态
+            const isSelected = (index === currentDefault);
+
+            // 切换外框的高亮样式
+            row.classList.toggle('selected', isSelected);
 
             if (badge) {
                 badge.textContent = isSelected ? 'Default Address' : `Address ${index + 1}`;
                 badge.className = `badge id-addr-badge ${isSelected ? 'text-bg-warning' : 'text-bg-light border'}`;
             }
-            if (defaultBtn) {
-                defaultBtn.classList.toggle('active', isSelected);
+
+            if (defaultBtn) { 
+                defaultBtn.classList.toggle('active', isSelected); 
             }
         });
+
+        // 动态更新最上方卡片里的 "X saved" 数量
+        const countBadge = document.getElementById('addressCountBadge');
+        if (countBadge) {
+            countBadge.textContent = `${rows.length} saved`;
+        }
     }
 
+    // 2. 刷新上方的预览文字卡片
     function updateSelectedAddressPreview() {
         const defaultIndexInput = document.getElementById('defaultAddressIndex');
         const rows = document.querySelectorAll('#addressBook .address-row');
         const selectedIndex = defaultIndexInput ? Number(defaultIndexInput.value) : 0;
         const preview = document.getElementById('selectedAddressPreview');
+        
         if (!preview) return;
+        
         const selectedRow = rows[selectedIndex];
-        if (!selectedRow) {
-            preview.textContent = 'No address selected. Please add one.';
-            return;
+        if (!selectedRow) { 
+            preview.textContent = 'No address selected. Please add one.'; 
+            return; 
         }
-
+        
         const addressField = selectedRow.querySelector('.address-text-field');
         const postcodeField = selectedRow.querySelector('.address-postcode-field');
         const stateField = selectedRow.querySelector('.address-state-field');
+        
         const previewText = [
-            addressField?.value.trim() || '',
-            postcodeField?.value.trim() || '',
+            addressField?.value.trim() || '', 
+            postcodeField?.value.trim() || '', 
             stateField?.value.trim() || ''
         ].filter(Boolean).join('\n');
-
+        
         preview.textContent = previewText || 'No address selected. Please add one.';
     }
 
+    // 3. 点击钩子按钮设为默认地址
+    // 3. 点击钩子按钮设为默认地址（并自动收起列表）
     function setAsDefaultAddress(button) {
-        const rows = document.querySelectorAll('#addressBook .address-row');
-        if (!rows.length) return;
+        const currentRow = button.closest('.address-row');
+        if (!currentRow) return;
 
-        const selectedRow = button.closest('.address-row');
-        if (!selectedRow) return;
-
-        rows.forEach(row => {
-            row.classList.toggle('selected', row === selectedRow);
-        });
-
-        const selectedIndex = Array.from(rows).indexOf(selectedRow);
-        document.getElementById('defaultAddressIndex').value = selectedIndex;
+        // 在读取前，先强制刷新一次 index，确保拿到的 data-index 是最新且绝对准确的
+        const rows = Array.from(document.querySelectorAll('#addressBook .address-row'));
+        const index = rows.indexOf(currentRow);
+        
+        const defaultIndexInput = document.getElementById('defaultAddressIndex');
+        if (defaultIndexInput) {
+            defaultIndexInput.value = index;
+        }
+        
+        // 让刷新函数根据刚刚写入的新 index 去更新全页面的 UI 样式
         refreshAddressLabels();
         updateSelectedAddressPreview();
+
+        // ✨ 新增：选好地址后，自动将下方的地址面板折叠收起
+        const collapseElement = document.getElementById('collapseAddresses');
+        if (collapseElement) {
+            // 获取或创建 Bootstrap 的 Collapse 实例
+            const bsCollapse = bootstrap.Collapse.getInstance(collapseElement) || new bootstrap.Collapse(collapseElement, { toggle: false });
+            bsCollapse.hide(); // 自动收起
+        }
     }
 
+    // 4. 动态增加地址框
     function addAddressBox() {
         const addressBook = document.getElementById('addressBook');
         if (!addressBook) return;
-
+        
         const wrapper = document.createElement('div');
-        wrapper.className = 'address-row mb-3 p-3';
+        wrapper.className = 'address-row mb-3 p-3'; 
+        
         wrapper.innerHTML = `
             <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
-                <div>
-                    <span class="badge id-addr-badge text-bg-light border">New Address</span>
-                </div>
+                <div><span class="badge id-addr-badge text-bg-light border">New Address</span></div>
                 <div class="btn-group btn-group-sm address-book-actions">
-                    <button type="button" class="btn btn-outline-success id-check-btn" onclick="setAsDefaultAddress(this)" title="Set default">
-                        <i class="bi bi-check2"></i>
-                    </button>
-                    <button type="button" class="btn btn-outline-danger" onclick="removeAddressBox(this)" title="Remove address">
-                        <i class="bi bi-trash3"></i>
-                    </button>
+                    <button type="button" class="btn btn-outline-success id-check-btn" onclick="setAsDefaultAddress(this)"><i class="bi bi-check2"></i></button>
+                    <button type="button" class="btn btn-outline-danger" onclick="removeAddressBox(this)"><i class="bi bi-trash3"></i></button>
                 </div>
             </div>
             <div class="row g-3">
                 <div class="col-12">
                     <label class="small fw-bold text-muted">Shipping Address</label>
-                    <textarea name="addresses[]" class="form-control address-text-field" rows="2" placeholder="House number, building, street name, city" oninput="updateSelectedAddressPreview()"></textarea>
+                    <textarea name="addresses[]" class="form-control address-text-field" rows="2" placeholder="House number, building name..." oninput="updateSelectedAddressPreview()"></textarea>
                 </div>
                 <div class="col-md-5">
                     <label class="small fw-bold text-muted">Postcode</label>
@@ -1302,71 +1401,92 @@ body::after {
                     <label class="small fw-bold text-muted">State</label>
                     <select name="states[]" class="form-select address-state-field" onchange="updateSelectedAddressPreview()">
                         <option value="">Select State</option>
-                        <option>Johor</option><option>Kedah</option><option>Kelantan</option>
-                        <option>Melaka</option><option>Negeri Sembilan</option><option>Pahang</option>
-                        <option>Penang</option><option>Perak</option><option>Perlis</option>
-                        <option>Sabah</option><option>Sarawak</option><option>Selangor</option>
-                        <option>Terengganu</option><option>Kuala Lumpur</option><option>Putrajaya</option><option>Labuan</option>
+                        <option>Johor</option><option>Kedah</option><option>Kelantan</option><option>Melaka</option><option>Negeri Sembilan</option><option>Pahang</option><option>Penang</option><option>Perak</option><option>Perlis</option><option>Sabah</option><option>Sarawak</option><option>Selangor</option><option>Terengganu</option><option>Kuala Lumpur</option><option>Putrajaya</option><option>Labuan</option>
                     </select>
                 </div>
-            </div>
-        `;
+            </div>`;
+            
         addressBook.appendChild(wrapper);
-
-        setAsDefaultAddress(wrapper.querySelector('.id-check-btn'));
+        
+        // 关键顺序：
+        // 1. 先把全新的一列插进 DOM 树
+        // 2. 找到它在当前列表里属于第几个索引
+        const rows = Array.from(document.querySelectorAll('#addressBook .address-row'));
+        const newIndex = rows.indexOf(wrapper);
+        
+        // 3. 更新隐藏域
+        const defaultIndexInput = document.getElementById('defaultAddressIndex');
+        if (defaultIndexInput) {
+            defaultIndexInput.value = newIndex;
+        }
+        
+        // 4. 一键渲染样式与更新顶部卡片
+        refreshAddressLabels();
+        updateSelectedAddressPreview();
+        
         wrapper.querySelector('textarea').focus();
     }
 
+    // 5. 动态删除地址框
     function removeAddressBox(button) {
         const rows = document.querySelectorAll('#addressBook .address-row');
         const rowToRemove = button.closest('.address-row');
         if (!rowToRemove) return;
-
+        
         const defaultIndexInput = document.getElementById('defaultAddressIndex');
         const currentDefault = defaultIndexInput ? Number(defaultIndexInput.value) : 0;
         const removeIndex = Array.from(rows).indexOf(rowToRemove);
 
+        // 如果只剩最后一行，禁止删除，改为清空内容
         if (rows.length <= 1) {
             rowToRemove.querySelectorAll('textarea, input').forEach(field => field.value = '');
-            const stateSelect = rowToRemove.querySelector('select');
+            const stateSelect = rowToRemove.querySelector('select'); 
             if (stateSelect) stateSelect.value = '';
-            setAsDefaultAddress(rowToRemove.querySelector('.id-check-btn'));
-            updateSelectedAddressPreview();
+            
+            if (defaultIndexInput) defaultIndexInput.value = 0;
+            refreshAddressLabels();
+            updateSelectedAddressPreview(); 
             return;
         }
-
+        
+        // 从页面上移除节点
         rowToRemove.remove();
         const updatedRows = document.querySelectorAll('#addressBook .address-row');
         if (!defaultIndexInput) return;
-
+        
+        // 重新计算并修正隐藏输入框的值
         if (removeIndex === currentDefault || currentDefault >= updatedRows.length) {
+            // 如果删掉的是当前默认地址，自动把默认项切到临近的有效行
             const nextDefault = Math.max(0, Math.min(removeIndex, updatedRows.length - 1));
-            const defaultButton = updatedRows[nextDefault]?.querySelector('.btn-outline-success');
-            if (defaultButton) {
-                setAsDefaultAddress(defaultButton);
-            }
-        } else {
-            defaultIndexInput.value = currentDefault > removeIndex ? currentDefault - 1 : currentDefault;
-            refreshAddressLabels();
-            updateSelectedAddressPreview();
+            defaultIndexInput.value = nextDefault;
+        } else if (currentDefault > removeIndex) {
+            // 如果删掉的卡片在默认地址的上方，默认地址的 index 必须减 1 以保持对齐
+            defaultIndexInput.value = currentDefault - 1;
         }
+        
+        // 重新洗牌所有行的真实 index，刷新文本状态
+        refreshAddressLabels(); 
+        updateSelectedAddressPreview();
     }
 
+    // 6. 页面初始化绑定
     document.addEventListener('DOMContentLoaded', function () {
         const addNewAddressBtn = document.getElementById('addNewAddressBtn');
         if (addNewAddressBtn) {
             addNewAddressBtn.addEventListener('click', function () {
                 addAddressBox();
                 const collapseAddresses = document.getElementById('collapseAddresses');
-                if (collapseAddresses && !collapseAddresses.classList.contains('show')) {
-                    collapseAddresses.classList.add('show');
-                    document.querySelector('.address-toggle-btn')?.setAttribute('aria-expanded', 'true');
+                if (collapseAddresses && !collapseAddresses.classList.contains('show')) { 
+                    collapseAddresses.classList.add('show'); 
                 }
             });
         }
-
+        // 初始化运行，完美衔接来自 PHP 的初始选中状态
+        refreshAddressLabels();
         updateSelectedAddressPreview();
     });
 </script>
+
+</div> 
 
 <?php include '../includes/footer.php'; ?>
