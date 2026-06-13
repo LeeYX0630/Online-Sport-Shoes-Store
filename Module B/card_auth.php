@@ -42,15 +42,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_card_pay'])) {
     } elseif (empty($cvv) || strlen($cvv) !== 3 || !ctype_digit($cvv)) {
         $error = "CVV must be exactly 3 digits.";
     } else {
-        // 验证信用卡是否过期
+        // 验证信用卡是否过期，并限制在今天起10年内
         list($month, $year) = explode('/', $expiry);
         $currentYear = intval(date('y'));
         $currentMonth = intval(date('m'));
         $expiryYear = intval($year);
         $expiryMonth = intval($month);
-        
-        if ($expiryYear < $currentYear || ($expiryYear == $currentYear && $expiryMonth < $currentMonth)) {
+        $currentFullYear = intval(date('Y'));
+        $expiryFullYear = 2000 + $expiryYear;
+        $maxExpiryFullYear = $currentFullYear + 10;
+
+        if ($expiryFullYear < $currentFullYear || ($expiryFullYear == $currentFullYear && $expiryMonth < $currentMonth)) {
             $error = "Card has expired.";
+        } elseif ($expiryFullYear > $maxExpiryFullYear || ($expiryFullYear == $maxExpiryFullYear && $expiryMonth > $currentMonth)) {
+            $error = "Expiry must be within 10 years from this year.";
         }
     }
 

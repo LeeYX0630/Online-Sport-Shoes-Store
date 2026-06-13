@@ -18,6 +18,15 @@ $uid = $_SESSION['user_id'];
 $error = "";
 $success_msg = "";
 
+if (isset($_SERVER['HTTP_REFERER']) && strpos($_SERVER['HTTP_REFERER'], 'checkout.php') === false && empty($_POST)) {
+    unset($_SESSION['user_chose_promo']);
+    unset($_SESSION['applied_promo_code']);
+    unset($_SESSION['applied_discount']);
+    unset($_SESSION['applied_user_promo_id']);
+    unset($_SESSION['auto_promo_notified']);
+    $_SESSION['promo_mode'] = 'AUTO';
+}
+
 // 获取用户详细资料 (包含 User_PIN)
 $user_sql = "SELECT * FROM `USER` WHERE User_Id = '$uid'";
 $user_res = $conn->query($user_sql);
@@ -30,6 +39,35 @@ $user_res = $conn->query($user_sql);
 $user_info = $user_res->fetch_assoc();
 $current_balance = floatval($user_info['User_Balance']);
 
+// ── 🌟 核心修复 1：精准判定是否为“全新进入结算页” ──
+$is_fresh_entry = false;
+
+// 1. 通过来源页面判断：只要是普通的 GET 请求，且不是 checkout 自己刷新或支付网关跳回
+if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+    $referer = isset($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : '';
+    if (strpos($referer, 'checkout.php') === false && 
+        strpos($referer, 'card_auth.php') === false && 
+        strpos($referer, 'wallet_auth.php') === false && 
+        strpos($referer, 'bank_portal.php') === false) {
+        $is_fresh_entry = true;
+    }
+}
+
+// 2. 通过购物车内容判断：如果用户增减了商品，也算全新计算
+$current_cart_hash = md5(serialize($_SESSION['cart']));
+if (!isset($_SESSION['last_cart_hash']) || $_SESSION['last_cart_hash'] !== $current_cart_hash) {
+    $is_fresh_entry = true;
+    $_SESSION['last_cart_hash'] = $current_cart_hash;
+}
+
+// 3. 执行强力洗脑：只要是新进来的，忘掉之前用户的所有手动设置，强行切回全自动模式！
+if ($is_fresh_entry) {
+    $_SESSION['promo_mode'] = 'AUTO';
+    unset($_SESSION['auto_promo_notified']); // 拔掉防弹窗标记，让 SweetAlert 满血复活
+    unset($_SESSION['applied_promo_code']);
+    unset($_SESSION['applied_discount']);
+    unset($_SESSION['applied_user_promo_id']);
+}
 // 提取用户基础资料
 $user_phone = $user_info['User_Phone'];
 $user_address = $user_info['User_Address'];
@@ -127,43 +165,6 @@ function getOptimalPromo($conn, $user_id, $subtotal) {
                 $discount_display = 'RM ' . number_format($discount_amount, 2) . ' OFF';
             }
             
-            // 判断该 promo 是否对该用户可用
-            // 规则1: 新用户 promo (包含 "Welcome" 或 "New User" 的)
-            $is_new_user_promo = (
-                strpos(strtoupper($promo['Promo_Name']), 'WELCOME') !== false ||
-                strpos(strtoupper($promo['Promo_Name']), 'NEW USER') !== false
-            );
-            
-            // 规则2: 生日 promo (包含 "Birthday" 的，并且用户 ID 在代码中)
-            $is_birthday_promo = (
-                strpos(strtoupper($promo['Promo_Name']), 'BIRTHDAY') !== false &&
-                strpos($promo['Promo_Code'], (string)$user_id) !== false
-            );
-            
-            // 规则3: 全局 promo (既不是新用户也不是生日的)
-            $is_global_promo = !$is_new_user_promo && !$is_birthday_promo;
-            
-            // 如果是新用户 promo，检查用户是否有订单（有订单就不是新用户）
-            if ($is_new_user_promo) {
-                $order_check = $conn->query("SELECT 1 FROM `order` WHERE User_Id = '$user_id' LIMIT 1");
-                if ($order_check && $order_check->num_rows > 0) {
-                    continue; // 跳过这个新用户 promo
-                }
-            }
-            
-            // 如果是生日 promo，检查用户生日是否在当月
-            if ($is_birthday_promo) {
-                $birthday_check = $conn->query("
-                    SELECT 1 FROM `user` 
-                    WHERE User_Id = '$user_id' 
-                    AND MONTH(User_DateOfBirth) = MONTH(CURDATE())
-                    LIMIT 1
-                ");
-                if (!$birthday_check || $birthday_check->num_rows === 0) {
-                    continue; // 跳过这个生日 promo
-                }
-            }
-            
             // 比较折扣，选择最大的
             if ($discount_amount > $best_discount) {
                 $best_discount = $discount_amount;
@@ -192,36 +193,48 @@ function getUserAvailablePromos($conn, $user_id, $subtotal) {
         AND p.Expired_Date >= CURDATE()
     ");
 
-    while ($promo = $promo_query && $row = $promo_query->fetch_assoc()) {
-        $available_promos[] = [
-            'promo_code' => $row['Promo_Code'],
-            'promo_name' => $row['Promo_Name'],
-            'discount_display' => ($row['Promo_Type'] === 'Percentage') ? intval($row['Promo_Value'])."% OFF" : "RM ".$row['Promo_Value']." OFF",
-            'discount_amount' => ($row['Promo_Type'] === 'Percentage') ? ($subtotal * ($row['Promo_Value']/100)) : $row['Promo_Value'],
-            'expired_date' => $row['Expired_Date']
-        ];
+    if ($promo_query && $promo_query->num_rows > 0) {
+        while ($row = $promo_query->fetch_assoc()) {
+            $available_promos[] = [
+                'promo_code' => $row['Promo_Code'],
+                'promo_name' => $row['Promo_Name'],
+                'discount_display' => ($row['Promo_Type'] === 'Percentage') ? intval($row['Promo_Value'])."% OFF" : "RM ".$row['Promo_Value']." OFF",
+                'discount_amount' => ($row['Promo_Type'] === 'Percentage') ? ($subtotal * ($row['Promo_Value']/100)) : floatval($row['Promo_Value']),
+                'expired_date' => $row['Expired_Date']
+            ];
+        }
     }
     return $available_promos;
 }
 
+// --- 新增：购物车指纹检测 ---
+// 监控购物车变化。只要用户加/减了商品，就强制重置为“自动寻找最优解”模式，防止旧状态卡死
+$current_cart_hash = md5(serialize($_SESSION['cart']));
+if (!isset($_SESSION['last_cart_hash']) || $_SESSION['last_cart_hash'] !== $current_cart_hash) {
+    $_SESSION['promo_mode'] = 'AUTO';
+    $_SESSION['last_cart_hash'] = $current_cart_hash;
+    unset($_SESSION['auto_promo_notified']); // 购物车变了，允许再次弹窗提醒新优惠
+}
 
-// 4. 处理优惠码逻辑 - 如果用户没有手动输入，则自动应用最优优惠
-// 4. 处理优惠码逻辑 - 修复手动选择被覆盖的漏洞
+// 4. 处理优惠码逻辑 - 强大的状态机管理 (默认自动，除非手动取消)
 $discount = 0;
 $applied_code = "";
 $auto_applied = false;
 $available_vouchers = getUserAvailablePromos($conn, $uid, $subtotal);
 
-// 【核心修复】：检查当前请求中是否有优惠码输入，或者 Session 中是否已记录用户的手动选择
+// 初始化模式保证防错
+if (!isset($_SESSION['promo_mode'])) {
+    $_SESSION['promo_mode'] = 'AUTO';
+}
+
 $is_manual_action = isset($_POST['apply_coupon']);
 $has_input_code = (isset($_POST['coupon_code']) && trim($_POST['coupon_code']) !== '');
 
 if ($is_manual_action || $has_input_code) {
-    // A. 用户正在手动操作（输入了代码并点击 Apply 或直接点击支付）
     $code = $conn->real_escape_string(trim($_POST['coupon_code']));
     
     if ($code !== "") {
-        // 【核心修复】：从 user_promo 表验证用户是否真的拥有该优惠券
+        // A1. 用户手动输入/选择了某一张具体的优惠券
         $sql_c = "SELECT p.*, up.User_Promo_Id FROM user_promo up 
                   JOIN promo p ON up.Promo_Id = p.Promo_Id 
                   WHERE p.Promo_Code = '$code' AND up.User_Id = '$uid' AND up.Is_Used = 'No' 
@@ -238,39 +251,58 @@ if ($is_manual_action || $has_input_code) {
                 $discount = floatval($promo['Promo_Value']);
                 $success_msg = "Applied RM " . number_format($discount, 2) . " OFF";
             }
-            // 锁定手动选择状态，禁止自动优化干扰，并记录 User_Promo_Id
-            $_SESSION['user_chose_promo'] = true;
+            // 锁定为 MANUAL 模式，记住用户的手动意图
+            $_SESSION['promo_mode'] = 'MANUAL';
             $_SESSION['applied_promo_code'] = $applied_code;
             $_SESSION['applied_discount'] = $discount;
-            $_SESSION['applied_user_promo_id'] = $promo['User_Promo_Id'];  // 记录用于核销
+            $_SESSION['applied_user_promo_id'] = $promo['User_Promo_Id'];
         } else {
             $error = "Invalid or expired code, or you don't own this coupon.";
-            // 即使无效，也维持手动状态，防止系统自动跳回 Best Deal
-            $_SESSION['user_chose_promo'] = true;
+            $_SESSION['promo_mode'] = 'MANUAL';
             $applied_code = $code; 
+            unset($_SESSION['applied_promo_code'], $_SESSION['applied_discount'], $_SESSION['applied_user_promo_id']);
         }
     } else {
-        // 用户清空了输入框，视为【明确不使用优惠券】
-        $_SESSION['user_chose_promo'] = true; // 锁定手动状态，阻止系统自动寻找 Best Deal
+        // A2. 核心逻辑：用户清空了输入框，或者点击了 "Don't use any vouchers this time"
+        $_SESSION['promo_mode'] = 'NONE'; // 锁定为 NONE 模式，当前停留在页面时绝不再自动套用
         unset($_SESSION['applied_promo_code'], $_SESSION['applied_discount'], $_SESSION['applied_user_promo_id']);
         $applied_code = "";
         $discount = 0;
     }
 } else {
-    // B. 无手动操作时：检查 Session 记录[cite: 39]
-    if (isset($_SESSION['user_chose_promo']) && $_SESSION['user_chose_promo']) {
-        $applied_code = $_SESSION['applied_promo_code'] ?? '';
-        $discount = $_SESSION['applied_discount'] ?? 0;
+    // B. 无手动提交表单时（例如页面刚加载，或者提交地址失败页面刷新）
+    if ($_SESSION['promo_mode'] === 'NONE') {
+        // 用户刚才明确说了“不用”，系统听从指令保持空白
+        $applied_code = "";
+        $discount = 0;
+        $auto_applied = false;
+    } elseif ($_SESSION['promo_mode'] === 'MANUAL' && isset($_SESSION['applied_promo_code'])) {
+        // 用户刚才手动选了码，维持他的选择
+        $applied_code = $_SESSION['applied_promo_code'];
+        $discount = $_SESSION['applied_discount'];
         $auto_applied = false;
     } else {
-        // 只有在完全没有手动干预的情况下，才执行“自动寻找最大折扣”[cite: 39]
+        // C. AUTO 模式：默认状态，直接全自动找出最便宜的
         $optimal = getOptimalPromo($conn, $uid, $subtotal);
         if ($optimal['promo'] !== null) {
             $best_promo = $optimal['promo'];
             $discount = $optimal['discount_amount'];
             $applied_code = $best_promo['Promo_Code'];
             $auto_applied = true;
-            $success_msg = "✨ Auto-Applied Best Deal: " . htmlspecialchars($best_promo['Promo_Name']) . " - " . $optimal['discount_info'];
+            
+            // 确保优惠金额写入 Session 防丢失
+            $_SESSION['applied_promo_code'] = $applied_code;
+            $_SESSION['applied_discount'] = $discount;
+            $_SESSION['applied_user_promo_id'] = $best_promo['User_Promo_Id'];
+            $_SESSION['promo_mode'] = 'AUTO';
+            
+            // 每次自动套用都显示提示（不做防刷检查）
+            $success_msg = "✨ Auto-Applied Best Deal: " . htmlspecialchars($best_promo['Promo_Name']);
+        } else {
+            // 用户没有可用优惠券
+            $applied_code = "";
+            $discount = 0;
+            $_SESSION['promo_mode'] = 'AUTO';
         }
     }
 }
@@ -1111,10 +1143,8 @@ async function startPaymentProcess() {
             Swal.fire('Bank Required', 'Please select a bank for FPX payment.', 'warning');
             return;
         }
-    } else {
-        submitCheckoutForm();
-    }
     submitCheckoutForm();
+    }
 }
 
 // 统一提交函数
@@ -1309,7 +1339,7 @@ document.addEventListener('DOMContentLoaded', function() {
         Swal.fire({
             icon: 'success',
             title: 'Success',
-            text: '<?php echo $success_msg; ?>',
+            text: <?php echo json_encode($success_msg); ?>,
             timer: 2500,
             showConfirmButton: false
         });
