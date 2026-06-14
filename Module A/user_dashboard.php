@@ -743,7 +743,7 @@ body::after {
                     <label for="avatarInput" class="btn btn-orange px-4 py-2 rounded-3 fw-bold text-white shadow-sm mb-0" style="cursor: pointer;">
                         <i class="bi bi-camera me-2"></i>Upload Photo
                     </label>
-                    <input type="file" id="avatarInput" name="avatar" accept="image/*" class="d-none" onchange="showSelectedFileName(this)">
+                    <input type="file" id="avatarInput" name="profile_image" accept="image/*" class="d-none" onchange="showSelectedFileName(this)">
                     
                     <span id="avatarFileName" class="small text-muted fw-semibold"></span>
                 </div>

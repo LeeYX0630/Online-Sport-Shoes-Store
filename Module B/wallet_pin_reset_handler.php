@@ -15,11 +15,10 @@ $action = $_POST['action'] ?? '';
 if ($action === 'request_otp') {
     // 1. 生成 6 位随机数 OTP
     $otp = sprintf("%06d", mt_rand(1, 999999));
-    $expiry = date("Y-m-d H:i:s", strtotime("+5 minutes")); // 5分钟有效期
 
-    // 2. 存入数据库
-    $stmt = $conn->prepare("UPDATE `USER` SET User_OTP = ?, User_OTP_Expiry = ? WHERE User_Id = ?");
-    $stmt->bind_param("ssi", $otp, $expiry, $uid);
+    // 2. 存入数据库（使用 DATE_ADD(NOW(), INTERVAL 5 MINUTE) 让数据库自己计算过期时间）
+    $stmt = $conn->prepare("UPDATE `user` SET User_OTP = ?, User_OTP_Expiry = DATE_ADD(NOW(), INTERVAL 5 MINUTE) WHERE User_Id = ?");
+    $stmt->bind_param("si", $otp, $uid);
     $stmt->execute();
 
     // 3. 获取用户邮箱并发邮件

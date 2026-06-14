@@ -9,133 +9,279 @@ require '../includes/PHPMailer/SMTP.php';
 require '../includes/mail_config.php';
 
 /**
- * 发送详细的 HTML 订单收据邮件
+ * 发送详细的 HTML 订单收据邮件（含 Promo 折扣明细）
  */
 function sendOrderReceiptEmail($order_id, $conn) {
-    // 1. 获取订单总表与用户资料 (包含日期和支付状态)
+    date_default_timezone_set('Asia/Kuala_Lumpur');
+
+    // 1. 获取订单总表与用户资料
     $sql_order = "SELECT o.*, u.User_Name, u.User_Email, u.User_Phone 
                   FROM `ORDER` o 
                   JOIN USER u ON o.User_Id = u.User_Id 
                   WHERE o.Order_Id = '$order_id'";
     $order_res = $conn->query($sql_order);
     if (!$order_res || $order_res->num_rows == 0) return false;
-    
-    $order = $order_res->fetch_assoc();
-    $user_email = $order['User_Email'];
-    $order_date = date('d M Y, h:i A', strtotime($order['Order_Date']));
 
-    // 2. 获取商品明细 (加入单价计算)
+    $order        = $order_res->fetch_assoc();
+    $user_email   = $order['User_Email'];
+    $order_date   = date('d M Y, h:i A', strtotime($order['Order_Date']));
+    $tracking_num = htmlspecialchars($order['Order_Tracking_Num']);
+    $pay_method   = htmlspecialchars($order['Payment_Method'] ?? 'N/A');
+
+    // 清理 shipping address（去掉 Tel: 部分用于展示）
+    $clean_shipping_addr = preg_replace('/\. Tel:.*$/i', '', $order['Order_Shipping_Addr']);
+    $clean_shipping_addr = nl2br(htmlspecialchars($clean_shipping_addr));
+
+    // 2. 获取商品明细
     $sql_items = "SELECT od.*, p.Pro_Name, p.Pro_Price 
                   FROM ORDER_DETAIL od 
                   JOIN product p ON od.Pro_Id = p.Pro_Id 
                   WHERE od.Order_Id = '$order_id'";
     $items_res = $conn->query($sql_items);
 
-    // 3. 构建商品表格 HTML
-    $items_html = "";
-    while($item = $items_res->fetch_assoc()) {
-        $unit_price = $item['Order_Subtotal'] / $item['Order_Qty'];
+    $items_html        = "";
+    $subtotal_amount   = 0.00;
+    while ($item = $items_res->fetch_assoc()) {
+        $unit_price       = $item['Order_Subtotal'] / $item['Order_Qty'];
+        $subtotal_amount += floatval($item['Order_Subtotal']);
         $items_html .= "
             <tr>
-                <td style='padding: 12px; border-bottom: 1px solid #eee; font-size: 14px;'>
-                    <strong style='color: #333;'>{$item['Pro_Name']}</strong><br>
-                    <small style='color: #888;'>Item ID: #{$item['Pro_Id']}</small>
+                <td style='padding:14px 12px; border-bottom:1px solid #f0f0f0; font-size:14px; color:#333;'>
+                    <strong>" . htmlspecialchars($item['Pro_Name']) . "</strong><br>
+                    <span style='font-size:11px; color:#999;'>SKU: #" . intval($item['Pro_Id']) . "</span>
                 </td>
-                <td style='padding: 12px; border-bottom: 1px solid #eee; text-align: center; font-size: 14px;'>RM " . number_format($unit_price, 2) . "</td>
-                <td style='padding: 12px; border-bottom: 1px solid #eee; text-align: center; font-size: 14px;'>{$item['Order_Qty']}</td>
-                <td style='padding: 12px; border-bottom: 1px solid #eee; text-align: right; font-size: 14px; font-weight: bold;'>RM " . number_format($item['Order_Subtotal'], 2) . "</td>
+                <td style='padding:14px 12px; border-bottom:1px solid #f0f0f0; text-align:center; font-size:14px; color:#555;'>
+                    RM " . number_format($unit_price, 2) . "
+                </td>
+                <td style='padding:14px 12px; border-bottom:1px solid #f0f0f0; text-align:center; font-size:14px; color:#555;'>
+                    " . intval($item['Order_Qty']) . "
+                </td>
+                <td style='padding:14px 12px; border-bottom:1px solid #f0f0f0; text-align:right; font-size:14px; font-weight:bold; color:#222;'>
+                    RM " . number_format($item['Order_Subtotal'], 2) . "
+                </td>
             </tr>";
     }
 
-    // 4. 配置 PHPMailer
-    $mail = new PHPMailer(true);
-    try {
-        $mail->isSMTP();
-        $mail->Host       = 'smtp.gmail.com';
-        $mail->SMTPAuth   = true;
-        $mail->Username   = SMTP_EMAIL; 
-        $mail->Password   = SMTP_PASS;
-        $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
-        $mail->Port       = 587;
-        $mail->CharSet    = 'UTF-8';
+    // 3. 获取 Promo 信息
+    $promo_html           = "";
+    $promo_discount_amount = 0.00;
+    $promo_id             = intval($order['Promo_Id'] ?? 0);
 
-        $mail->setFrom('sportshoes.system@gmail.com', 'STRYDEX SPORT SHOES STORE');
-        $mail->addAddress($user_email, $order['User_Name']);
+    if ($promo_id > 0) {
+        $promo_res = $conn->query("SELECT Promo_Name, Promo_Code, Promo_Type, Promo_Value FROM promo WHERE Promo_Id = $promo_id");
+        if ($promo_res && $promo_res->num_rows > 0) {
+            $promo = $promo_res->fetch_assoc();
+            $promo_label = htmlspecialchars($promo['Promo_Code'] ?: $promo['Promo_Name']);
 
-        // 5. 设置邮件 HTML 模版
-        $mail->isHTML(true);
-        $mail->Subject = "Official Tax Invoice - Order #$order_id";
-        
-        $mail->Body = "
-        <div style='font-family: \"Segoe UI\", Helvetica, Arial, sans-serif; max-width: 700px; margin: auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; color: #444;'>
-            
-            <div style='background-color: #000; padding: 30px; text-align: center;'>
-                <h1 style='color: #FF6B00; margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: 2px;'>STRYDEX Sport Shoes Store</h1>
-                <p style='color: #fff; margin: 5px 0 0; font-size: 12px; opacity: 0.8;'>Multimedia University, Melaka, Malaysia | +60 12-345 6789</p>
-            </div>
+            if (strcasecmp($promo['Promo_Type'], 'Percentage') === 0) {
+                $promo_discount_amount = round($subtotal_amount * floatval($promo['Promo_Value']) / 100, 2);
+                $promo_desc = number_format($promo['Promo_Value'], 0) . '% off';
+            } else {
+                $promo_discount_amount = floatval($promo['Promo_Value']);
+                $promo_desc = 'Fixed discount';
+            }
 
-            <div style='padding: 30px;'>
-                <h2 style='text-align: center; color: #333; text-transform: uppercase; border-bottom: 2px solid #FF6B00; padding-bottom: 10px; margin-bottom: 25px;'>Official Receipt</h2>
+            $promo_html = "
+                <tr>
+                    <td colspan='3' style='padding:10px 12px; text-align:right; font-size:13px; color:#555;'>
+                        Subtotal:
+                    </td>
+                    <td style='padding:10px 12px; text-align:right; font-size:13px; color:#555;'>
+                        RM " . number_format($subtotal_amount, 2) . "
+                    </td>
+                </tr>
+                <tr>
+                    <td colspan='3' style='padding:10px 12px; text-align:right; font-size:13px; color:#27ae60;'>
+                        🏷️ Promo Applied: <strong>$promo_label</strong> <span style='color:#aaa;font-size:11px;'>($promo_desc)</span>
+                    </td>
+                    <td style='padding:10px 12px; text-align:right; font-size:13px; font-weight:bold; color:#27ae60;'>
+                        &minus; RM " . number_format($promo_discount_amount, 2) . "
+                    </td>
+                </tr>";
+        }
+    }
 
-                <table style='width: 100%; margin-bottom: 30px; line-height: 1.6;'>
-                    <tr>
-                        <td style='vertical-align: top; width: 50%;'>
-                            <p style='margin: 0; font-size: 12px; color: #888; text-transform: uppercase; font-weight: bold;'>Billed To:</p>
-                            <p style='margin: 5px 0; font-size: 15px;'><strong>{$order['User_Name']}</strong><br>
-                            {$order['User_Email']}<br>
-                            {$order['User_Phone']}</p>
-                        </td>
-                        <td style='vertical-align: top; width: 50%; text-align: right;'>
-                            <p style='margin: 0; font-size: 14px;'><strong>Order ID:</strong> #$order_id</p>
-                            <p style='margin: 0; font-size: 14px;'><strong>Date:</strong> $order_date</p>
-                            <p style='margin: 0; font-size: 14px;'><strong>Status:</strong> <span style='color: #198754; font-weight: bold;'>PAID</span></p>
-                        </td>
-                    </tr>
-                </table>
+    // 4. 总计行
+    $total_paid = number_format($order['Order_Amount'], 2);
 
-                <div style='background-color: #f9f9f9; padding: 15px; border-radius: 6px; margin-bottom: 30px; border-left: 4px solid #FF6B00;'>
-                    <p style='margin: 0; font-size: 12px; color: #888; text-transform: uppercase; font-weight: bold;'>Shipping Address:</p>
-                    <p style='margin: 5px 0 0; font-size: 14px; color: #333;'>{$clean_shipping_addr}</p>
+    $total_row_html = "
+        <tr>
+            <td colspan='4' style='padding:0;'>
+                <div style='height:2px; background:linear-gradient(to right,#FF6B00,#ff9a00); margin:8px 12px;'></div>
+            </td>
+        </tr>
+        <tr>
+            <td colspan='3' style='padding:14px 12px; text-align:right; font-size:16px; font-weight:bold; color:#222;'>
+                TOTAL PAID (MYR):
+            </td>
+            <td style='padding:14px 12px; text-align:right; font-size:18px; font-weight:bold; color:#FF6B00;'>
+                RM $total_paid
+            </td>
+        </tr>";
+
+    // 5. 组装完整 Email HTML
+    $year      = date('Y');
+    $email_body = "
+    <!DOCTYPE html>
+    <html lang='en'>
+    <head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1'></head>
+    <body style='margin:0;padding:0;background-color:#f4f4f4;font-family:\"Segoe UI\",Helvetica,Arial,sans-serif;'>
+
+    <table width='100%' cellpadding='0' cellspacing='0' style='background:#f4f4f4;padding:30px 0;'>
+    <tr><td align='center'>
+    <table width='640' cellpadding='0' cellspacing='0' style='max-width:640px;width:100%;'>
+
+        <!-- ── HEADER ── -->
+        <tr>
+            <td style='background:#000;padding:32px 40px;border-radius:10px 10px 0 0;text-align:center;'>
+                <div style='font-size:22px;font-weight:900;color:#FF6B00;letter-spacing:3px;text-transform:uppercase;'>
+                    STRYDEX SPORT SHOES STORE
                 </div>
+                <div style='color:#999;font-size:12px;margin-top:6px;'>
+                    Multimedia University, Melaka, Malaysia &nbsp;|&nbsp; sportshoes.system@gmail.com
+                </div>
+                <div style='display:inline-block;background:#FF6B00;color:#fff;font-size:11px;font-weight:700;
+                            letter-spacing:2px;padding:5px 16px;border-radius:20px;margin-top:14px;text-transform:uppercase;'>
+                    ✓ &nbsp;Payment Confirmed
+                </div>
+            </td>
+        </tr>
 
-                <table style='width: 100%; border-collapse: collapse; margin-bottom: 20px;'>
-                    <thead>
-                        <tr style='background-color: #f2f2f2;'>
-                            <th style='padding: 12px; text-align: left; font-size: 13px; color: #666;'>Description</th>
-                            <th style='padding: 12px; text-align: center; font-size: 13px; color: #666;'>Rate</th>
-                            <th style='padding: 12px; text-align: center; font-size: 13px; color: #666;'>Qty</th>
-                            <th style='padding: 12px; text-align: right; font-size: 13px; color: #666;'>Amount</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        $items_html
-                    </tbody>
-                </table>
+        <!-- ── BODY ── -->
+        <tr>
+            <td style='background:#fff;padding:36px 40px;'>
 
-                <table style='width: 100%; margin-top: 10px;'>
+                <!-- Greeting -->
+                <p style='font-size:15px;color:#444;margin:0 0 6px;'>Hi <strong>" . htmlspecialchars($order['User_Name']) . "</strong>,</p>
+                <p style='font-size:14px;color:#666;margin:0 0 28px;line-height:1.7;'>
+                    Thank you for your purchase! Your payment has been received and your order is now being processed.
+                    Below is your official receipt for reference.
+                </p>
+
+                <!-- ── Order Meta ── -->
+                <table width='100%' cellpadding='0' cellspacing='0' style='margin-bottom:28px;'>
                     <tr>
-                        <td style='width: 60%;'></td>
-                        <td style='width: 40%;'>
-                            <table style='width: 100%; border-top: 2px solid #333;'>
+                        <td style='width:50%;vertical-align:top;'>
+                            <div style='font-size:11px;text-transform:uppercase;font-weight:700;color:#999;margin-bottom:6px;'>Billed To</div>
+                            <div style='font-size:14px;color:#333;line-height:1.7;'>
+                                <strong>" . htmlspecialchars($order['User_Name']) . "</strong><br>
+                                " . htmlspecialchars($order['User_Email']) . "<br>
+                                " . htmlspecialchars($order['User_Phone']) . "
+                            </div>
+                        </td>
+                        <td style='width:50%;vertical-align:top;text-align:right;'>
+                            <table cellpadding='0' cellspacing='0' style='margin-left:auto;'>
                                 <tr>
-                                    <td style='padding: 15px 0; font-size: 16px; font-weight: bold;'>TOTAL PAID:</td>
-                                    <td style='padding: 15px 0; text-align: right; font-size: 20px; font-weight: bold; color: #FF6B00;'>RM " . number_format($order['Order_Amount'], 2) . "</td>
+                                    <td style='font-size:13px;color:#888;padding:2px 10px 2px 0;'>Receipt No:</td>
+                                    <td style='font-size:13px;font-weight:700;color:#222;'>#$tracking_num</td>
+                                </tr>
+                                <tr>
+                                    <td style='font-size:13px;color:#888;padding:2px 10px 2px 0;'>Date:</td>
+                                    <td style='font-size:13px;color:#333;'>$order_date</td>
+                                </tr>
+                                <tr>
+                                    <td style='font-size:13px;color:#888;padding:2px 10px 2px 0;'>Payment:</td>
+                                    <td style='font-size:13px;color:#333;'>$pay_method</td>
+                                </tr>
+                                <tr>
+                                    <td style='font-size:13px;color:#888;padding:2px 10px 2px 0;'>Status:</td>
+                                    <td style='font-size:13px;font-weight:700;color:#27ae60;'>✓ PAID</td>
                                 </tr>
                             </table>
                         </td>
                     </tr>
                 </table>
 
-                <div style='text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee;'>
-                    <p style='font-size: 13px; color: #666; margin-bottom: 5px;'>Thank you for your purchase! We hope you enjoy your new shoes.</p>
-                    <p style='font-size: 11px; color: #aaa;'>This is a computer-generated receipt. No signature is required.</p>
+                <!-- Shipping Address -->
+                <div style='background:#fafafa;border-left:4px solid #FF6B00;border-radius:4px;padding:14px 18px;margin-bottom:28px;'>
+                    <div style='font-size:11px;text-transform:uppercase;font-weight:700;color:#999;margin-bottom:5px;'>
+                        📦 &nbsp;Shipping Address
+                    </div>
+                    <div style='font-size:13px;color:#444;line-height:1.7;'>$clean_shipping_addr</div>
                 </div>
-            </div>
 
-            <div style='background-color: #f4f4f4; padding: 20px; text-align: center; font-size: 12px;'>
-                <p style='margin: 0; color: #999;'>&copy; " . date('Y') . " STRYDEX Sport Shoes Store. All Rights Reserved.</p>
-            </div>
-        </div>";
+                <!-- ── Items Table ── -->
+                <table width='100%' cellpadding='0' cellspacing='0' style='border-collapse:collapse;margin-bottom:10px;'>
+                    <thead>
+                        <tr style='background:#f7f7f7;'>
+                            <th style='padding:12px;text-align:left;font-size:12px;text-transform:uppercase;color:#888;border-bottom:2px solid #eee;'>Description</th>
+                            <th style='padding:12px;text-align:center;font-size:12px;text-transform:uppercase;color:#888;border-bottom:2px solid #eee;'>Unit Price</th>
+                            <th style='padding:12px;text-align:center;font-size:12px;text-transform:uppercase;color:#888;border-bottom:2px solid #eee;'>Qty</th>
+                            <th style='padding:12px;text-align:right;font-size:12px;text-transform:uppercase;color:#888;border-bottom:2px solid #eee;'>Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        $items_html
+                    </tbody>
+                    <tfoot>
+                        $promo_html
+                        $total_row_html
+                    </tfoot>
+                </table>
+
+                <!-- ── Promo Notice Banner (only if promo used) ──";
+
+    if ($promo_discount_amount > 0) {
+        $email_body .= "
+                <div style='background:#f0fff4;border:1px solid #b7ebc8;border-radius:6px;padding:12px 18px;margin-top:18px;font-size:13px;color:#27ae60;'>
+                    🎉 &nbsp;A promo discount of <strong>RM " . number_format($promo_discount_amount, 2) . "</strong> was applied to this order.
+                    That's why the item price and total may differ — you saved money! 💚
+                </div>";
+    }
+
+    $email_body .= "
+                <!-- ── Footer Note ── -->
+                <div style='text-align:center;margin-top:36px;padding-top:24px;border-top:1px solid #f0f0f0;'>
+                    <p style='font-size:13px;color:#888;margin:0 0 6px;'>
+                        Questions? Contact us at
+                        <a href='mailto:sportshoes.system@gmail.com' style='color:#FF6B00;text-decoration:none;'>sportshoes.system@gmail.com</a>
+                    </p>
+                    <p style='font-size:11px;color:#bbb;margin:0;'>
+                        This is a computer-generated receipt. No signature is required.
+                    </p>
+                </div>
+            </td>
+        </tr>
+
+        <!-- ── FOOTER ── -->
+        <tr>
+            <td style='background:#111;padding:22px 40px;border-radius:0 0 10px 10px;text-align:center;'>
+                <p style='margin:0;font-size:12px;color:#666;'>
+                    &copy; $year STRYDEX Sport Shoes Store &nbsp;|&nbsp; Multimedia University, Melaka
+                </p>
+                <p style='margin:6px 0 0;font-size:11px;color:#444;'>
+                    You received this email because you placed an order on our platform.
+                </p>
+            </td>
+        </tr>
+
+    </table>
+    </td></tr>
+    </table>
+    </body>
+    </html>";
+
+    // 6. 配置 PHPMailer 并发送
+    $mail = new PHPMailer(true);
+    try {
+        $mail->isSMTP();
+        $mail->Host       = 'smtp.gmail.com';
+        $mail->SMTPAuth   = true;
+        $mail->Username   = SMTP_EMAIL;
+        $mail->Password   = SMTP_PASS;
+        $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+        $mail->Port       = 587;
+        $mail->CharSet    = 'UTF-8';
+
+        $mail->setFrom('sportshoes.system@gmail.com', 'STRYDEX Sport Shoes Store');
+        $mail->addAddress($user_email, $order['User_Name']);
+
+        $mail->isHTML(true);
+        $mail->Subject = "✅ Official Receipt – Order #$tracking_num | STRYDEX";
+        $mail->Body    = $email_body;
+
+        // Plain-text fallback
+        $mail->AltBody = "Hi {$order['User_Name']},\n\nYour payment for Order #$tracking_num on $order_date has been confirmed.\nTotal Paid: RM $total_paid\n\nThank you for shopping with STRYDEX Sport Shoes Store!";
 
         $mail->send();
         return true;

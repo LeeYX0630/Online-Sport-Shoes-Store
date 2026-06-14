@@ -70,7 +70,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_review'])) {
 
 // 1. 获取订单主表及物流信息
 $stmt = $conn->prepare("
-    SELECT o.*, u.`User_Name`,
+    SELECT o.*, u.`User_Name`, u.`User_Email`, u.`User_Phone`,
            s.`Ship_Tracking_num`, s.`Estimated_Arrival_Date`, s.`Shipped_Date`, s.`Delivered_Date`
     FROM `order` o 
     JOIN `user` u ON o.`User_Id` = u.`User_Id`
@@ -234,7 +234,8 @@ include '../includes/header.php';
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
-    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
     <style>
         body {
             font-family: 'Inter', sans-serif; background-color: #f1f5f9 !important; color: #1e293b;
@@ -357,12 +358,24 @@ include '../includes/header.php';
             .item-thumbnail { display: none; } .financials-box { width: 100%; }
         }
 
-        @media print {
-            header, nav, .navbar, footer, .action-bar, .tracker-card, #actionBtnContainer, .review-interactive-card, .community-reviews-card, body::before, body::after {
-                display: none !important;
-            }
+        #receipt-content {
+            background: white !important;
+            max-width: 850px;
+            margin: 20px auto 40px;
+            padding: 50px;
+            border: 1px solid #eee;
+            border-radius: 8px;
+            color: #000;
+        }
+        .brand-logo { color: #FF6B00; font-weight: 800; font-size: 26px; text-transform: uppercase; }
+        .receipt-header { border-bottom: 2px solid #333; padding-bottom: 20px; margin-bottom: 30px; }
+        .item-img { width: 60px; height: 60px; object-fit: contain; background: #f9f9f9; mix-blend-mode: multiply; border-radius: 6px; border: 1px solid #dee2e6; }
+        .badge-paid { background-color: #198754; color: white; padding: 5px 10px; border-radius: 4px; font-size: 12px; }
+        
+        @media print { 
             body { background: #fff !important; }
-            .all-in-one-receipt { box-shadow: none !important; border: none !important; padding: 0 !important; }
+            .no-print, .action-bar, .tracker-card, .review-interactive-card, .community-reviews-card, header, footer { display: none !important; }
+            #receipt-content { border: none !important; padding: 10px !important; margin: 0 !important; box-shadow: none !important; }
         }
     </style>
 </head>
@@ -402,73 +415,103 @@ include '../includes/header.php';
             </div>
         </div>
 
-        <div class="all-in-one-receipt">
-            <div class="receipt-top-profile">
-                <div class="company-address-info">
-                    <strong>STRYDEX STORE</strong><br>
-                    Multimedia University, Melaka<br>
-                    sportshoes.system@gmail.com<br>
-                    +60 12-345 6789
+        <div id="receipt-content" class="shadow-sm mb-5">
+            <div class="receipt-header d-flex justify-content-between align-items-center">
+                <div class="brand">
+                    <div class="brand-logo">STRYDEX SPORT SHOES STORE</div>
+                    <p class="text-muted mb-0 small">Multimedia University, Melaka, Malaysia</p>
+                    <p class="text-muted mb-0 small">Email: sportshoes.system@gmail.com</p>
+                </div>
+                <div class="text-end">
+                    <h2 class="fw-bold mb-0" style="color: #333;">OFFICIAL RECEIPT</h2>
+                    <p class="mb-0 text-muted">Order ID: <strong>#<?php echo htmlspecialchars($tracking_number); ?></strong></p>
+                    <p class="mb-0 text-muted">Date: <strong><?php echo htmlspecialchars($order_date); ?></strong></p>
                 </div>
             </div>
 
-            <div class="receipt-main-title">Order Receipt</div>
-
-            <div class="receipt-meta-container">
-                <div class="billed-to-box">
-                    <h4>Billed To</h4>
-                    <p><strong><?php echo htmlspecialchars($customer_name); ?></strong><br><?php echo nl2br(htmlspecialchars($shipping_address)); ?></p>
+            <div class="row mb-5">
+                <div class="col-6">
+                    <h6 class="text-uppercase fw-bold text-muted small">Billed To:</h6>
+                    <p class="mb-0"><strong><?php echo htmlspecialchars($customer_name); ?></strong></p>
+                    <p class="mb-0 small"><?php echo htmlspecialchars($order['User_Email'] ?? ''); ?></p>
+                    <p class="mb-0 small"><?php echo htmlspecialchars($order['User_Phone'] ?? ''); ?></p>
                 </div>
-                <div class="receipt-numbers-box">
-                    <div class="receipt-num-row"><span>Receipt #</span><var><?php echo str_pad($order_id, 6, '0', STR_PAD_LEFT); ?></var></div>
-                    <div class="receipt-num-row"><span>Receipt Date</span><var><?php echo htmlspecialchars($order_date); ?></var></div>
+                <div class="col-6 text-end">
+                    <h6 class="text-uppercase fw-bold text-muted small">Shipping Address:</h6>
+                    <p class="mb-0 text-break small"><?php echo nl2br(htmlspecialchars($shipping_address)); ?></p>
                 </div>
             </div>
 
-            <table class="receipt-table">
-                <thead>
-                    <tr><th class="qty-col">QTY</th><th>Description</th><th class="num-col">Unit Price</th><th class="num-col">Amount</th></tr>
+            <table class="table table-borderless align-middle mb-5">
+                <thead class="border-bottom">
+                    <tr>
+                        <th style="width: 45%;">Item Description</th>
+                        <th class="text-center">Price</th>
+                        <th class="text-center">Qty</th>
+                        <th class="text-end">Subtotal</th>
+                    </tr>
                 </thead>
                 <tbody>
                     <?php foreach ($line_items as $item): ?>
-                        <tr>
-                            <td class="qty-col"><?php echo (int)$item['qty']; ?></td>
-                            <td>
-                                <div class="item-description-wrapper">
-                                    <img class="item-thumbnail" src="<?php echo htmlspecialchars($item['image']); ?>" onerror="this.src='../images/brands/placeholder.png'">
-                                    <div class="item-details-text">
-                                        <span class="item-brand"><?php echo htmlspecialchars($item['brand']); ?></span>
-                                        <span class="item-name"><?php echo htmlspecialchars($item['name']); ?></span>
-                                    </div>
+                    <tr class="border-bottom">
+                        <td>
+                            <div class="d-flex align-items-center py-2">
+                                <img src="<?php echo htmlspecialchars($item['image']); ?>" class="item-img me-3" onerror="this.src='../images/brands/placeholder.png'">
+                                <div>
+                                    <div class="fw-bold text-dark"><?php echo htmlspecialchars($item['name']); ?></div>
+                                    <div class="text-muted small" style="font-size: 0.75rem; text-transform: uppercase;"><?php echo htmlspecialchars($item['brand']); ?></div>
                                 </div>
-                            </td>
-                            <td class="num-col">RM <?php echo number_format($item['unit_price'], 2); ?></td>
-                            <td class="num-col">RM <?php echo number_format($item['line_total'], 2); ?></td>
-                        </tr>
+                            </div>
+                        </td>
+                        <td class="text-center text-dark">RM <?php echo number_format($item['unit_price'], 2); ?></td>
+                        <td class="text-center text-dark"><?php echo $item['qty']; ?></td>
+                        <td class="text-end fw-bold text-dark">RM <?php echo number_format($item['line_total'], 2); ?></td>
+                    </tr>
                     <?php endforeach; ?>
                 </tbody>
             </table>
 
-            <div class="receipt-financials-section">
-                <div class="financials-box">
-                    <div class="financial-row"><label>Payment Method :</label><span><?php echo htmlspecialchars($payment_method); ?></span></div>
-                    <div class="financial-row"><label>Payment Status :</label><span style="color: <?php echo $payment_status === 'PAID' ? '#16a34a' : '#d97706'; ?>;"><?php echo htmlspecialchars($payment_status); ?></span></div>
-                    <div class="receipt-divider"></div>
-                    <div class="financial-row"><label style="font-weight:700;">Subtotal</label><span style="font-weight:800;">RM <?php echo number_format($products_total, 2); ?></span></div>
+            <div class="row justify-content-end">
+                <div class="col-md-6 col-lg-5">
+                    <div class="d-flex justify-content-between mb-2">
+                        <span class="text-muted">Payment Method:</span>
+                        <span class="fw-bold text-dark"><?php echo htmlspecialchars($payment_method); ?></span>
+                    </div>
+                    <div class="d-flex justify-content-between mb-2">
+                        <span class="text-muted">Payment Status:</span>
+                        <span class="badge-paid">PAID (<?php echo htmlspecialchars($payment_status); ?>)</span>
+                    </div>
+                    <div class="d-flex justify-content-between mb-2">
+                        <span class="text-muted">Order Status:</span>
+                        <span class="fw-bold text-primary"><?php echo htmlspecialchars($order_status); ?></span>
+                    </div>
+                    
                     <?php if (floatval($promo_amount) > 0.0): ?>
-                        <div class="financial-row"><label style="color:#16a34a; font-weight:700;">Promo Offer :</label><span style="color:#16a34a;">-RM <?php echo number_format($promo_amount, 2); ?></span></div>
+                    <div class="d-flex justify-content-between mb-2">
+                        <span class="text-muted">Promo Used:</span>
+                        <span class="fw-bold text-dark"><?php echo htmlspecialchars($promo_info['Promo_Code'] ?? 'Applied'); ?></span>
+                    </div>
+                    <div class="d-flex justify-content-between mb-2">
+                        <span class="text-muted">Promo Discount:</span>
+                        <span class="fw-bold text-success">- RM <?php echo number_format($promo_amount, 2); ?></span>
+                    </div>
                     <?php endif; ?>
-                    <div class="grand-total-row"><span>Total (MYR)</span><span>RM <?php echo number_format($order_total, 2); ?></span></div>
+                    
+                    <hr>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h4 class="fw-bold mb-0 text-dark">Total Paid:</h4>
+                        <h4 class="fw-bold text-success mb-0">RM <?php echo number_format($order_total, 2); ?></h4>
+                    </div>
                 </div>
             </div>
 
-            <div class="receipt-footer-notes">
-                <strong>Notes & Information</strong>
-                Thank you for shopping with STRYDEX STORE! Keep receipt reference <strong><?php echo htmlspecialchars($tracking_number); ?></strong> handy.
+            <div class="text-center mt-5">
+                <p class="text-muted small mb-1">This is a computer-generated receipt. No signature is required.</p>
+                <p class="fw-bold text-dark">Thank you for shopping with STRYDEX STORE!</p>
             </div>
-
-            <div class="receipt-actions text-end mt-4" id="actionBtnContainer">
-                <button type="button" onclick="window.print()" class="btn btn-dark px-4 py-2"><i class="bi bi-printer me-2"></i>Print / Download PDF</button>
+            
+            <div class="text-end mt-4 no-print" id="actionBtnContainer">
+                <button type="button" onclick="downloadPDF()" class="btn btn-dark px-4 py-2"><i class="bi bi-file-earmark-pdf me-2"></i>Download PDF</button>
             </div>
         </div>
 
@@ -564,7 +607,7 @@ include '../includes/header.php';
         
     </div>
 
-    <script>
+<script>
     document.addEventListener("DOMContentLoaded", function() {
         const stars = document.querySelectorAll("#starContainer i");
         const ratingInput = document.getElementById("ratingInputValue");
@@ -599,8 +642,30 @@ include '../includes/header.php';
             });
         }
     });
-    </script>
 
-    <?php include '../includes/footer.php'; ?>
+    function downloadPDF() {
+        const element = document.getElementById('receipt-content');
+        
+        // 生成 PDF 前先隐藏底部的下载按钮，避免按钮被印进 PDF 里
+        const actionBtn = document.getElementById('actionBtnContainer');
+        if (actionBtn) actionBtn.style.display = 'none';
+
+        const options = {
+            margin:       [10, 10, 10, 10],
+            filename:     'Receipt_Order_#<?php echo $order_id; ?>.pdf',
+            image:        { type: 'jpeg', quality: 0.98 },
+            html2canvas:  { scale: 2, useCORS: true },
+            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+
+        // 开始下载
+        html2pdf().set(options).from(element).save().then(() => {
+            // 下载完成后，重新把按钮显示出来
+            if (actionBtn) actionBtn.style.display = 'block';
+        });
+    }
+</script>
+
+<?php include '../includes/footer.php'; ?>
 </body>
 </html>
