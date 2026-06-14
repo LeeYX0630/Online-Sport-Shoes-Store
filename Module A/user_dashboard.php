@@ -630,7 +630,7 @@ body::after {
             </li>
                 </ul>
 
-               <div class="tab-content">
+              <div class="tab-content">
     <div class="tab-pane fade show active" id="identity">
         <form method="POST" enctype="multipart/form-data">
             
@@ -655,115 +655,106 @@ body::after {
                        value="<?php echo $user['User_Email']; ?>" required>
             </div>
             
-           <div class="mb-4 address-book-shell rounded-4 border bg-white shadow-sm overflow-hidden" style="border-color: #eaeaea !important;">
-    <div class="address-summary-card p-3 bg-light bg-opacity-25 border-bottom">
-        <div class="d-flex align-items-center justify-content-between">
-            <div class="d-flex align-items-center gap-2">
-                <i class="bi bi-geo-alt text-muted fs-5"></i>
-                <div id="selectedAddressPreview" class="fw-semibold text-dark small">
-                    <?php echo !empty($selected_address_text) ? htmlspecialchars($selected_address_text) : 'No address selected.'; ?>
-                </div>
-            </div>
-            <span class="badge rounded-pill text-bg-light border text-muted small" id="addressCountBadge" style="font-size: 0.75rem; font-weight: 500;"><?php echo count($address_book); ?> Saved</span>
-        </div>
-    </div>
-
-    <input type="hidden" name="default_address_index" id="defaultAddressIndex" value="<?php echo htmlspecialchars($default_address_index); ?>">
-
-    <div class="p-3">
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <div class="small fw-bold text-uppercase text-muted" style="letter-spacing: 0.5px; font-size: 0.75rem;">Shipping Addresses</div>
-            <button type="button" class="btn btn-sm rounded-pill fw-bold px-3" id="addNewAddressBtn" style="border: 1px solid #ff6700; color: #ff6700; background: transparent; font-size: 0.8rem;">
-                <i class="bi bi-plus-lg me-1"></i> Add New
-            </button>
-        </div>
-
-        <div id="addressBook" class="position-relative">
-            <?php foreach ($address_book as $index => $address): ?>
-                <?php 
-                $is_current_selected = ($index == $default_address_index); 
-                $addr_text = $address['text'] ?? '';
-                $addr_postcode = $address['postcode'] ?? '';
-                $addr_state = $address['state'] ?? '';
-                ?>
-                
-                <div class="address-row py-3 border-bottom <?php echo $is_current_selected ? 'is-selected-active' : ''; ?>" data-index="<?php echo $index; ?>" style="transition: all 0.2s ease;">
-                    
-                    <div class="address-readonly-text d-flex align-items-center justify-content-between gap-3" style="cursor: pointer;" onclick="handleRowSelect(this, event)">
-                        <div class="d-flex align-items-center gap-2 flex-grow-1">
-                            <div class="custom-radio-dot rounded-circle border d-flex align-items-center justify-content-center" style="width: 16px; height: 16px; min-width: 16px; border-color: <?php echo $is_current_selected ? '#ff6700' : '#ccc'; ?>;">
-                                <div class="dot-inner rounded-circle <?php echo $is_current_selected ? '' : 'd-none'; ?>" style="width: 8px; height: 8px; background-color: #ff6700;"></div>
+            <div class="mb-4 address-book-shell rounded-4 border bg-white shadow-sm overflow-hidden" style="border-color: #eaeaea !important;">
+                <div class="address-summary-card p-3 bg-light bg-opacity-25 border-bottom">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="bi bi-geo-alt text-muted fs-5"></i>
+                            <div id="selectedAddressPreview" class="fw-semibold text-dark small">
+                                <?php echo !empty($selected_address_text) ? htmlspecialchars($selected_address_text) : 'No address selected.'; ?>
                             </div>
+                        </div>
+                        <span class="badge rounded-pill text-bg-light border text-muted small" id="addressCountBadge" style="font-size: 0.75rem; font-weight: 500;"><?php echo count($address_book); ?> Saved</span>
+                    </div>
+                </div>
+
+                <input type="hidden" name="default_address_index" id="defaultAddressIndex" value="<?php echo htmlspecialchars($default_address_index); ?>">
+
+                <div class="p-3">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div class="small fw-bold text-uppercase text-muted" style="letter-spacing: 0.5px; font-size: 0.75rem;">Shipping Addresses</div>
+                        <button type="button" class="btn btn-sm rounded-pill fw-bold px-3" id="addNewAddressBtn" style="border: 1px solid #ff6700; color: #ff6700; background: transparent; font-size: 0.8rem;">
+                            <i class="bi bi-plus-lg me-1"></i> Add New
+                        </button>
+                    </div>
+
+                    <div id="addressBook" class="position-relative">
+                        <?php foreach ($address_book as $index => $address): ?>
+                            <?php 
+                            $is_current_selected = ($index == $default_address_index); 
+                            $addr_text = $address['text'] ?? '';
+                            $addr_postcode = $address['postcode'] ?? '';
+                            $addr_state = $address['state'] ?? '';
+                            ?>
                             
-                            <?php if ($is_current_selected): ?>
-                                <span class="badge id-addr-badge px-2 py-1 text-white" style="background-color: #ff6700; font-size: 0.7rem; font-weight: 500; border-radius: 4px;">Default</span>
-                            <?php endif; ?>
+                            <div class="address-row py-3 border-bottom <?php echo $is_current_selected ? 'is-selected-active' : ''; ?>" data-index="<?php echo $index; ?>" style="transition: all 0.2s ease;">
+                                
+                                <div class="address-readonly-text d-flex align-items-center justify-content-between gap-3" style="cursor: pointer;" onclick="handleRowSelect(this, event)">
+                                    <div class="d-flex align-items-center gap-2 flex-grow-1">
+                                        <div class="custom-radio-dot rounded-circle border d-flex align-items-center justify-content-center" style="width: 16px; height: 16px; min-width: 16px; border-color: <?php echo $is_current_selected ? '#ff6700' : '#ccc'; ?>;">
+                                            <div class="dot-inner rounded-circle <?php echo $is_current_selected ? '' : 'd-none'; ?>" style="width: 8px; height: 8px; background-color: #ff6700;"></div>
+                                        </div>
+                                        
+                                        <?php if ($is_current_selected): ?>
+                                            <span class="badge id-addr-badge px-2 py-1 text-white" style="background-color: #ff6700; font-size: 0.7rem; font-weight: 500; border-radius: 4px;">Default</span>
+                                        <?php endif; ?>
 
-                            <span class="readonly-combined-string text-dark small <?php echo $is_current_selected ? 'fw-bold' : 'text-muted'; ?>">
-                                <?php echo !empty($addr_text) ? htmlspecialchars($addr_text) . ', ' . htmlspecialchars($addr_postcode) . ', ' . htmlspecialchars($addr_state) : '(Empty Address)'; ?>
-                            </span>
-                        </div>
+                                        <span class="readonly-combined-string text-dark small <?php echo $is_current_selected ? 'fw-bold' : 'text-muted'; ?>">
+                                            <?php echo !empty($addr_text) ? htmlspecialchars($addr_text) . ', ' . htmlspecialchars($addr_postcode) . ', ' . htmlspecialchars($addr_state) : '(Empty Address)'; ?>
+                                        </span>
+                                    </div>
 
-                        <div class="action-icons-group d-flex gap-2">
-                            <span class="text-muted p-1 hover-orange" title="Edit" onclick="editSingleAddress(this, event)" style="cursor: pointer;"><i class="bi bi-pencil"></i></span>
-                            <span class="text-muted p-1 hover-danger" title="Delete" onclick="removeAddressBox(this, event)" style="cursor: pointer;"><i class="bi bi-trash3"></i></span>
-                        </div>
-                    </div>
-
-                    <div class="address-input-fields d-none mt-3 p-3 rounded-3 bg-light bg-opacity-50 border">
-                        <div class="row g-3">
-                            <div class="col-12">
-                                <label class="small fw-bold text-muted mb-1" style="font-size: 0.75rem;">Street Address</label>
-                                <textarea name="addresses[]" class="form-control address-text-field bg-white" rows="2" placeholder="House number, building, street name" oninput="updateSelectedAddressPreview()" style="font-size: 0.85rem; border-color: #e0e0e0;"><?php echo htmlspecialchars($addr_text); ?></textarea>
-                            </div>
-                            <div class="col-md-5">
-                                <label class="small fw-bold text-muted mb-1" style="font-size: 0.75rem;">Postcode</label>
-                                <input type="text" name="postcodes[]" class="form-control address-postcode-field bg-white" maxlength="5" value="<?php echo htmlspecialchars($addr_postcode); ?>" oninput="this.value = this.value.replace(/[^0-9]/g, ''); updateSelectedAddressPreview()" style="font-size: 0.85rem; border-color: #e0e0e0;">
-                            </div>
-                            <div class="col-md-7">
-                                <label class="small fw-bold text-muted mb-1" style="font-size: 0.75rem;">State</label>
-                                <select name="states[]" class="form-select address-state-field bg-white" onchange="updateSelectedAddressPreview()" style="font-size: 0.85rem; border-color: #e0e0e0;">
-                                    <option value="">Select State</option>
-                                    <?php 
-                                    $states_list = ['Johor','Kedah','Kelantan','Melaka','Negeri Sembilan','Pahang','Penang','Perak','Perlis','Sabah','Sarawak','Selangor','Terengganu','Kuala Lumpur','Putrajaya','Labuan'];
-                                    foreach ($states_list as $st) {
-                                        // FIXED: Retaining the database state configuration correctly
-                                        $selected = (trim(strtolower($addr_state)) === trim(strtolower($st))) ? 'selected' : '';
-                                        echo "<option value=\"".htmlspecialchars($st)."\" $selected>$st</option>";
-                                    } ?>
-                                </select>
-                            </div>
-                            <div class="col-12 text-end mt-2 d-flex justify-content-end gap-2">
-                                <button type="button" class="btn btn-sm btn-light border px-3 fw-bold rounded-2 text-muted" onclick="discardSingleAddress(this)" style="font-size: 0.8rem;">
-                                    Cancel
-                                </button>
-                                <button type="button" class="btn btn-sm text-white px-3 fw-bold rounded-2" onclick="confirmSingleAddress(this)" style="background-color: #ff6700; font-size: 0.8rem;">
-                                    Save
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
+                                    <div class="action-icons-group d-flex gap-2">
+                                        <span class="text-muted p-1 hover-orange" title="Edit" onclick="editSingleAddress(this, event)" style="cursor: pointer;"><i class="bi bi-pencil"></i></span>
+                                        <span class="text-muted p-1 hover-danger" title="Delete" onclick="removeAddressBox(this, event)" style="cursor: pointer;"><i class="bi bi-trash3"></i></span>
+                                    </div>
                                 </div>
-                            <?php endforeach; ?>
-                        </div>
+
+                                <div class="address-input-fields d-none mt-3 p-3 rounded-3 bg-light bg-opacity-50 border">
+                                    <div class="row g-3">
+                                        <div class="col-12">
+                                            <label class="small fw-bold text-muted mb-1" style="font-size: 0.75rem;">Street Address</label>
+                                            <textarea name="addresses[]" class="form-control address-text-field bg-white" rows="2" placeholder="House number, building, street name" oninput="updateSelectedAddressPreview()" style="font-size: 0.85rem; border-color: #e0e0e0;"><?php echo htmlspecialchars($addr_text); ?></textarea>
+                                        </div>
+                                        <div class="col-md-5">
+                                            <label class="small fw-bold text-muted mb-1" style="font-size: 0.75rem;">Postcode</label>
+                                            <input type="text" name="postcodes[]" class="form-control address-postcode-field bg-white" maxlength="5" value="<?php echo htmlspecialchars($addr_postcode); ?>" oninput="this.value = this.value.replace(/[^0-9]/g, ''); updateSelectedAddressPreview()" style="font-size: 0.85rem; border-color: #e0e0e0;">
+                                        </div>
+                                        <div class="col-md-7">
+                                            <label class="small fw-bold text-muted mb-1" style="font-size: 0.75rem;">State</label>
+                                            <select name="states[]" class="form-select address-state-field bg-white" onchange="updateSelectedAddressPreview()" style="font-size: 0.85rem; border-color: #e0e0e0;">
+                                                <option value="">Select State</option>
+                                                <?php 
+                                                $states_list = ['Johor','Kedah','Kelantan','Melaka','Negeri Sembilan','Pahang','Penang','Perak','Perlis','Sabah','Sarawak','Selangor','Terengganu','Kuala Lumpur','Putrajaya','Labuan'];
+                                                foreach ($states_list as $st) {
+                                                    $selected = (trim(strtolower($addr_state)) === trim(strtolower($st))) ? 'selected' : '';
+                                                    echo "<option value=\"".htmlspecialchars($st)."\" $selected>$st</option>";
+                                                } ?>
+                                            </select>
+                                        </div>
+                                        <div class="col-12 text-end mt-2 d-flex justify-content-end gap-2">
+                                            <button type="button" class="btn btn-sm btn-light border px-3 fw-bold rounded-2 text-muted" onclick="discardSingleAddress(this)" style="font-size: 0.8rem;">Cancel</button>
+                                            <button type="button" class="btn btn-sm text-white px-3 fw-bold rounded-2" onclick="confirmSingleAddress(this)" style="background-color: #ff6700; font-size: 0.8rem;">Save</button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                            </div>
+                        <?php endforeach; ?>
                     </div>
-                </div>
-            </div> <div class="mb-4">
-                    <input type="file" id="avatarInput" name="avatar" accept="image/*" class="d-none" onchange="showSelectedFileName(this)">
-                    
-                    <span id="avatarFileName" class="small text-muted fw-semibold"></span>
                 </div>
             </div>
 
             <div class="mb-4">
-                <label class="small fw-bold text-muted">Change Avatar</label>
-                    <input type="file" name="profile_image" class="form-control bg-light border-0">
+                <label class="small fw-bold text-muted mb-2">Change Avatar</label>
+                <input type="file" name="profile_image" class="form-control bg-light border-0">
             </div>
-                <button type="submit" class="btn btn-orange px-5 py-2">Save Profile Changes</button>
-            </form>
+
+            <button type="submit" class="btn btn-orange px-5 py-2 text-white fw-bold" style="background-color: #ff6700;">Save Profile Changes</button>
+            
         </form>
     </div>
+
     
                 
             <div class="tab-pane fade" id="purchased">
