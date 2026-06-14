@@ -27,17 +27,24 @@ if (isset($_SERVER['HTTP_REFERER']) && strpos($_SERVER['HTTP_REFERER'], 'checkou
     $_SESSION['promo_mode'] = 'AUTO';
 }
 
-// 获取用户详细资料 (包含 User_PIN)
-$user_sql = "SELECT * FROM `USER` WHERE User_Id = '$uid'";
+// =========================================================================
+// 【核心修改】：通过默认地址外键外连带出用户的首选配送信息，彻底剪除 user 冗余字段读取
+// =========================================================================
+$user_sql = "SELECT u.*, ua.Address_Text, ua.Postcode, ua.State, ua.City 
+             FROM `user` u 
+             LEFT JOIN `user_address` ua ON u.Default_Address_Id = ua.Address_Id 
+             WHERE u.User_Id = '$uid'";
 $user_res = $conn->query($user_sql);
 $user_info = $user_res->fetch_assoc();
 $current_balance = floatval($user_info['User_Balance']);
 $has_pin = !empty($user_info['User_PIN']);
 
-$user_sql = "SELECT * FROM `USER` WHERE User_Id = '$uid'";
-$user_res = $conn->query($user_sql);
-$user_info = $user_res->fetch_assoc();
-$current_balance = floatval($user_info['User_Balance']);
+// 提取用户基础资料
+$user_phone    = $user_info['User_Phone'];
+$user_address  = $user_info['Address_Text'] ?? ''; 
+$user_state    = $user_info['State'] ?? '';        
+$user_postcode = $user_info['Postcode'] ?? '';   
+$user_city     = $user_info['City'] ?? '';       
 
 // ── 🌟 核心修复 1：精准判定是否为“全新进入结算页” ──
 $is_fresh_entry = false;
@@ -68,13 +75,16 @@ if ($is_fresh_entry) {
     unset($_SESSION['applied_discount']);
     unset($_SESSION['applied_user_promo_id']);
 }
-// 提取用户基础资料
-$user_phone = $user_info['User_Phone'];
-$user_address = $user_info['User_Address'];
-$user_state = $user_info['User_State'];
-$user_postcode = $user_info['User_Postcode'];
-// 假设城市信息也存在，若不存在则留空
-$user_city = isset($user_info['User_City']) ? $user_info['User_City'] : "";
+
+// 2. 抓取该用户的所有保存地址
+$address_book = [];
+$addr_sql = "SELECT * FROM user_address WHERE User_Id = '$uid' ORDER BY Is_Default DESC, Address_Id ASC";
+$addr_res = $conn->query($addr_sql);
+if ($addr_res && $addr_res->num_rows > 0) {
+    while ($row = $addr_res->fetch_assoc()) {
+        $address_book[] = $row;
+    }
+}
 
 $name_parts = explode(' ', $user_info['User_Name'], 2);
 $first_name = $name_parts[0];
@@ -84,7 +94,6 @@ $subtotal = 0;
 $checkout_items = [];
 foreach ($_SESSION['cart'] as $cart_key => $item) {
     $pid = $item['pro_id'];
-    // 这里的 SQL 保持不变
     $sql_p = "SELECT Pro_Name, Pro_Price, Pro_Image FROM product WHERE Pro_Id = '$pid'";
     $res_p = $conn->query($sql_p);
     
@@ -127,12 +136,12 @@ foreach ($_SESSION['cart'] as $cart_key => $item) {
             }
         }
         if (isset($item['price'])) {
-                $p_data['Pro_Price'] = $item['price'];
-            }
+            $p_data['Pro_Price'] = $item['price'];
+        }
             
-            $p_data['item_total'] = $p_data['Pro_Price'] * $item['qty'];
-            $subtotal += $p_data['item_total'];
-            $checkout_items[] = $p_data;
+        $p_data['item_total'] = $p_data['Pro_Price'] * $item['qty'];
+        $subtotal += $p_data['item_total'];
+        $checkout_items[] = $p_data;
     }
 }
 
@@ -141,7 +150,7 @@ function getOptimalPromo($conn, $user_id, $subtotal) {
     $best_discount = 0;
     $best_discount_info = '';
     
-    // 【核心修复】：只查询该用户拥有且未使用的优惠券
+    // 查询该用户拥有且未使用的优惠券
     $promo_query = $conn->query("
         SELECT p.*, up.User_Promo_Id 
         FROM user_promo up
@@ -207,22 +216,20 @@ function getUserAvailablePromos($conn, $user_id, $subtotal) {
     return $available_promos;
 }
 
-// --- 新增：购物车指纹检测 ---
-// 监控购物车变化。只要用户加/减了商品，就强制重置为“自动寻找最优解”模式，防止旧状态卡死
+// --- 购物车指纹检测 ---
 $current_cart_hash = md5(serialize($_SESSION['cart']));
 if (!isset($_SESSION['last_cart_hash']) || $_SESSION['last_cart_hash'] !== $current_cart_hash) {
     $_SESSION['promo_mode'] = 'AUTO';
     $_SESSION['last_cart_hash'] = $current_cart_hash;
-    unset($_SESSION['auto_promo_notified']); // 购物车变了，允许再次弹窗提醒新优惠
+    unset($_SESSION['auto_promo_notified']); 
 }
 
-// 4. 处理优惠码逻辑 - 强大的状态机管理 (默认自动，除非手动取消)
+// 4. 处理优惠码逻辑
 $discount = 0;
 $applied_code = "";
 $auto_applied = false;
 $available_vouchers = getUserAvailablePromos($conn, $uid, $subtotal);
 
-// 初始化模式保证防错
 if (!isset($_SESSION['promo_mode'])) {
     $_SESSION['promo_mode'] = 'AUTO';
 }
@@ -234,7 +241,6 @@ if ($is_manual_action || $has_input_code) {
     $code = $conn->real_escape_string(trim($_POST['coupon_code']));
     
     if ($code !== "") {
-        // A1. 用户手动输入/选择了某一张具体的优惠券
         $sql_c = "SELECT p.*, up.User_Promo_Id FROM user_promo up 
                   JOIN promo p ON up.Promo_Id = p.Promo_Id 
                   WHERE p.Promo_Code = '$code' AND up.User_Id = '$uid' AND up.Is_Used = 'No' 
@@ -251,7 +257,6 @@ if ($is_manual_action || $has_input_code) {
                 $discount = floatval($promo['Promo_Value']);
                 $success_msg = "Applied RM " . number_format($discount, 2) . " OFF";
             }
-            // 锁定为 MANUAL 模式，记住用户的手动意图
             $_SESSION['promo_mode'] = 'MANUAL';
             $_SESSION['applied_promo_code'] = $applied_code;
             $_SESSION['applied_discount'] = $discount;
@@ -263,26 +268,21 @@ if ($is_manual_action || $has_input_code) {
             unset($_SESSION['applied_promo_code'], $_SESSION['applied_discount'], $_SESSION['applied_user_promo_id']);
         }
     } else {
-        // A2. 核心逻辑：用户清空了输入框，或者点击了 "Don't use any vouchers this time"
-        $_SESSION['promo_mode'] = 'NONE'; // 锁定为 NONE 模式，当前停留在页面时绝不再自动套用
+        $_SESSION['promo_mode'] = 'NONE'; 
         unset($_SESSION['applied_promo_code'], $_SESSION['applied_discount'], $_SESSION['applied_user_promo_id']);
         $applied_code = "";
         $discount = 0;
     }
 } else {
-    // B. 无手动提交表单时（例如页面刚加载，或者提交地址失败页面刷新）
     if ($_SESSION['promo_mode'] === 'NONE') {
-        // 用户刚才明确说了“不用”，系统听从指令保持空白
         $applied_code = "";
         $discount = 0;
         $auto_applied = false;
     } elseif ($_SESSION['promo_mode'] === 'MANUAL' && isset($_SESSION['applied_promo_code'])) {
-        // 用户刚才手动选了码，维持他的选择
         $applied_code = $_SESSION['applied_promo_code'];
         $discount = $_SESSION['applied_discount'];
         $auto_applied = false;
     } else {
-        // C. AUTO 模式：默认状态，直接全自动找出最便宜的
         $optimal = getOptimalPromo($conn, $uid, $subtotal);
         if ($optimal['promo'] !== null) {
             $best_promo = $optimal['promo'];
@@ -290,16 +290,13 @@ if ($is_manual_action || $has_input_code) {
             $applied_code = $best_promo['Promo_Code'];
             $auto_applied = true;
             
-            // 确保优惠金额写入 Session 防丢失
             $_SESSION['applied_promo_code'] = $applied_code;
             $_SESSION['applied_discount'] = $discount;
             $_SESSION['applied_user_promo_id'] = $best_promo['User_Promo_Id'];
             $_SESSION['promo_mode'] = 'AUTO';
             
-            // 每次自动套用都显示提示（不做防刷检查）
             $success_msg = "✨ Auto-Applied Best Deal: " . htmlspecialchars($best_promo['Promo_Name']);
         } else {
-            // 用户没有可用优惠券
             $applied_code = "";
             $discount = 0;
             $_SESSION['promo_mode'] = 'AUTO';
@@ -313,7 +310,6 @@ $grand_total = max(0, ($subtotal + $shipping) - $discount);
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
-    // 如果是从银行授权页返回，先恢复之前暂存的订单数据再进行验证
     if (isset($_POST['fpx_success']) && isset($_SESSION['fpx_temp_data'])) {
         $savedPost = $_SESSION['fpx_temp_data'];
         unset($_SESSION['fpx_temp_data']);
@@ -331,8 +327,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
     }
 
     $f_name = trim($_POST['first_name']);
-    
-    // 【修复 1】：安全获取邮编，防止产生 Undefined array key 警告
     $raw_postcode = $_POST['postcode'] ?? ''; 
     $postcode = ($raw_postcode === 'other') ? trim($_POST['custom_postcode'] ?? '') : trim($raw_postcode);
     $phone = trim($_POST['phone']);
@@ -357,7 +351,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
     } elseif ($_POST['pay_type'] === 'wallet' && isset($_POST['wallet_resume'])) {
         $input_pin = $_POST['wallet_pin'] ?? '';
         
-        // --- 新增：PIN 校验规则 (禁止字母和符号) ---
         if (!preg_match('/^[0-9]{6}$/', $input_pin)) {
             $error = "Security Error: PIN must be exactly 6 numeric digits. No letters or symbols allowed.";
         } else {
@@ -381,7 +374,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
         $_SESSION['card_temp_data']['discount'] = $discount;
         $_SESSION['card_temp_data']['subtotal'] = $subtotal;
         
-        // 解析当前生效的优惠券对应的真实主键
         $real_promo_id = "NULL";
         $real_user_promo_id = "NULL";
         if (!empty($applied_code)) {
@@ -397,7 +389,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
                 $real_user_promo_id = intval($p_row['User_Promo_Id']);
             }
         }
-        // 将正确洗净的 ID 存入独立的 Session 变量
         $_SESSION['final_applied_promo_id'] = $real_promo_id;
         $_SESSION['final_applied_user_promo_id'] = $real_user_promo_id;
         
@@ -405,28 +396,47 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
         exit();
     }
     
-    
     if (empty($error)) {
         $email = $conn->real_escape_string($_POST['contact_email']);
-        $addr = $conn->real_escape_string($_POST['address']);
-        $apt = $conn->real_escape_string($_POST['apartment']);
-        $city = $conn->real_escape_string($_POST['city']);
-        $state = $conn->real_escape_string($_POST['state']);
+        $addr  = $conn->real_escape_string($_POST['address']);
+        $apt   = $conn->real_escape_string($_POST['apartment'] ?? '');
+        
+        $city     = $conn->real_escape_string(trim($_POST['city']));
+        $state    = $conn->real_escape_string(trim($_POST['state']));
+        $postcode = $conn->real_escape_string(trim($_POST['postcode']));
         $pay_type = $_POST['pay_type'];
+
+        if (isset($_POST['save_address']) && $_POST['save_address'] == '1') {
+            $combined_addr = $addr . ($apt ? ", " . $apt : "");
+            $is_first = (count($address_book) === 0) ? 1 : 0; 
+            
+            // 完美匹配你的结构化数据列
+            $stmt_save_addr = $conn->prepare("INSERT INTO user_address (User_Id, Address_Text, Postcode, State, City, Is_Default) VALUES (?, ?, ?, ?, ?, ?)");
+            if ($stmt_save_addr) {
+                $stmt_save_addr->bind_param("issssi", $uid, $combined_addr, $postcode, $state, $city, $is_first);
+                $stmt_save_addr->execute();
+                $new_addr_id = $stmt_save_addr->insert_id;
+                $stmt_save_addr->close();
+                
+                if ($is_first) {
+                    $conn->query("UPDATE `user` SET Default_Address_Id = '$new_addr_id' WHERE User_Id = '$uid'");
+                }
+            }
+        }
         
         if ($pay_type === 'fpx' && !isset($_POST['fpx_success'])) {
-            $_SESSION['fpx_temp_data'] = $_POST; // 暂存所有寄送资料
+            $_SESSION['fpx_temp_data'] = $_POST; 
             $selected_bank = $_POST['fpx_bank'];
             header("Location: bank_portal.php?bank=$selected_bank&amt=$grand_total");
             exit();
         }
 
         if ($pay_type !== 'fpx' || isset($_POST['fpx_success'])) {
-        $final_addr = "$f_name $last_name, $addr" . ($apt ? " ($apt)" : "") . ", $postcode, $city, $state";
+            $final_addr = "$f_name $last_name, $addr" . ($apt ? " ($apt)" : "") . ", $postcode, $city, $state";
         }
         $order_date = date('Y-m-d H:i:s');
         
-$conn->begin_transaction();
+        $conn->begin_transaction();
         try {
             $promo_id_to_save = "NULL";
             if (isset($_SESSION['applied_promo_code'])) {
@@ -455,9 +465,9 @@ $conn->begin_transaction();
                 $pay_method_display = "FPX Online Banking (" . ($_POST['fpx_bank'] ?? 'Standard') . ")";
             }
 
-        // 1. 插入主订单
-        $sql_order = "INSERT INTO `ORDER` (User_Id, Order_Amount, Order_Shipping_Addr, Order_Date, Order_Tracking_Num, Promo_Id, Payment_Status, Payment_Method, Order_Status) 
-                    VALUES ('$uid', '$grand_total', '$final_addr', '$order_date', '$tracking_no', $promo_id_to_save, 'Paid', '$pay_method_display', 'Pending')";
+            // 1. 插入主订单
+            $sql_order = "INSERT INTO `ORDER` (User_Id, Order_Amount, Order_Shipping_Addr, Order_Date, Order_Tracking_Num, Promo_Id, Payment_Status, Payment_Method, Order_Status) 
+                        VALUES ('$uid', '$grand_total', '$final_addr', '$order_date', '$tracking_no', $promo_id_to_save, 'Paid', '$pay_method_display', 'Pending')";
             $conn->query($sql_order);
             $order_id = $conn->insert_id;
 
@@ -469,75 +479,63 @@ $conn->begin_transaction();
                 $color = !empty($item['custom_preview']) ? 'Custom Design' : ($item['color'] ?? 'Default');
                 $color = $conn->real_escape_string($color);
                 
-                // 获取单价计算小计
                 $v_res = $conn->query("SELECT Pro_Price FROM product WHERE Pro_Id = '$p_id'");
                 $p_info = $v_res->fetch_assoc();
                 $unit_price = isset($item['price']) ? floatval($item['price']) : floatval($p_info['Pro_Price']);
                 $subtotal_item = $unit_price * $qty;
                 $item_custom_preview = $conn->real_escape_string($item['custom_preview'] ?? '');
 
-                // 核心：直接关联 Order_Id，Sub_Order_Id 设为 0
                 $conn->query("INSERT INTO ORDER_DETAIL (Order_Id, Pro_Id, Order_Qty, Order_Subtotal, Pro_Size, Pro_Colour, Custom_Preview) 
                               VALUES ('$order_id', '$p_id', '$qty', '$subtotal_item', '$size', '$color', '$item_custom_preview')");
                 
-                // 更新库存
                 $db_color_key = ($p_id == 16 || $p_id == 17) ? 'Default' : $color;
                 $conn->query("UPDATE PRODUCT_STOCK SET Quantity = Quantity - $qty 
                               WHERE Pro_Id = '$p_id' AND Pro_Size = '$size' AND Pro_Colour = '$db_color_key'");
             }
 
-            // ── 🌟【新增库存检查逻辑】放在更新库存的下一行 ───────────────────
-                try {
-                    // 1. 查出当前变动商品扣减后的【当前尺码与颜色】的最新剩余库存，以及它属于哪个品牌管理员
-                    $stock_check_sql = "
-                        SELECT ps.Quantity AS Current_Stock, p.Pro_Name, b.Admin_Id
-                        FROM PRODUCT_STOCK ps
-                        JOIN product p ON ps.Pro_Id = p.Pro_Id
-                        JOIN brand b ON p.Brand_Id = b.Brand_Id
-                        WHERE ps.Pro_Id = '$p_id' AND ps.Pro_Size = '$size' AND ps.Pro_Colour = '$db_color_key'
-                    ";
-                    
-                    $stock_res = $conn->query($stock_check_sql);
-                    if ($stock_res && $stock_row = $stock_res->fetch_assoc()) {
-                        $current_stock = intval($stock_row['Current_Stock']);
-                        $pro_name = $stock_row['Pro_Name'];
-                        $target_admin_id = $stock_row['Admin_Id'];
+            // ── 🌟【新增库存检查逻辑】
+            try {
+                $stock_check_sql = "
+                    SELECT ps.Quantity AS Current_Stock, p.Pro_Name, b.Admin_Id
+                    FROM PRODUCT_STOCK ps
+                    JOIN product p ON ps.Pro_Id = p.Pro_Id
+                    JOIN brand b ON p.Brand_Id = b.Brand_Id
+                    WHERE ps.Pro_Id = '$p_id' AND ps.Pro_Size = '$size' AND ps.Pro_Colour = '$db_color_key'
+                ";
+                
+                $stock_res = $conn->query($stock_check_sql);
+                if ($stock_res && $stock_row = $stock_res->fetch_assoc()) {
+                    $current_stock = intval($stock_row['Current_Stock']);
+                    $pro_name = $stock_row['Pro_Name'];
+                    $target_admin_id = $stock_row['Admin_Id'];
 
-                        // 2. 判断该尺码颜色的剩余库存是否少于或等于 5
-                        if ($current_stock <= 5) {
-                            $notif_type = 'low_stock';
-                            $notif_title = "Low Stock Warning";
-                            // 文案提示更贴心：带上具体的尺码和颜色
-                            $notif_msg = "Warning: Product '{$pro_name}' (Size: {$size}, Color: {$db_color_key}) is running low. Only {$current_stock} left!";
-                            $notif_link = "admin_manage_products.php?open_stock_id=" . $p_id;
+                    if ($current_stock <= 5) {
+                        $notif_type = 'low_stock';
+                        $notif_title = "Low Stock Warning";
+                        $notif_msg = "Warning: Product '{$pro_name}' (Size: {$size}, Color: {$db_color_key}) is running low. Only {$current_stock} left!";
+                        $notif_link = "admin_manage_products.php?open_stock_id=" . $p_id;
 
-                            // 3. 24小时防刷机制：避免同一个商品频繁刷一模一样的通知
-                            $dup_check = $conn->query("SELECT 1 FROM notification WHERE Notif_Type = 'low_stock' AND Related_Id = '$p_id' AND Notif_Created_At > DATE_SUB(NOW(), INTERVAL 1 DAY)");
-                            
-                            if ($dup_check && $dup_check->num_rows == 0) {
-                                
-                                // 精准发给对应的 Level 3 品牌管理员
-                                if (!empty($target_admin_id)) {
-                                    $stmt_brand = $conn->prepare("INSERT INTO notification (Notif_Type, Notif_Title, Notif_Message, Notif_Link, Admin_Id, Related_Id) VALUES (?, ?, ?, ?, ?, ?)");
-                                    $stmt_brand->bind_param("ssssii", $notif_type, $notif_title, $notif_msg, $notif_link, $target_admin_id, $p_id);
-                                    $stmt_brand->execute();
-                                    $stmt_brand->close();
-                                }
-
-                                // 广播发给 Level 1 & 2 的系统总管理员
-                                $stmt_global = $conn->prepare("INSERT INTO notification (Notif_Type, Notif_Title, Notif_Message, Notif_Link, Admin_Id, Related_Id) VALUES (?, ?, ?, ?, NULL, ?)");
-                                $stmt_global->bind_param("ssssi", $notif_type, $notif_title, $notif_msg, $notif_link, $p_id);
-                                $stmt_global->execute();
-                                $stmt_global->close();
+                        $dup_check = $conn->query("SELECT 1 FROM notification WHERE Notif_Type = 'low_stock' AND Related_Id = '$p_id' AND Notif_Created_At > DATE_SUB(NOW(), INTERVAL 1 DAY)");
+                        
+                        if ($dup_check && $dup_check->num_rows == 0) {
+                            if (!empty($target_admin_id)) {
+                                $stmt_brand = $conn->prepare("INSERT INTO notification (Notif_Type, Notif_Title, Notif_Message, Notif_Link, Admin_Id, Related_Id) VALUES (?, ?, ?, ?, ?, ?)");
+                                $stmt_brand->bind_param("ssssii", $notif_type, $notif_title, $notif_msg, $notif_link, $target_admin_id, $p_id);
+                                $stmt_brand->execute();
+                                $stmt_brand->close();
                             }
+
+                            $stmt_global = $conn->prepare("INSERT INTO notification (Notif_Type, Notif_Title, Notif_Message, Notif_Link, Admin_Id, Related_Id) VALUES (?, ?, ?, ?, NULL, ?)");
+                            $stmt_global->bind_param("ssssi", $notif_type, $notif_title, $notif_msg, $notif_link, $p_id);
+                            $stmt_global->execute();
+                            $stmt_global->close();
                         }
                     }
-                } catch (Exception $e) {
-                    // 记录错误日志，确保不会因为通知代码报错而卡死或终止顾客的 Checkout 下单流程
-                    error_log("Low Stock Notification Error: " . $e->getMessage());
                 }
+            } catch (Exception $e) {
+                error_log("Low Stock Notification Error: " . $e->getMessage());
+            }
             
-            // 核销优惠券
             if (isset($_SESSION['applied_user_promo_id']) && !empty($_SESSION['applied_user_promo_id'])) {
                 $user_promo_id = intval($_SESSION['applied_user_promo_id']);
                 $conn->query("UPDATE user_promo SET Is_Used = 'Yes' WHERE User_Promo_Id = '$user_promo_id'");
@@ -545,11 +543,10 @@ $conn->begin_transaction();
             
             $conn->commit();
 
-            // ── 🌟【新增核心逻辑】顾客结算成功，自动向管理员触发 New Order 通知 ──
+            // ── 🌟【新增核心逻辑】新订单触发通知
             try {
                 $notif_type = 'new_order';
                 $notif_title = "New Order Placed";
-                // 从数据库读取刚插入订单的追踪号，确保使用数据库中的值（fallback 到生成的 $tracking_no）
                 $order_tracking_num = $tracking_no;
                 $tres = $conn->query("SELECT Order_Tracking_Num FROM `ORDER` WHERE Order_Id = '$order_id' LIMIT 1");
                 if ($tres && $trow = $tres->fetch_assoc()) {
@@ -558,7 +555,6 @@ $conn->begin_transaction();
                 $notif_msg = "A new order #ODR{$order_tracking_num} has been successfully placed by Customer.";
                 $notif_link = "admin_manage_orders.php";
 
-                // 1. 找出这个新订单里面包含了哪些 Level 3 品牌管理员管理的产品
                 $brand_admin_sql = "
                     SELECT DISTINCT b.Admin_Id 
                     FROM order_detail od
@@ -568,7 +564,6 @@ $conn->begin_transaction();
                 ";
                 $brand_admin_res = $conn->query($brand_admin_sql);
 
-                // 2. 循环给这些涉及到的 Level 3 品牌管理员发送精准通知
                 if ($brand_admin_res && $brand_admin_res->num_rows > 0) {
                     $stmt_notif = $conn->prepare("INSERT INTO notification (Notif_Type, Notif_Title, Notif_Message, Notif_Link, Admin_Id, Related_Id) VALUES (?, ?, ?, ?, ?, ?)");
                     while ($brand_admin_row = $brand_admin_res->fetch_assoc()) {
@@ -579,18 +574,15 @@ $conn->begin_transaction();
                     $stmt_notif->close();
                 }
 
-                // 3. 同时发一条全局公共广播通知（Admin_Id = NULL），让 Level 1 和 Level 2 的总管理员也能收到
                 $stmt_global = $conn->prepare("INSERT INTO notification (Notif_Type, Notif_Title, Notif_Message, Notif_Link, Admin_Id, Related_Id) VALUES (?, ?, ?, ?, NULL, ?)");
                 $stmt_global->bind_param("ssssi", $notif_type, $notif_title, $notif_msg, $notif_link, $order_id);
                 $stmt_global->execute();
                 $stmt_global->close();
 
             } catch (Exception $e) {
-                // 即使通知写入失败，也不要影响客户购物车结算成功的流程
                 error_log("Notification Error: " . $e->getMessage());
             }
 
-            
             require_once 'send_receipt_handler.php'; 
             sendOrderReceiptEmail($order_id, $conn);
         
@@ -607,7 +599,6 @@ $conn->begin_transaction();
 include '../includes/header.php';
 ?>
 
-<!-- 在页面顶部显示错误或成功消息 -->
 <?php if($error || $success_msg): ?>
 <div style="max-width: 1100px; margin: 20px auto 0; padding: 0 20px;">
     <?php if($error): ?>
@@ -650,9 +641,6 @@ include '../includes/header.php';
     
     .btn-apply { height: 46px; align-self: center; border-radius: 12px; font-weight: 700; transition: 0.3s; }
     .btn-pay-now { width: 100%; background: #17735b; color: #fff; border: none; padding: 18px; border-radius: 5px; font-weight: 600; font-size: 1.1rem; cursor: pointer; margin-top: 25px; transition: background 0.3s; }
-    
-    
-    
 </style>
 
 <div class="checkout-container">
@@ -668,45 +656,53 @@ include '../includes/header.php';
                 <div class="mb-5">
                     <h5 class="section-title">Delivery</h5>
                     
-                    <div>
-                        <div><input type="text" name="first_name" class="input-field" placeholder="First name" value="<?php echo $first_name; ?>" required oninput="this.value = this.value.replace(/[^A-Za-z\s]/g, '')"></div>
+                    <?php if (!empty($address_book)): ?>
+                    <div style="margin-bottom: 20px;">
+                        <select id="savedAddressSelector" class="input-field" onchange="fillSavedAddress(this)" style="background-color: #f4f9f8; font-weight: 600; border-color: #17735b; color: #17735b;">
+                            <option value="new">➕ Enter a completely new address</option>
+                            <?php foreach($address_book as $idx => $addr): ?>
+                                <option value="<?php echo $idx; ?>" <?php echo ($idx === 0) ? 'selected' : ''; ?>>
+                                    📍 <?php echo htmlspecialchars($addr['Address_Text'] . ', ' . $addr['Postcode'] . ' ' . $addr['State']); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
                     </div>
-                    
-                    <input type="text" name="address" class="input-field" placeholder="Address" 
-                        value="<?php echo htmlspecialchars($user_address); ?>" required>
-                    <input type="text" name="apartment" class="input-field" placeholder="Apartment, suite, unit etc. (optional)">
-                    
-                    <div class="row-cols-2">
+                    <script>const userAddressBook = <?php echo json_encode($address_book); ?>;</script>
+                    <?php else: ?>
+                    <script>const userAddressBook = [];</script>
+                    <?php endif; ?>
+
+                    <div id="deliveryFormFields">
                         <div>
-                            <select name="state" id="stateSelect" class="input-field" required onchange="updateCities()">
-                                <option value="" disabled selected>Select State</option>
-                            </select>
+                            <input type="text" name="first_name" class="input-field" placeholder="First name" value="<?php echo $first_name; ?>" required oninput="this.value = this.value.replace(/[^A-Za-z\s]/g, '')">
                         </div>
-                        <div>
-                            <select name="city" id="citySelect" class="input-field" required onchange="updatePostcodes()">
-                                <option value="" disabled selected>Select City</option>
-                            </select>
+                        
+                        <input type="text" name="address" class="input-field form-trigger-new" placeholder="Address" required>
+                        
+                        <div class="row-cols-2">
+    <div>
+        <input type="text" name="state" id="stateInput" class="input-field" placeholder="State" required>
+    </div>
+    <div>
+        <input type="text" name="city" id="cityInput" class="input-field" placeholder="City" required>
+    </div>
+</div>
+<div class="row-cols-2">
+    <div>
+        <input type="text" name="postcode" id="postcodeInput" class="input-field" placeholder="Postcode (5 digits)" maxlength="5" required oninput="this.value = this.value.replace(/[^0-9]/g, '')">
+    </div>
+    <div>
+        <input type="text" name="phone" id="phone_field" class="input-field" placeholder="Phone (e.g. 0123456789)" value="<?php echo htmlspecialchars($user_phone); ?>" required>
+    </div>
+</div>
+                        
+                        <div class="save-address" id="saveAddressDiv" style="display: flex; align-items: center; gap: 10px; margin-top: 8px;">
+                            <input type="checkbox" name="save_address" id="save_address" value="1" class="form-check-input">
+                            <label for="save_address" class="form-check-label small text-muted">Save this address to my address book for future orders</label>
                         </div>
-                    </div>
-                    <div class="row-cols-2">
-                        <div>
-                            <select name="postcode" id="postcodeSelect" class="input-field" required onchange="toggleCustomPostcode()">
-                                <option value="" disabled selected>Postcode</option>
-                            </select>
-                        </div>
-                        <div>
-                            <input type="text" name="phone" id="phone_field" class="input-field" placeholder="Phone (e.g. 0123456789)" value="<?php echo htmlspecialchars($user_phone); ?>" required oninput="...">
-                        </div>
-                    </div>
-                    <div id="customPostcodeDiv" style="display:none;">
-                        <input type="text" name="custom_postcode" id="customPostcode" class="input-field" placeholder="Enter your postcode (5 digits)" maxlength="5" oninput="this.value = this.value.replace(/[^0-9]/g, '')">
-                    </div>
-                    
-                    <div class="save-postcode">
-                        <input type="checkbox" name="save_postcode" id="save_postcode" class="form-check-input" <?php echo (isset($_COOKIE['saved_postcode']) && $_COOKIE['saved_postcode'] === $user_info['User_Postcode']) ? 'checked' : ''; ?>>
-                        <label for="save_postcode" class="form-check-label small text-muted">Save this postcode for future orders</label>
                     </div>
                 </div>
+                
 
                 <div class="mb-5">
                     <h5 class="section-title">Payment</h5>
@@ -879,223 +875,117 @@ include '../includes/header.php';
 </div>
 
 <script>
-
-// 处理 voucher 点击应用
+// 处理 voucher 点击应用（保持原样）
 function applyVoucher(promoCode) {
-    // 填入优惠码
     const couponInput = document.querySelector('input[name="coupon_code"]');
     if (couponInput) {
         couponInput.value = promoCode;
     }
-    
-    // 【修复】：不要使用 form.submit()，而是模拟点击 Apply 按钮
-    // 这样才能确保后端接收到 $_POST['apply_coupon']，从而触发清除逻辑
     const applyBtn = document.querySelector('button[name="apply_coupon"]');
     if (applyBtn) {
         applyBtn.click();
     }
 }
 
-const locationData = {
-    "Johor": {
-        "Johor Bahru": ["80000", "81100", "81200", "81300"],
-        "Batu Pahat": ["83000", "83010", "83040"],
-        "Kluang": ["86000", "86100"],
-        "Muar": ["84000", "84150"],
-        "Segamat": ["85000", "85100"],
-        "Pontian": ["82000", "82100"],
-        "Kota Tinggi": ["81900"],
-        "Mersing": ["86800"],
-        "Tangkak": ["84900"],
-        "Kulai": ["81000"]
-    },
-    "Kedah": {
-        "Alor Setar": ["05000", "05100", "05200"],
-        "Sungai Petani": ["08000", "08100"],
-        "Kulim": ["09000", "09100"],
-        "Langkawi": ["07000"],
-        "Kubang Pasu": ["06000", "06100"],
-        "Baling": ["09100"],
-        "Sik": ["08200"],
-        "Yan": ["06900"],
-        "Pendang": ["06700"]
-    },
-    "Kelantan": {
-        "Kota Bharu": ["15000", "15100", "16100"],
-        "Pasir Mas": ["17000"],
-        "Tumpat": ["16200"],
-        "Tanah Merah": ["17500"],
-        "Gua Musang": ["18300"],
-        "Machang": ["18500"],
-        "Kuala Krai": ["18000"]
-    },
-    "Melaka": {
-        "Melaka City": ["75000", "75100", "75200", "75300", "75400"],
-        "Alor Gajah": ["78000", "78100", "78300"],
-        "Jasin": ["77000", "77100", "77300"]
-    },
-    "Negeri Sembilan": {
-        "Seremban": ["70000", "70100", "70200", "70300", "70450"],
-        "Port Dickson": ["71000", "71010"],
-        "Nilai": ["71800"],
-        "Jempol": ["72100"],
-        "Tampin": ["73000"],
-        "Kuala Pilah": ["72000"]
-    },
-    "Pahang": {
-        "Kuantan": ["25000", "25100", "25200"],
-        "Temerloh": ["28000"],
-        "Bentong": ["28700"],
-        "Mekan": ["26600"],
-        "Raub": ["27600"],
-        "Jerantut": ["27000"],
-        "Cameron Highlands": ["39000", "39100"]
-    },
-    "Perak": {
-        "Ipoh": ["30000", "30100", "31400"],
-        "Taiping": ["34000", "34010"],
-        "Teluk Intan": ["36000"],
-        "Manjung/Siawan": ["32000", "32200"],
-        "Kuala Kangsar": ["33000"],
-        "Tapah": ["35000"],
-        "Batu Gajah": ["31000"]
-    },
-    "Perlis": {
-        "Kangar": ["01000"],
-        "Arau": ["02600"],
-        "Kuala Perlis": ["02000"],
-        "Padang Besar": ["02100"]
-    },
-    "Pulau Pinang": {
-        "Georgetown": ["10000", "10100", "10200", "10300", "10450"],
-        "Bayan Lepas": ["11900", "11920", "11950"],
-        "Butterworth": ["12000", "12100", "13400"],
-        "Bukit Mertajam": ["14000", "14020"],
-        "Kepala Batas": ["13200"],
-        "Nibong Tebal": ["14300"]
-    },
-    "Sabah": {
-        "Kota Kinabalu": ["88000", "88100", "88200", "88300"],
-        "Sandakan": ["90000"],
-        "Tawau": ["91000"],
-        "Lahad Datu": ["91100"],
-        "Penampang": ["89500"],
-        "Keningau": ["89000"],
-        "Putatan": ["88200"]
-    },
-    "Sarawak": {
-        "Kuching": ["93000", "93100", "93200", "93300"],
-        "Miri": ["98000", "98100"],
-        "Sibu": ["96000"],
-        "Bintulu": ["97000"],
-        "Samarahan": ["94300"],
-        "Sri Aman": ["95000"],
-        "Limbang": ["98700"]
-    },
-    "Selangor": {
-        "Shah Alam": ["40000", "40100", "40150", "40170", "40460"],
-        "Petaling Jaya": ["46000", "46100", "46200", "47300", "47301", "47400"],
-        "Klang": ["41000", "41050", "41100", "41200", "42100"],
-        "Subang Jaya": ["47500", "47600", "47610"],
-        "Puchong": ["47100", "47110", "47160"],
-        "Cyberjaya": ["63000", "63100", "63200"],
-        "Kajang": ["43000"],
-        "Rawang": ["48000"],
-        "Semenyih": ["43500"],
-        "Sepang": ["43900"]
-    },
-    "Terengganu": {
-        "Kuala Terengganu": ["20000", "20100", "21000"],
-        "Kemaman": ["24000"],
-        "Dungun": ["23000"],
-        "Besut": ["22200"],
-        "Marang": ["21600"],
-        "Hulu Terengganu": ["21700"]
-    },
-    "Kuala Lumpur": {
-        "KL City": ["50000", "50100", "50250", "50450", "50480"],
-        "Cheras": ["56000", "56100"],
-        "Kepong": ["52100", "52200"],
-        "Wangsa Maju": ["53300"],
-        "Setapak": ["53000", "53100"],
-        "Bangsar": ["59000", "59100"],
-        "Old Klang Road": ["58000", "58200"],
-        "Sentul": ["51000", "51100"]
-    },
-    "Putrajaya": {
-        "Putrajaya": ["62000", "62007", "62100", "62250"]
-    },
-    "Labuan": {
-        "Labuan": ["87000", "87008", "87010"]
-    }
-};
+// =========================================================================
+// 【精准修复】：剔除旧 custom 节点残留，防止脚本崩溃卡死 City 的 fillSavedAddress
+// =========================================================================
+function fillSavedAddress(selectEl) {
+    const val = selectEl.value;
+    const addressInput = document.querySelector('input[name="address"]');
+    const stateInput = document.getElementById('stateInput');
+    const cityInput = document.getElementById('cityInput');
+    const postcodeInput = document.getElementById('postcodeInput');
+    const saveCheckboxDiv = document.getElementById('saveAddressDiv');
+    const saveCheckbox = document.getElementById('save_address');
 
-// 初始化 State 下拉框
-function initStates() {
-    const stateSelect = document.getElementById('stateSelect');
-    Object.keys(locationData).sort().forEach(state => {
-        let option = document.createElement('option');
-        option.value = state;
-        option.text = state;
-        stateSelect.add(option);
-    });
-}
-
-function updateCities() {
-    const state = document.getElementById('stateSelect').value;
-    const citySelect = document.getElementById('citySelect');
-    const postcodeSelect = document.getElementById('postcodeSelect');
-    
-    citySelect.innerHTML = '<option value="" disabled selected>Select City</option>';
-    postcodeSelect.innerHTML = '<option value="" disabled selected>Postcode</option>';
-    
-    if (locationData[state]) {
-        Object.keys(locationData[state]).sort().forEach(city => {
-            let option = document.createElement('option');
-            option.value = city;
-            option.text = city;
-            citySelect.add(option);
-        });
+    if (val === 'new') {
+        setFormLock(false);
+        addressInput.value = '';
+        stateInput.value = '';
+        cityInput.value = '';
+        postcodeInput.value = '';
+        if (saveCheckboxDiv) saveCheckboxDiv.style.display = 'flex';
+        if (saveCheckbox) saveCheckbox.checked = false;
+    } else {
+        const addrData = userAddressBook[val];
+        
+        const firstNameInput = document.querySelector('input[name="first_name"]');
+        if (firstNameInput) firstNameInput.value = "<?php echo $first_name; ?>";
+        
+        if (addressInput) addressInput.value = addrData.Address_Text || '';
+        
+        // ── 💡 核心修复：如果地址簿里没有定义 City，则使用当前用户的全局默认 City 兜底 ──
+        if (stateInput) stateInput.value = addrData.State || addrData.state || "<?php echo $user_state; ?>";
+        if (cityInput) cityInput.value = addrData.City || addrData.city || "<?php echo $user_city; ?>";
+        if (postcodeInput) postcodeInput.value = addrData.Postcode || addrData.postcode || "<?php echo $user_postcode; ?>";
+        
+        if (saveCheckboxDiv) saveCheckboxDiv.style.display = 'none';
+        if (saveCheckbox) saveCheckbox.checked = false;
+        
+        setFormLock(true); 
     }
 }
 
-function updatePostcodes() {
-    const state = document.getElementById('stateSelect').value;
-    const city = document.getElementById('citySelect').value;
-    const postcodeSelect = document.getElementById('postcodeSelect');
+// =========================================================================
+// 统一干净的 DOMContentLoaded 监听器
+// =========================================================================
+document.addEventListener('DOMContentLoaded', function() {
+    const addrSelector = document.getElementById('savedAddressSelector');
     
-    postcodeSelect.innerHTML = '<option value="" disabled selected>Postcode</option>';
-    
-    if (locationData[state] && locationData[state][city]) {
-        locationData[state][city].forEach(postcode => {
-            let option = document.createElement('option');
-            option.value = postcode;
-            option.text = postcode;
-            postcodeSelect.add(option);
-        });
-    }
-    // Add "Other" option
-    let otherOption = document.createElement('option');
-    otherOption.value = 'other';
-    otherOption.text = 'Other';
-    postcodeSelect.add(otherOption);
-}
+    // 情况 A：如果用户持有保存的地址簿，直接直刷装载数据
+    if (addrSelector && addrSelector.value !== 'new') {
+        fillSavedAddress(addrSelector);
+    } 
+    // 情况 B：无地址簿老用户读取主外键散落数据兜底
+    else {
+        const dbState = "<?php echo $user_state; ?>";
+        const dbCity = "<?php echo $user_city; ?>"; 
+        const dbPostcode = "<?php echo $user_postcode; ?>";
+        const dbAddress = "<?php echo $conn->real_escape_string($user_address); ?>";
 
-// 核心修复：支付方式切换逻辑
-// 核心修复：切换支付方式逻辑
+        if (dbAddress || dbState || dbCity || dbPostcode) {
+            const addressInput = document.querySelector('input[name="address"]');
+            if (addressInput) addressInput.value = dbAddress;
+            
+            const stateInput = document.getElementById('stateInput');
+            if (stateInput) stateInput.value = dbState;
+            
+            const cityInput = document.getElementById('cityInput');
+            if (cityInput) cityInput.value = dbCity;
+            
+            const postcodeInput = document.getElementById('postcodeInput');
+            if (postcodeInput) postcodeInput.value = dbPostcode;
+        }
+    }
+
+    // 初始化支付视图切换
+    const checkedPayRadio = document.querySelector('input[name="pay_type"]:checked');
+    if (checkedPayRadio) {
+        const activeOption = checkedPayRadio.closest('.payment-option');
+        if (activeOption) selectPay(activeOption);
+    }
+
+    // 显示错误/成功消息
+    <?php if ($error): ?>
+        Swal.fire({ icon: 'error', title: 'Payment Failed', text: '<?php echo $error; ?>', confirmButtonColor: '#17735b' });
+    <?php endif; ?>
+
+    <?php if ($success_msg): ?>
+        Swal.fire({ icon: 'success', title: 'Success', text: <?php echo json_encode($success_msg); ?>, timer: 2500, showConfirmButton: false });
+    <?php endif; ?>
+});
+
 function selectPay(el) {
     if (!el || el.classList.contains('disabled')) return;
 
-    // 1. 切换视觉 active 状态
     document.querySelectorAll('.payment-option').forEach(opt => opt.classList.remove('active'));
     el.classList.add('active');
     
-    // 2. 勾选隐藏的单选框
     const radio = el.querySelector('input[type="radio"]');
     if (radio) radio.checked = true;
     const payType = radio ? radio.value : '';
     
-    // 3. 切换输入框显示/隐藏
     const walletDiv = document.getElementById('walletPinField');
     const fpxDiv = document.getElementById('fpxBankDiv');
     const cardDiv = document.getElementById('cardFieldsDiv');
@@ -1104,28 +994,30 @@ function selectPay(el) {
     if (fpxDiv) fpxDiv.style.display = (payType === 'fpx') ? 'block' : 'none';
     if (cardDiv) cardDiv.style.display = (payType === 'card') ? 'block' : 'none';
 
-    // 4. 清除/设置必填项，防止逻辑冲突
-    document.querySelectorAll('.fpx-auth-input, #fpxBank, .card-input, #wallet_pin_input').forEach(input => {
+    document.querySelectorAll('#fpxBank, #wallet_pin_input').forEach(input => {
         input.removeAttribute('required');
     });
 
     if (payType === 'wallet') {
-        document.getElementById('wallet_pin_input').setAttribute('required', 'true');
+        const pinInp = document.getElementById('wallet_pin_input');
+        if (pinInp) pinInp.setAttribute('required', 'true');
     } else if (payType === 'fpx') {
-        document.getElementById('fpxBank').setAttribute('required', 'true');
-        document.querySelectorAll('.fpx-auth-input').forEach(i => i.setAttribute('required', 'true'));
+        const bankSel = document.getElementById('fpxBank');
+        if (bankSel) bankSel.setAttribute('required', 'true');
     }
 }
 
 async function startPaymentProcess() {
     const payType = document.querySelector('input[name="pay_type"]:checked').value;
     
-    // 1. 基础验证：姓名、地址、电话
     const firstName = document.querySelector('input[name="first_name"]').value.trim();
     const address = document.querySelector('input[name="address"]').value.trim();
     const phone = document.querySelector('input[name="phone"]').value.trim();
+    const state = document.getElementById('stateInput').value.trim();
+    const city = document.getElementById('cityInput').value.trim();
+    const postcode = document.getElementById('postcodeInput').value.trim();
     
-    if (!firstName || !address || !phone) {
+    if (!firstName || !address || !phone || !state || !city || !postcode) {
         Swal.fire('Information Required', 'Please complete your delivery details first.', 'warning');
         return;
     }
@@ -1133,7 +1025,6 @@ async function startPaymentProcess() {
     if (payType === 'wallet') {
         submitCheckoutForm();
     }
-
     else if (payType === 'card') {
         submitCheckoutForm();
     }
@@ -1143,11 +1034,10 @@ async function startPaymentProcess() {
             Swal.fire('Bank Required', 'Please select a bank for FPX payment.', 'warning');
             return;
         }
-    submitCheckoutForm();
+        submitCheckoutForm();
     }
 }
 
-// 统一提交函数
 function submitCheckoutForm() {
     Swal.fire({
         title: 'Processing Payment...',
@@ -1158,194 +1048,27 @@ function submitCheckoutForm() {
     document.getElementById('orderForm').submit();
 }
 
-document.addEventListener('DOMContentLoaded', function() {
-    initStates(); // 初始化所有州属
-
-    // 获取数据库传来的资料
-    const dbState = "<?php echo $user_state; ?>";
-    const dbPostcode = "<?php echo $user_postcode; ?>";
-    const dbCity = "<?php echo $user_city; ?>"; // 如果数据库有存城市名
-
-    // 1. 自动选择州属
-    if (dbState) {
-        const stateSelect = document.getElementById('stateSelect');
-        stateSelect.value = dbState;
-        updateCities(); // 触发城市下拉框更新
-
-        // 2. 自动选择城市 (如果有匹配项)
-        if (dbCity) {
-            const citySelect = document.getElementById('citySelect');
-            citySelect.value = dbCity;
-            updatePostcodes(); // 触发邮编下拉框更新
-
-            // 3. 自动选择邮编
-            if (dbPostcode) {
-                const postcodeSelect = document.getElementById('postcodeSelect');
-                // 检查邮编是否存在于下拉列表中
-                let found = Array.from(postcodeSelect.options).some(opt => opt.value === dbPostcode);
-                if (found) {
-                    postcodeSelect.value = dbPostcode;
-                } else {
-                    // 如果列表里没有，选择 'other' 并填入自定义框
-                    postcodeSelect.value = 'other';
-                    toggleCustomPostcode();
-                    document.getElementById('customPostcode').value = dbPostcode;
-                }
-            }
+function setFormLock(isLocked) {
+    const container = document.getElementById('deliveryFormFields');
+    if (!container) return;
+    const inputs = container.querySelectorAll('.input-field');
+    
+    inputs.forEach(el => {
+        if (isLocked) {
+            if (el.tagName === 'INPUT') el.readOnly = true;
+            el.style.pointerEvents = 'none';
+            el.style.backgroundColor = '#f8fafc'; 
+            el.style.borderColor = '#e2e8f0';
+            el.style.color = '#64748b';
+        } else {
+            if (el.tagName === 'INPUT') el.readOnly = false;
+            el.style.pointerEvents = 'auto';
+            el.style.backgroundColor = '#fff';
+            el.style.borderColor = '#d9d9d9';
+            el.style.color = '#333';
         }
-    }
-
-    // 初始化支付方式
-    const activeOption = document.querySelector('.payment-option.active');
-    if (activeOption) {
-        selectPay(activeOption);
-    }
-});
-
-function formatExpiry(input) {
-    let val = input.value.replace(/\D/g, '');
-    if (val.length >= 2) {
-        input.value = val.slice(0, 2) + '/' + val.slice(2, 4);
-    } else {
-        input.value = val;
-    }
+    });
 }
-
-function toggleCustomPostcode() {
-    const postcodeSelect = document.getElementById('postcodeSelect');
-    const customDiv = document.getElementById('customPostcodeDiv');
-    const customInput = document.getElementById('customPostcode');
-    if (postcodeSelect.value === 'other') {
-        customDiv.style.display = 'block';
-        customInput.required = true;
-        customInput.focus();
-    } else {
-        customDiv.style.display = 'none';
-        customInput.required = false;
-        customInput.value = '';
-    }
-}
-
-
-function validateCheckoutForm() {
-    const payType = document.querySelector('input[name="pay_type"]:checked').value;
-    
-    // 基本信息验证
-    if (!document.querySelector('input[name="first_name"]').value) {
-        Swal.fire('Incomplete', 'Please enter your first name.', 'warning');
-        return false;
-    }
-    if (!document.querySelector('input[name="address"]').value) {
-        Swal.fire('Incomplete', 'Please enter your address.', 'warning');
-        return false;
-    }
-    if (!document.querySelector('select[name="state"]').value) {
-        Swal.fire('Incomplete', 'Please select a state.', 'warning');
-        return false;
-    }
-    if (!document.querySelector('select[name="city"]').value) {
-        Swal.fire('Incomplete', 'Please select a city.', 'warning');
-        return false;
-    }
-    if (!document.querySelector('select[name="postcode"]').value) {
-        Swal.fire('Incomplete', 'Please select a postcode.', 'warning');
-        return false;
-    }
-    if (document.querySelector('select[name="postcode"]').value === 'other' && !document.getElementById('customPostcode').value) {
-        Swal.fire('Incomplete', 'Please enter the postcode.', 'warning');
-        return false;
-    }
-    const phone = document.querySelector('input[name="phone"]').value;
-    if (!phone || phone.length < 9 || phone.length > 12) {
-        Swal.fire('Invalid Input', 'Please enter a valid phone number (9-12 digits).', 'warning');
-        return false;
-    }
-    
-    // 支付方式特定验证
-    if (payType === 'card') {
-        const cardNo = document.querySelector('input[name="card_no"]').value;
-        const cardName = document.querySelector('input[name="cardholder_name"]').value;
-        const expiry = document.querySelector('input[name="expiry"]').value;
-        const cvv = document.querySelector('input[name="cvv"]').value;
-        
-        if (!cardNo || cardNo.length !== 16) {
-            Swal.fire('Invalid Input', 'Please enter a valid 16-digit card number.', 'warning');
-            return false;
-        }
-        if (!cardName) {
-            Swal.fire('Incomplete', 'Please enter the cardholder name.', 'warning');
-            return false;
-        }
-        if (!expiry || !/^\d{2}\/\d{2}$/.test(expiry)) {
-            Swal.fire('Invalid Input', 'Please enter a valid expiry date (MM/YY format).', 'warning');
-            return false;
-        }
-        if (!cvv || cvv.length !== 3) {
-            Swal.fire('Invalid Input', 'Please enter a valid 3-digit CVV.', 'warning');
-            return false;
-        }
-    } else if (payType === 'fpx') {
-        const fpxBank = document.querySelector('select[name="fpx_bank"]').value;
-        if (!fpxBank) {
-            Swal.fire('Incomplete', 'Please select a bank.', 'warning');
-            return false;
-        }
-    }
-    
-    
-    return true;
-}
-
-// 页面加载时初始化
-document.addEventListener('DOMContentLoaded', function() {
-    initStates(); // 初始化所有州属
-    
-    // 初始化支付方式的显示/隐藏状态
-    const payType = document.querySelector('input[name="pay_type"]:checked').value;
-    const walletDiv = document.getElementById('walletPinField');
-    const fpxDiv = document.getElementById('fpxBankDiv');
-    const cardDiv = document.getElementById('cardFieldsDiv');
-    
-    if (payType === 'wallet') {
-        if (walletDiv) walletDiv.style.display = 'block';
-        const pinField = document.getElementById('wallet_pin_input');
-        if (pinField) pinField.required = true;
-    } else if (payType === 'card') {
-        if (cardDiv) cardDiv.style.display = 'block';
-        // 设置卡支付字段为必填
-        const cardFields = ['card_no', 'cardholder_name', 'expiry', 'cvv'];
-        cardFields.forEach(fieldId => {
-            const field = document.querySelector(`[name="${fieldId}"]`);
-            if (field) field.required = true;
-        });
-    } else if (payType === 'fpx') {
-        if (fpxDiv) fpxDiv.style.display = 'block';
-        const fpxBank = document.getElementById('fpxBank');
-        if (fpxBank) fpxBank.required = true;
-    }
-
-    // 统一显示来自后端的错误信息
-    <?php if ($error): ?>
-        Swal.fire({
-            icon: 'error',
-            title: 'Payment Failed',
-            text: '<?php echo $error; ?>',
-            confirmButtonColor: '#17735b'
-        });
-    <?php endif; ?>
-
-    // 统一显示来自后端的成功信息
-    <?php if ($success_msg): ?>
-        Swal.fire({
-            icon: 'success',
-            title: 'Success',
-            text: <?php echo json_encode($success_msg); ?>,
-            timer: 2500,
-            showConfirmButton: false
-        });
-    <?php endif; ?>
-});
-
 </script>
 
 <?php include '../includes/footer.php'; ?>

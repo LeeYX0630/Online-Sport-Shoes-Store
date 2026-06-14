@@ -290,8 +290,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             } else {
                 $addresses = [];
                 $postcodes = [];
-                $states = [];
+                $states    = [];
                 $address_error = "";
+                
                 if (isset($_POST['addresses']) && is_array($_POST['addresses'])) {
                     foreach ($_POST['addresses'] as $idx => $address) {
                         $clean_address = trim(preg_replace('/\s+/', ' ', $address));
@@ -308,7 +309,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
                             $addresses[] = substr($clean_address, 0, 500);
                             $postcodes[] = substr($pc, 0, 20);
-                            $states[] = substr($st, 0, 100);
+                            $states[]    = substr($st, 0, 100);
                         }
                     }
                 }
@@ -320,174 +321,113 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     $msg = $address_error;
                     $msg_type = "danger";
                 } else {
-                $default_index = isset($_POST['default_address_index']) ? (int)$_POST['default_address_index'] : 0;
-                if ($default_index < 0 || $default_index >= count($addresses)) {
-                    $default_index = 0;
-                }
-
-                $default_address = $addresses[$default_index] ?? '';
-
-                $default_postcode = $postcodes[$default_index] ?? '';
-                $default_state = $states[$default_index] ?? '';
-
-                // Update user details
-                $stmt = $conn->prepare("UPDATE `user` SET User_Name=?, User_Phone=?, User_Email=?, User_Address=?, User_Postcode=?, User_State=? WHERE User_Id=?");
-                $stmt->bind_param("ssssssi", $new_name, $clean_phone, $new_email, $default_address, $default_postcode, $default_state, $user_id);
-                $stmt->execute();
-                $_SESSION['user_name'] = $new_name;
-
-                $delete_stmt = $conn->prepare("DELETE FROM user_address WHERE User_Id=?");
-                $delete_stmt->bind_param("i", $user_id);
-                $delete_stmt->execute();
-
-                if (!empty($addresses)) {
-                    $insert_stmt = $conn->prepare("INSERT INTO user_address (User_Id, Address_Text, Postcode, `State`, Is_Default) VALUES (?, ?, ?, ?, ?)");
-                    foreach ($addresses as $index => $address) {
-                        $is_default = ($index === $default_index) ? 1 : 0;
-                        $postcode = $postcodes[$index] ?? '';
-                        $state = $states[$index] ?? '';
-                        $insert_stmt->bind_param("isssi", $user_id, $address, $postcode, $state, $is_default);
-                        $insert_stmt->execute();
-                    }
-                }
-
-               // HANDLE PROFILE IMAGE UPLOAD
-                if (!empty($_FILES['profile_image']['name'])) {
-                    $upload_dir = __DIR__ . "/../uploads/";
-                    if (!is_dir($upload_dir)) {
-                        mkdir($upload_dir, 0777, true);
+                    $default_index = isset($_POST['default_address_index']) ? (int)$_POST['default_address_index'] : 0;
+                    if ($default_index < 0 || $default_index >= count($addresses)) {
+                        $default_index = 0;
                     }
 
-                    $filename = time() . "_" . basename($_FILES['profile_image']['name']);
-                    $target = $upload_dir . $filename;
-                    
-                    if (move_uploaded_file($_FILES['profile_image']['tmp_name'], $target)) {
-                        $conn->query("UPDATE `user` SET User_Image='$filename' WHERE User_Id='$user_id'");
-                    } else {
-                        $msg = "Error: Failed to move uploaded file.";
-                        $msg_type = "danger";
-                    }
-                }
+                    // 1. 更新用户主表基础信息（不再写入任何冗余地址文本）
+                    $stmt = $conn->prepare("UPDATE `user` SET User_Name=?, User_Phone=?, User_Email=? WHERE User_Id=?");
+                    $stmt->bind_param("sssi", $new_name, $clean_phone, $new_email, $user_id);
+                    $stmt->execute();
+                    $stmt->close();
+                    $_SESSION['user_name'] = $new_name;
 
-                // =======================================================
-                // ADDED: MULTIPLE ADDRESSES SYNCHRONIZATION (SMART FIXED)
-                // =======================================================
-                if (isset($_POST['addresses'])) {
-                    $submitted_addresses = $_POST['addresses'] ?? [];
-                    $submitted_postcodes = $_POST['postcodes'] ?? [];
-                    $submitted_states    = $_POST['states'] ?? [];
-                    $default_index       = (int)($_POST['default_address_index'] ?? 0);
-
-                    // 1. First, wipe out old address records for this user to fresh sync
-                    $delete_stmt = $conn->prepare("DELETE FROM user_address WHERE User_Id = ?");
+                    // 2. 清理旧地址簿，准备结构化重写
+                    $delete_stmt = $conn->prepare("DELETE FROM user_address WHERE User_Id=?");
                     $delete_stmt->bind_param("i", $user_id);
                     $delete_stmt->execute();
+                    $delete_stmt->close();
 
-                    // 2. Loop through each row submitted from the frontend HTML
-                    foreach ($submitted_addresses as $i => $raw_addr) {
-                        // FIX: 去除首尾空格，同时强力清除可能不小心残留在末尾的逗号，防止数据无限叠加
-                        $clean_addr = rtrim(trim($raw_addr), ','); 
-                        $clean_post = trim($submitted_postcodes[$i] ?? '');
-                        $clean_stat = trim($submitted_states[$i] ?? '');
-                        
-                        // If all inputs in this row are completely empty, skip it
-                        if (empty($clean_addr) && empty($clean_post) && empty($clean_stat)) {
-                            continue;
+                    $active_default_id = null;
+
+                    // 3. 结构化重新插入新地址
+                    if (!empty($addresses)) {
+                        $insert_stmt = $conn->prepare("INSERT INTO user_address (User_Id, Address_Text, Postcode, `State`, City, Is_Default) VALUES (?, ?, ?, ?, '', ?)");
+                        foreach ($addresses as $index => $address) {
+                            $is_default = ($index === $default_index) ? 1 : 0;
+                            $postcode   = $postcodes[$index] ?? '';
+                            $state      = $states[$index] ?? '';
+                            
+                            $insert_stmt->bind_param("isssi", $user_id, $address, $postcode, $state, $is_default);
+                            $insert_stmt->execute();
+                            
+                            if ($is_default) {
+                                $active_default_id = $insert_stmt->insert_id;
+                            }
                         }
-                        
-                        // FIX: 只有在邮编和州属都有值时，才用标准逗号拼接；否则只保留路名，防止拼接出多余的空白逗号
-                        if (!empty($clean_post) && !empty($clean_stat)) {
-                            $full_address_string = "$clean_addr, $clean_post, $clean_stat";
-                        } else {
-                            $full_address_string = $clean_addr;
-                        }
-                        
-                        // Determine if this item is selected as Default by user
-                        $is_default = ($i === $default_index) ? 1 : 0;
-                        
-                        // Insert new compiled string row into user_address database table
-                        $insert_stmt = $conn->prepare("INSERT INTO user_address (User_Id, Address_Text, Is_Default) VALUES (?, ?, ?)");
-                        $insert_stmt->bind_param("isi", $user_id, $full_address_string, $is_default);
-                        $insert_stmt->execute();
+                        $insert_stmt->close();
                     }
-                }
-                // =======================================================
-                
-                $msg = "Profile updated successfully!";
-                $msg_type = "success";
+
+                    // 4. 将最新设置的默认地址主键 ID 同步更新给 user.Default_Address_Id 外键
+                    if ($active_default_id !== null) {
+                        $conn->query("UPDATE `user` SET Default_Address_Id = '$active_default_id' WHERE User_Id = '$user_id'");
+                    }
+
+                    // HANDLE PROFILE IMAGE UPLOAD
+                    if (!empty($_FILES['profile_image']['name'])) {
+                        $upload_dir = __DIR__ . "/../uploads/";
+                        if (!is_dir($upload_dir)) {
+                            mkdir($upload_dir, 0777, true);
+                        }
+
+                        $filename = time() . "_" . basename($_FILES['profile_image']['name']);
+                        $target = $upload_dir . $filename;
+                        
+                        if (move_uploaded_file($_FILES['profile_image']['tmp_name'], $target)) {
+                            $conn->query("UPDATE `user` SET User_Image='$filename' WHERE User_Id='$user_id'");
+                        } else {
+                            $msg = "Error: Failed to move uploaded file.";
+                            $msg_type = "danger";
+                        }
+                    }
+                    
+                    $msg = "Profile updated successfully!";
+                    $msg_type = "success";
                 }
             }
         }
     }
 }
-// ===============================
-// FETCH DATA (SMART ACCURATE SPLITTING)
-// ===============================
+// ===============================================================
+// FETCH DATA (原生结构化读取，规避脆弱的字符串拆分)
+// ===============================================================
 $user_res = $conn->query("SELECT * FROM user WHERE User_Id='$user_id'");
 $user = $user_res->fetch_assoc();
 
-$address_count_stmt = $conn->prepare("SELECT COUNT(*) AS total FROM user_address WHERE User_Id=?");
-$address_count_stmt->bind_param("i", $user_id);
-$address_count_stmt->execute();
-$address_count = $address_count_stmt->get_result()->fetch_assoc();
-
-if ((int)($address_count['total'] ?? 0) === 0 && !empty($user['User_Address'])) {
-    $legacy_address = trim($user['User_Address']);
-    $is_default = 1;
-    $insert_legacy_stmt = $conn->prepare("INSERT INTO user_address (User_Id, Address_Text, Is_Default) VALUES (?, ?, ?)");
-    $insert_legacy_stmt->bind_param("isi", $user_id, $legacy_address, $is_default);
-    $insert_legacy_stmt->execute();
-}
-
-$address_book = [];
+// 1. 获取当前有效的默认地址索引
 $default_address_index = 0;
-$address_stmt = $conn->prepare("SELECT Address_Text, Is_Default FROM user_address WHERE User_Id=? ORDER BY Is_Default DESC, Address_Id ASC");
+$address_book = [];
+
+$address_stmt = $conn->prepare("SELECT Address_Id, Address_Text, Postcode, State, City, Is_Default FROM user_address WHERE User_Id=? ORDER BY Is_Default DESC, Address_Id ASC");
 $address_stmt->bind_param("i", $user_id);
 $address_stmt->execute();
 $address_result = $address_stmt->get_result();
 
-// 标准马来西亚州属列表，用于比对验证
-$valid_states = ['johor','kedah','kelantan','melaka','negeri sembillan','pahang','penang','perak','perlis','sabah','sarawak','selangor','terengganu','kuala lumpur','putrajaya','labuan'];
-
-while ($address_row = $address_result->fetch_assoc()) {
-    $is_default = (int)$address_row['Is_Default'] === 1;
+while ($row = $address_result->fetch_assoc()) {
+    $is_default = (int)$row['Is_Default'] === 1;
     if ($is_default) {
         $default_address_index = count($address_book);
     }
-
-    $full_text = trim($address_row['Address_Text']);
-    $parts = explode(',', $full_text);
-    $parts = array_map('trim', $parts); // 清除每个部分的空格
-
-    $street_text = $full_text;
-    $postcode = '';
-    $state = '';
-
-    // 智能校验：只有当最后一部分是有效州属，且倒数第二部分是5位数字时，才进行切分
-    if (count($parts) >= 3) {
-        $possible_state = strtolower(end($parts));
-        $possible_postcode = $parts[count($parts) - 2];
-
-        if (in_array($possible_state, $valid_states) && preg_match('/^\d{5}$/', $possible_postcode)) {
-            $state = array_pop($parts);
-            $postcode = array_pop($parts);
-            $street_text = implode(', ', $parts);
-        }
-    }
-
+    
     $address_book[] = [
-        'full_text'  => $full_text,
-        'text'       => $street_text,
-        'postcode'   => $postcode,
-        'state'      => $state,
+        'address_id' => $row['Address_Id'],
+        'text'       => $row['Address_Text'],
+        'postcode'   => $row['Postcode'],
+        'state'      => $row['State'],
+        'city'       => $row['City'],
         'is_default' => $is_default
     ];
 }
+$address_stmt->close();
 
 if (empty($address_book)) {
-    $address_book[] = ['full_text' => '', 'text' => '', 'postcode' => '', 'state' => '', 'is_default' => true];
+    $address_book[] = ['address_id' => 0, 'text' => '', 'postcode' => '', 'state' => '', 'city' => '', 'is_default' => true];
 }
-$selected_address_text = $address_book[$default_address_index]['full_text'] ?? '';
+
+// 2. 拼接当前选中的默认地址作为头部横条的预览文本
+$sel_addr = $address_book[$default_address_index];
+$selected_address_text = !empty($sel_addr['text']) ? $sel_addr['text'] . ', ' . $sel_addr['postcode'] . ', ' . $sel_addr['state'] : '';
 $passwordChangeDisabled = (empty($_SESSION['password_change_verified']) || $_SESSION['password_change_verified'] !== true) ? 'disabled' : '';
 $passwordVerified = ($passwordChangeDisabled === '') ? true : false;
 $available_promos = $conn->query("
@@ -804,25 +744,24 @@ body::after {
                         </div>
                     </div>
 
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
                 </div>
-            <?php endforeach; ?>
-        </div>
-    </div>
-</div>
-
-<style>
-    .hover-orange:hover { color: #ff6700 !important; }
-    .hover-danger:hover { color: #dc3545 !important; }
-    .address-row:last-child { border-bottom: none !important; }
-    .is-selected-active { background-color: #fffaf7; margin-left: -5px; margin-right: -5px; padding-left: 5px; padding-right: 5px; }
-</style>
+            </div> <div class="mb-4">
+                    <input type="file" id="avatarInput" name="avatar" accept="image/*" class="d-none" onchange="showSelectedFileName(this)">
+                    
+                    <span id="avatarFileName" class="small text-muted fw-semibold"></span>
+                </div>
+            </div>
 
             <div class="mb-4">
-                                <label class="small fw-bold text-muted">Change Avatar</label>
-                                <input type="file" name="profile_image" class="form-control bg-light border-0">
-                            </div>
-                            <button type="submit" class="btn btn-orange px-5 py-2">Save Profile Changes</button>
-                        </form>
+                <label class="small fw-bold text-muted">Change Avatar</label>
+                    <input type="file" name="profile_image" class="form-control bg-light border-0">
+            </div>
+                <button type="submit" class="btn btn-orange px-5 py-2">Save Profile Changes</button>
+            </form>
         </form>
     </div>
     
@@ -1746,6 +1685,7 @@ function handleOTPInput() {
         }
     });
 }
+
 </script>
 </div> 
 <?php include '../includes/footer.php'; ?>

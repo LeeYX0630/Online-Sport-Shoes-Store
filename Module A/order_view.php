@@ -644,26 +644,37 @@ include '../includes/header.php';
     });
 
     function downloadPDF() {
-        const element = document.getElementById('receipt-content');
-        
-        // 生成 PDF 前先隐藏底部的下载按钮，避免按钮被印进 PDF 里
-        const actionBtn = document.getElementById('actionBtnContainer');
-        if (actionBtn) actionBtn.style.display = 'none';
+    const element = document.getElementById('receipt-content');
+    
+    // 1. 隐藏收据内部的“Download PDF”按钮，防止被印进 PDF
+    const actionBtn = document.getElementById('actionBtnContainer');
+    if (actionBtn) actionBtn.style.display = 'none';
 
-        const options = {
-            margin:       [10, 10, 10, 10],
-            filename:     'Receipt_Order_#<?php echo $order_id; ?>.pdf',
-            image:        { type: 'jpeg', quality: 0.98 },
-            html2canvas:  { scale: 2, useCORS: true },
-            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
-        };
+    // 2. 核心修正：将收据临时移动到 body 根节点，脱离毛玻璃/渐变等复杂父级样式
+    const originalParent = element.parentNode;
+    const nextSibling = element.nextSibling;
+    document.body.appendChild(element);
 
-        // 开始下载
-        html2pdf().set(options).from(element).save().then(() => {
-            // 下载完成后，重新把按钮显示出来
-            if (actionBtn) actionBtn.style.display = 'block';
-        });
-    }
+    const options = {
+        margin:       [10, 10, 10, 10],
+        filename:     'Receipt_Order_#<?php echo $order_id; ?>.pdf',
+        image:        { type: 'jpeg', quality: 0.98 },
+        html2canvas:  { scale: 2, useCORS: true, logging: false },
+        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    };
+
+    // 3. 执行 html2pdf 转换
+    html2pdf().set(options).from(element).save().then(() => {
+        // 4. 下载完成后还原：把收据移回原来的 HTML 位置
+        if (nextSibling) {
+            originalParent.insertBefore(element, nextSibling);
+        } else {
+            originalParent.appendChild(element);
+        }
+        // 5. 重新显示下载按钮
+        if (actionBtn) actionBtn.style.display = 'block';
+    });
+}
 </script>
 
 <?php include '../includes/footer.php'; ?>

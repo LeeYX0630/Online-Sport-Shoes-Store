@@ -54,6 +54,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_btn'])) {
                 'phone'     => $clean_phone,
                 'address'   => trim($_POST['address']),
                 'postcode'  => trim($_POST['postcode']),
+                'city'      => trim($_POST['city']),
                 'state'     => trim($_POST['state']),
                 'dob'       => trim($_POST['dob']),
                 'password'  => $hashed_password,
@@ -292,11 +293,7 @@ include_once '../includes/header.php';
                 </div>
 
                 <div class="row g-4">
-                    <div class="col-md-6 mb-3">
-                        <label class="form-label">Postcode</label>
-                        <input type="text" id="postcode" name="postcode" class="form-control no-group-radius" maxlength="5" placeholder="75450" required>
-                    </div>
-                    <div class="col-md-6 mb-3">
+                    <div class="col-md-4 mb-3">
                         <label class="form-label">State</label>
                         <select name="state" class="form-select no-group-radius" required>
                             <option value="">Select State</option>
@@ -306,6 +303,14 @@ include_once '../includes/header.php';
                             <option>Sabah</option><option>Sarawak</option><option>Selangor</option>
                             <option>Terengganu</option><option>Kuala Lumpur</option>
                         </select>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label">City</label>
+                        <input type="text" name="city" class="form-control no-group-radius" placeholder="City" required>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label">Postcode</label>
+                        <input type="text" id="postcode" name="postcode" class="form-control no-group-radius" maxlength="5" placeholder="75450" required>
                     </div>
                 </div>
 

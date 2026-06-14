@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 // 强制开启 Session 以确保浏览记录和购物车生效
 if (session_status() === PHP_SESSION_NONE) {
     session_start();

@@ -42,6 +42,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['verify_btn'])) {
         $phone    = $user_data['phone'];
         $address  = $user_data['address'] ?? '';
         $postcode = $user_data['postcode'] ?? 0;
+        $city     = $user_data['city'] ?? '';
         $state    = $user_data['state'] ?? '';
         $dob      = $user_data['dob'] ?? null;
 
@@ -54,21 +55,42 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['verify_btn'])) {
         if ($check_result->num_rows > 0) {
             $error = "This email is already registered. Please log in instead.";
         } else {
-            // 4. 正式插入数据库
-            $stmt = $conn->prepare("
-                INSERT INTO user 
-                (User_Name, User_Email, User_Password, User_Phone, User_Address, User_Postcode, User_State, User_DateOfBirth, User_Balance) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0.00)
-            ");
+            // 4. 正式插入数据库 (已重构：分离地址表)
+            $conn->begin_transaction();
+            try {
+                // A. 插入用户主表 (不含地址信息)
+                $stmt = $conn->prepare("
+                    INSERT INTO user 
+                    (User_Name, User_Email, User_Password, User_Phone, User_DateOfBirth, User_Balance) 
+                    VALUES (?, ?, ?, ?, ?, 0.00)
+                ");
 
-            if (!$stmt) {
-                die("SQL Prepare Error: " . $conn->error);
-            }
+                if (!$stmt) {
+                    throw new Exception("SQL Prepare Error: " . $conn->error);
+                }
 
-            $stmt->bind_param("sssssiss", $name, $email, $password, $phone, $address, $postcode, $state, $dob);
+                $stmt->bind_param("sssss", $name, $email, $password, $phone, $dob);
+                $stmt->execute();
+                $new_user_id = $stmt->insert_id;
+                $stmt->close();
 
-            if ($stmt->execute()) {
-                $new_user_id = $stmt->insert_id; 
+                // B. 插入地址表并设为默认
+                $addr_stmt = $conn->prepare("
+                    INSERT INTO user_address 
+                    (User_Id, Address_Text, Postcode, State, City, Is_Default) 
+                    VALUES (?, ?, ?, ?, ?, 1)
+                ");
+                
+                if (!$addr_stmt) {
+                    throw new Exception("SQL Prepare Error (Address): " . $conn->error);
+                }
+                $addr_stmt->bind_param("issss", $new_user_id, $address, $postcode, $state, $city);
+                $addr_stmt->execute();
+                $new_address_id = $addr_stmt->insert_id;
+                $addr_stmt->close();
+
+                // C. 回写默认地址ID到用户主表外键
+                $conn->query("UPDATE user SET Default_Address_Id = '$new_address_id' WHERE User_Id = '$new_user_id'");
 
                 // =========================================================
                 // 流程 A：自动发放 New User 20% Welcome 优惠券
@@ -147,7 +169,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['verify_btn'])) {
                     }
                 }
 
-                // 成功：清除临时 Session 并跳转
+                // 成功：提交事务、清除临时 Session 并跳转
+                $conn->commit();
                 unset($_SESSION['temp_user']);
                 
                 // 根据是否获得了生日券，动态切换弹窗提示词
@@ -162,8 +185,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['verify_btn'])) {
                     window.location.href='login.php';
                 </script>";
                 exit();
-            } else {
-                $error = "Database Error during saving: " . $stmt->error;
+            } catch (Exception $e) {
+                $conn->rollback();
+                $error = "Database Error during saving: " . $e->getMessage();
             }
         }
     }
