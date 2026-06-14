@@ -3,6 +3,28 @@
 session_start();
 require_once '../includes/db_connection.php';
 
+// ── AJAX: 直接更新 User_Status ──
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'change_status') {
+    header('Content-Type: application/json');
+    $user_id = intval($_POST['user_id'] ?? 0);
+    $new_status = $_POST['new_status'] ?? '';
+
+    if (!in_array($new_status, ['Banned', 'Active']) || $user_id <= 0) {
+        echo json_encode(['success' => false, 'message' => 'Invalid request.']);
+        exit;
+    }
+
+    $stmt = $conn->prepare("UPDATE user SET User_Status = ? WHERE User_Id = ?");
+    $stmt->bind_param("si", $new_status, $user_id);
+    if ($stmt->execute() && $stmt->affected_rows >= 0) {
+        echo json_encode(['success' => true, 'message' => "User has been " . ($new_status === 'Banned' ? 'banned' : 'unbanned') . " successfully."]);
+    } else {
+        echo json_encode(['success' => false, 'message' => 'Database error: ' . $conn->error]);
+    }
+    $stmt->close();
+    exit;
+}
+
 // 1. 安全检查[cite: 2]
 if (!isset($_SESSION['role'])) {
     header("Location: admin_login.php");
@@ -199,7 +221,7 @@ $result = $conn->query($sql);
                                         <?php if($row['User_Status'] == 'Active'): ?>
                                             <span class="badge badge-active rounded-pill px-3 py-2">Active</span>
                                         <?php else: ?>
-                                            <span class="badge badge-suspended rounded-pill px-3 py-2">Suspended</span>
+                                            <span class="badge badge-suspended rounded-pill px-3 py-2">Banned</span>
                                         <?php endif; ?>
                                     </td>
                                     <td class="text-end pe-4">
@@ -212,7 +234,7 @@ $result = $conn->query($sql);
                                                 <li><hr class="dropdown-divider"></li>
                                                 <li>
                                                     <?php if($row['User_Status'] == 'Active'): ?>
-                                                        <a class="dropdown-item text-danger py-2" href="javascript:void(0)" onclick="changeStatus(<?php echo $row['User_Id']; ?>, 'Suspended')"><i class="bi bi-ban me-2"></i> Ban User</a>
+                                                        <a class="dropdown-item text-danger py-2" href="javascript:void(0)" onclick="changeStatus(<?php echo $row['User_Id']; ?>, 'Banned')"><i class="bi bi-ban me-2"></i> Ban User</a>
                                                     <?php else: ?>
                                                         <a class="dropdown-item text-success py-2" href="javascript:void(0)" onclick="changeStatus(<?php echo $row['User_Id']; ?>, 'Active')"><i class="bi bi-check-circle me-2"></i> Unban User</a>
                                                     <?php endif; ?>
@@ -243,19 +265,46 @@ $result = $conn->query($sql);
 </div>
 
 <script>
-function changeStatus(id, status) {
+function changeStatus(id, newStatus) {
+    const isBanning = newStatus === 'Banned';
     Swal.fire({
-        title: 'Are you sure?',
-        text: `Do you want to change this user status to ${status}?`,
+        title: isBanning ? 'Ban this user?' : 'Unban this user?',
+        text: isBanning ? 'The user will no longer be able to log in.' : 'The user account will be restored.',
         icon: 'warning',
         showCancelButton: true,
-        confirmButtonColor: '#FF8C00',
+        confirmButtonColor: isBanning ? '#ef4444' : '#10b981',
         cancelButtonColor: '#6c757d',
-        confirmButtonText: 'Yes, confirm!'
+        confirmButtonText: isBanning ? 'Yes, Ban!' : 'Yes, Unban!',
+        cancelButtonText: 'Cancel'
     }).then((result) => {
-        if (result.isConfirmed) {
-            window.location.href = `admin_process_user.php?id=${id}&status=${status}`;
-        }
+        if (!result.isConfirmed) return;
+
+        fetch(window.location.href, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `action=change_status&user_id=${id}&new_status=${newStatus}`
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                Swal.fire({
+                    title: 'Success!',
+                    text: data.message,
+                    icon: 'success',
+                    confirmButtonColor: '#FF8C00'
+                }).then(() => location.reload());
+            } else {
+                Swal.fire({
+                    title: 'Failed!',
+                    text: data.message,
+                    icon: 'error',
+                    confirmButtonColor: '#FF8C00'
+                });
+            }
+        })
+        .catch(() => {
+            Swal.fire({ title: 'Error!', text: 'Something went wrong. Please try again.', icon: 'error', confirmButtonColor: '#FF8C00' });
+        });
     });
 }
 

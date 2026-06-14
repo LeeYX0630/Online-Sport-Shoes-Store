@@ -317,7 +317,7 @@ if (isset($_POST['update_status'])) {
         $month_day = date('md');
         $permitted_chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
         $random_str = substr(str_shuffle($permitted_chars), 0, 2);
-        $tracking_number = "SSPMY" . $month_day . $random_str;
+        $tracking_number = "STXMY" . $month_day . $random_str;
 
         $check_shipment = mysqli_query($conn, "SELECT * FROM `shipment` WHERE Order_Id = '$order_id'");
         if (mysqli_num_rows($check_shipment) > 0) {

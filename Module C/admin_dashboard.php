@@ -40,8 +40,17 @@ function calculateGrowth($current, $previous) {
 }
 
 function renderGrowthUI($growth, $inverse = false) {
-    $isPositive = $growth >= 0;
-    $colorClass = $isPositive ? ($inverse ? 'text-danger-custom' : 'text-success-custom') : ($inverse ? 'text-success-custom' : 'text-danger-custom');
+    if ($growth == 0) {
+        // 没有变化 → 灰色，横线图标
+        return "<div class='growth-text text-muted'><i class='bi bi-dash'></i> 0.0% from last month</div>";
+    }
+    $isPositive = $growth > 0;
+    // inverse=true 表示指标越低越好（如 Pending），此时上升反而不好
+    if (!$inverse) {
+        $colorClass = $isPositive ? 'text-success-custom' : 'text-danger-custom';
+    } else {
+        $colorClass = $isPositive ? 'text-danger-custom' : 'text-success-custom';
+    }
     $icon = $isPositive ? 'bi-arrow-up-right' : 'bi-arrow-down-right';
     $sign = $isPositive ? '+' : '';
     return "<div class='growth-text {$colorClass}'><i class='bi {$icon}'></i> {$sign}" . number_format($growth, 1) . "% from last month</div>";
@@ -136,7 +145,7 @@ if ($chart_res) {
 $json_sales_data = json_encode($chart_data);
 
 // --- 5. 获取最近的订单 ---
-$sql_recent = "SELECT o.Order_Id, u.User_Name, 
+$sql_recent = "SELECT o.Order_Id, o.Order_Tracking_Num, u.User_Name, 
                IFNULL(SUM(od.Order_Subtotal), o.Order_Amount) as Display_Order_Amount, 
                o.Order_Status, o.Order_Date 
                FROM `order` o
@@ -144,7 +153,7 @@ $sql_recent = "SELECT o.Order_Id, u.User_Name,
                JOIN order_detail od ON o.Order_Id = od.Order_Id
                JOIN product p ON od.Pro_Id = p.Pro_Id
                WHERE 1=1 $brand_filter
-               GROUP BY o.Order_Id, u.User_Name, o.Order_Status, o.Order_Date, o.Order_Amount
+               GROUP BY o.Order_Id, o.Order_Tracking_Num, u.User_Name, o.Order_Status, o.Order_Date, o.Order_Amount
                ORDER BY o.Order_Date DESC 
                LIMIT 5";
 $recent_orders = $conn->query($sql_recent);
@@ -505,6 +514,15 @@ $json_ai_products = json_encode($ai_products_data);
         .innov-text-body { font-size: 13px; color: #cbd5e1; line-height: 1.6; }
         .btn-launch { background: #10b981; color: white; border: none; padding: 12px; border-radius: 10px; font-weight: 700; width: 100%; margin-top: 15px; cursor: pointer; transition: background 0.2s; }
         .btn-launch:hover { background: #059669; }
+
+        /* Recent Orders — status badge，颜色与 admin_manage_orders 一致 */
+        .dashboard-status-badge { display: inline-block; padding: 3px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; }
+        .dashboard-status-badge.bg-pending    { background-color: #FFF4E5; color: #FF8C00;  border: 1px solid #FFE0B2; }
+        .dashboard-status-badge.bg-processing { background-color: #f3e8ff; color: #7e22ce;  border: 1px solid #e9d5ff; }
+        .dashboard-status-badge.bg-shipped    { background-color: #E3F2FD; color: #1976D2;  border: 1px solid #BBDEFB; }
+        .dashboard-status-badge.bg-delivered  { background-color: #E8F5E9; color: #2E7D32;  border: 1px solid #C8E6C9; }
+        .dashboard-status-badge.bg-canceled   { background-color: #ffebee; color: #c62828;  border: 1px solid #ffcdd2; }
+        .dashboard-status-badge.bg-issue      { background-color: #fff8e1; color: #f57f17;  border: 1px solid #ffecb3; }
     </style>
 </head>
 <body>
@@ -579,7 +597,7 @@ $json_ai_products = json_encode($ai_products_data);
                         <div class="icon-box bg-light-orange"><i class="bi bi-clock-history"></i></div>
                         <div class="text-muted small fw-bold text-uppercase">Pending Orders</div>
                         <h3 class="fw-bold mt-1"><?php echo $pending_orders; ?></h3>
-                        <?php echo renderGrowthUI($pending_growth, true); ?>
+                        <?php echo renderGrowthUI($pending_growth); ?>
                     </div>
                 </div>
             </div>
@@ -610,12 +628,12 @@ $json_ai_products = json_encode($ai_products_data);
                                         <?php while($row = $recent_orders->fetch_assoc()): ?>
                                         <tr style="cursor: pointer;" onclick="window.location='order_details.php?id=<?php echo $row['Order_Id']; ?>'">
                                             <td class="ps-0 border-0">
-                                                <div class="fw-bold text-dark" style="font-size: 14px;">#<?php echo $row['Order_Id']; ?></div>
+                                                <div class="fw-bold text-dark" style="font-size: 14px;">ODR<?php echo htmlspecialchars($row['Order_Tracking_Num']); ?></div>
                                                 <small class="text-muted"><?php echo htmlspecialchars($row['User_Name'] ?: 'Guest'); ?></small>
                                             </td>
                                             <td class="text-end pe-0 border-0">
                                                 <div class="fw-bold text-dark" style="font-size: 14px;">RM <?php echo number_format($row['Display_Order_Amount'], 2); ?></div>
-                                                <span class="badge <?php echo ($row['Order_Status'] == 'Completed') ? 'bg-success' : 'bg-warning text-dark'; ?>" style="font-size: 9px;"><?php echo $row['Order_Status']; ?></span>
+                                                <span class="dashboard-status-badge bg-<?php echo strtolower($row['Order_Status']); ?>"><?php echo $row['Order_Status']; ?></span>
                                             </td>
                                         </tr>
                                         <?php endwhile; ?>
@@ -984,21 +1002,202 @@ function renderInnovationDashboard(data) {
     const sessionColor = pickSessionColor();
     const views  = ['Front View', 'Side Profile', '45° Angle'];
 
+    // ── Cinematic loading overlay (full-width, replaces skeleton boxes) ──
+    const loadingOverlayHTML = `
+        <style>
+            @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+            @keyframes scanline {
+                0%   { transform: translateY(-100%); opacity: 0; }
+                10%  { opacity: 1; }
+                90%  { opacity: 1; }
+                100% { transform: translateY(100vh); opacity: 0; }
+            }
+            @keyframes pulse-ring {
+                0%   { transform: scale(0.85); opacity: 0.6; }
+                50%  { transform: scale(1.05); opacity: 1; }
+                100% { transform: scale(0.85); opacity: 0.6; }
+            }
+            @keyframes orbit {
+                0%   { transform: rotate(0deg) translateX(38px) rotate(0deg); }
+                100% { transform: rotate(360deg) translateX(38px) rotate(-360deg); }
+            }
+            @keyframes orbit2 {
+                0%   { transform: rotate(120deg) translateX(38px) rotate(-120deg); }
+                100% { transform: rotate(480deg) translateX(38px) rotate(-480deg); }
+            }
+            @keyframes orbit3 {
+                0%   { transform: rotate(240deg) translateX(38px) rotate(-240deg); }
+                100% { transform: rotate(600deg) translateX(38px) rotate(-600deg); }
+            }
+            @keyframes fadePhase {
+                0%   { opacity: 0; transform: translateY(8px); }
+                15%  { opacity: 1; transform: translateY(0); }
+                85%  { opacity: 1; transform: translateY(0); }
+                100% { opacity: 0; transform: translateY(-8px); }
+            }
+            @keyframes progressFill {
+                0%   { width: 0%; }
+                100% { width: 100%; }
+            }
+            @keyframes glowPulse {
+                0%, 100% { box-shadow: 0 0 20px rgba(99,102,241,0.3), 0 0 40px rgba(99,102,241,0.1); }
+                50%       { box-shadow: 0 0 40px rgba(99,102,241,0.6), 0 0 80px rgba(99,102,241,0.2); }
+            }
+            #aiCinemaLoader {
+                width: 100%;
+                background: linear-gradient(135deg, #0a0e1a 0%, #0f172a 50%, #0a0e1a 100%);
+                border-radius: 16px;
+                padding: 48px 32px;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                min-height: 260px;
+                position: relative;
+                overflow: hidden;
+                animation: glowPulse 3s ease-in-out infinite;
+                margin-bottom: 20px;
+            }
+            #aiCinemaLoader::before {
+                content: '';
+                position: absolute;
+                top: 0; left: 0; right: 0; bottom: 0;
+                background: repeating-linear-gradient(
+                    0deg,
+                    transparent,
+                    transparent 2px,
+                    rgba(99,102,241,0.015) 2px,
+                    rgba(99,102,241,0.015) 4px
+                );
+                pointer-events: none;
+            }
+            .scan-line {
+                position: absolute;
+                top: 0; left: 0; right: 0;
+                height: 2px;
+                background: linear-gradient(90deg, transparent, rgba(99,102,241,0.6), rgba(139,92,246,0.8), rgba(99,102,241,0.6), transparent);
+                animation: scanline 4s ease-in-out infinite;
+                pointer-events: none;
+            }
+            .loader-orbit-ring {
+                position: relative;
+                width: 90px; height: 90px;
+                margin-bottom: 28px;
+            }
+            .orbit-center {
+                position: absolute;
+                top: 50%; left: 50%;
+                transform: translate(-50%, -50%);
+                width: 28px; height: 28px;
+                border-radius: 50%;
+                background: linear-gradient(135deg, #6366f1, #8b5cf6);
+                box-shadow: 0 0 20px rgba(99,102,241,0.8);
+                animation: pulse-ring 2s ease-in-out infinite;
+            }
+            .orbit-dot {
+                position: absolute;
+                top: 50%; left: 50%;
+                width: 7px; height: 7px;
+                border-radius: 50%;
+                margin: -3.5px;
+            }
+            .orbit-dot-1 { background: #6366f1; animation: orbit  2s linear infinite; }
+            .orbit-dot-2 { background: #8b5cf6; animation: orbit2 2s linear infinite; }
+            .orbit-dot-3 { background: #a78bfa; animation: orbit3 2s linear infinite; }
+            .loader-phase-text {
+                font-size: 15px;
+                font-weight: 700;
+                color: #e2e8f0;
+                letter-spacing: 0.5px;
+                text-align: center;
+                min-height: 24px;
+                animation: fadePhase 10s ease-in-out infinite;
+            }
+            .loader-sub-text {
+                font-size: 11px;
+                color: #475569;
+                margin-top: 6px;
+                letter-spacing: 1.5px;
+                text-transform: uppercase;
+            }
+            .loader-progress-track {
+                width: 280px;
+                height: 3px;
+                background: rgba(99,102,241,0.15);
+                border-radius: 99px;
+                margin-top: 24px;
+                overflow: hidden;
+            }
+            .loader-progress-bar {
+                height: 100%;
+                border-radius: 99px;
+                background: linear-gradient(90deg, #6366f1, #8b5cf6, #a78bfa);
+                animation: progressFill 45s linear forwards;
+            }
+            .loader-counter {
+                font-size: 11px;
+                color: #334155;
+                margin-top: 10px;
+                font-variant-numeric: tabular-nums;
+            }
+        </style>
+        <div id="aiCinemaLoader">
+            <div class="scan-line"></div>
+            <div class="loader-orbit-ring">
+                <div class="orbit-center"></div>
+                <div class="orbit-dot orbit-dot-1"></div>
+                <div class="orbit-dot orbit-dot-2"></div>
+                <div class="orbit-dot orbit-dot-3"></div>
+            </div>
+            <div class="loader-phase-text" id="loaderPhaseText">Connecting to AI Engine...</div>
+            <div class="loader-sub-text">AI IMAGE SYNTHESIS</div>
+            <div class="loader-progress-track">
+                <div class="loader-progress-bar" id="loaderProgressBar"></div>
+            </div>
+            <div class="loader-counter" id="loaderCounter">Estimated wait: ~45s</div>
+        </div>`;
+
+    // Phase message cycling (every ~11s over 45s)
+    const phases = [
+        "Connecting to AI Engine...",
+        "Composing Visual Structure...",
+        "Rendering Colors & Fine Details...",
+        "Almost Ready, Please Wait..."
+    ];
+    let phaseIdx = 0;
+    const phaseEl = () => document.getElementById('loaderPhaseText');
+    const phaseTimer = setInterval(() => {
+        phaseIdx = (phaseIdx + 1) % phases.length;
+        const el = phaseEl();
+        if (el) {
+            el.style.opacity = '0';
+            setTimeout(() => { if (phaseEl()) { phaseEl().textContent = phases[phaseIdx]; phaseEl().style.opacity = '1'; } }, 300);
+        }
+    }, 11000);
+
+    // Countdown timer
+    let secondsLeft = 45;
+    const countdownTimer = setInterval(() => {
+        secondsLeft--;
+        const el = document.getElementById('loaderCounter');
+        if (el && secondsLeft > 0) el.textContent = `Estimated wait: ~${secondsLeft}s`;
+        if (secondsLeft <= 0) clearInterval(countdownTimer);
+    }, 1000);
+
+    // Placeholder image boxes (hidden until ready)
     const skeletonBoxes = views.map((view, i) => `
-        <div class="concept-img-box" id="imgBox_${i}">
+        <div class="concept-img-box" id="imgBox_${i}" style="display:none;">
             <div class="img-skeleton" id="imgSkeleton_${i}" style="
                 width:100%; height:140px; border-radius:10px;
                 background: linear-gradient(90deg, #1e293b 25%, #293548 50%, #1e293b 75%);
                 background-size: 200% 100%;
                 animation: shimmer 1.4s infinite;
-                position:relative; z-index:1;
                 display:flex; align-items:center; justify-content:center;
                 flex-direction:column; gap:8px;
             ">
-                <div style="width:32px;height:32px;border:2px solid #334155;border-top-color:#10b981;border-radius:50%;animation:spin 0.8s linear infinite;"></div>
-                <span style="font-size:11px;color:#64748b;">Generating image...</span>
+                <div style="width:28px;height:28px;border:2px solid #334155;border-top-color:#6366f1;border-radius:50%;animation:spin 0.8s linear infinite;"></div>
             </div>
-            <div class="concept-label">${view} &nbsp;<span style="font-size:11px;color:#10b981;font-weight:600;" id="colorTag_${i}">· ${sessionColor}</span></div>
+            <div class="concept-label">${view} &nbsp;<span style="font-size:11px;color:#10b981;font-weight:600;">· ${sessionColor}</span></div>
         </div>
     `).join('');
 
@@ -1007,7 +1206,7 @@ function renderInnovationDashboard(data) {
             @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
         </style>
 
-        <div class="concept-images-container">${skeletonBoxes}</div>
+        <div class="concept-images-container" id="conceptImagesContainer">${loadingOverlayHTML}<div id="imgBoxesWrapper" style="display:none;width:100%;">${skeletonBoxes}</div></div>
 
         <div class="innov-grid">
             <div style="display: flex; flex-direction: column; gap: 20px;">
@@ -1072,25 +1271,59 @@ function renderInnovationDashboard(data) {
         `dynamic 45-degree three-quarter angle view`
     ];
 
-    views.forEach((view, i) => {
+    // ── Parallel image generation with Promise.all ──
+    const imageRequests = views.map((view, i) => {
         const imagePrompt = `Product photography of a single sports shoe called "${data.product_name}".
 Style: ${data.executive_summary}
 Color: ${sessionColor} colorway, consistent color across the entire shoe.
 Shot: ${anglePrompts[i]}.
 Background: completely transparent / pure white — NO background, NO floor shadow, NO studio props, NO environment, shoe only floating on empty white space.
 Quality: photorealistic, high-end commercial shoe photography, 4K crisp detail, no text, no watermark, single shoe only.`;
+        return generateShoeImage(imagePrompt, i, GEMINI_KEY);
+    });
 
-        generateShoeImage(imagePrompt, i, GEMINI_KEY);
+    Promise.all(imageRequests).then(() => {
+        clearInterval(phaseTimer);
+        clearInterval(countdownTimer);
+        const loader  = document.getElementById('aiCinemaLoader');
+        const wrapper = document.getElementById('imgBoxesWrapper');
+        if (loader) {
+            loader.style.transition = 'opacity 0.4s ease';
+            loader.style.opacity = '0';
+            setTimeout(() => {
+                if (loader) loader.remove();
+                if (wrapper) {
+                    wrapper.style.display = 'flex';
+                    wrapper.style.width = '100%';
+                    views.forEach((_, i) => {
+                        const box = document.getElementById(`imgBox_${i}`);
+                        if (box) {
+                            setTimeout(() => {
+                                box.style.display = '';
+                                box.style.animation = 'fadeInImg 0.5s ease forwards';
+                            }, i * 150);
+                        }
+                    });
+                }
+            }, 400);
+        }
+    }).catch(err => {
+        console.error('[ImgGen] Promise.all error:', err);
+        clearInterval(phaseTimer);
+        clearInterval(countdownTimer);
+        const loader = document.getElementById('aiCinemaLoader');
+        if (loader) loader.innerHTML = `<div style="color:#ef4444;font-size:13px;padding:24px;text-align:center;">
+            <i class="bi bi-exclamation-triangle" style="font-size:28px;display:block;margin-bottom:10px;"></i>
+            Image generation failed. Check console for details.</div>`;
     });
 }
 
 async function generateShoeImage(prompt, index, apiKey) {
     const skeleton = document.getElementById(`imgSkeleton_${index}`);
 
-    // Try gemini-2.5-flash-image first, fallback to gemini-2.0-flash-exp-image-generation
+    // 只用经过验证的图片生成模型
     const modelsToTry = [
-        'gemini-2.5-flash-image',
-        'gemini-2.0-flash-exp-image-generation'
+        'gemini-3.1-flash-image'
     ];
 
     for (const model of modelsToTry) {

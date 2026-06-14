@@ -49,39 +49,15 @@ if (isset($_POST['action']) && $_POST['action'] === 'generate_logo_bg') {
         echo json_encode(['error' => 'API key not found.']); exit();
     }
 
-<<<<<<< HEAD
     $project_root = realpath(__DIR__ . '/..') ?: (__DIR__ . '/..');
-=======
-    $brand_logo_path_db = "";
-
-<<<<<<< HEAD
-    // Ensure upload dir exists
-    $save_dir = __DIR__ . '/../images/brands/';
-    if (!is_dir($save_dir) && !mkdir($save_dir, 0777, true) && !is_dir($save_dir)) {
-        echo json_encode(['error' => 'Unable to create upload directory.']);
-        exit();
-    }
-=======
-    // Ensure upload dir exists (resolve project root to avoid saving under Module C)
-    $project_root = realpath(__DIR__ . '/..');
-    if ($project_root === false) $project_root = __DIR__ . '/..';
->>>>>>> 7fad789807b8f063b25c191d3823f2857e46ddd8
     $save_dir = rtrim($project_root, '/\\') . '/images/brands/';
     if (!is_dir($save_dir)) mkdir($save_dir, 0777, true);
->>>>>>> 1cda877435036e3b59a893d4800496ea2870a9c5
 
     $logo_base64 = $_POST['logo_base64'] ?? '';
     $logo_mime   = $_POST['logo_mime'] ?? 'image/png';
 
     if (empty($logo_base64)) {
-        echo json_encode(['error' => 'No logo file uploaded.']);
-        exit();
-    }
-
-    $logo_decoded = base64_decode($logo_base64, true);
-    if ($logo_decoded === false) {
-        echo json_encode(['error' => 'Invalid logo base64 data.']);
-        exit();
+        echo json_encode(['error' => 'No logo file uploaded.']); exit();
     }
 
     $brand_name_sanitized = str_replace([' ','/','\\',':','*','?','"','<','>','|'], '_', $brand_name);
@@ -89,26 +65,21 @@ if (isset($_POST['action']) && $_POST['action'] === 'generate_logo_bg') {
     // Save original logo file
     $ext = ($logo_mime === 'image/jpeg') ? 'jpg' : 'png';
     $brand_original_filename = $brand_name_sanitized . "_original." . $ext;
-<<<<<<< HEAD
     file_put_contents($save_dir . $brand_original_filename, base64_decode($logo_base64));
-=======
-    $brand_original_path = $save_dir . $brand_original_filename;
-    
-    if (file_put_contents($brand_original_path, $logo_decoded) === false) {
-        echo json_encode(['error' => 'Unable to save logo file.']);
-        exit();
-    }
->>>>>>> 7fad789807b8f063b25c191d3823f2857e46ddd8
 
     // Build AI prompt
-    $prompt = "A high-end cinematic sports brand product photography banner (16:9). 
-CORE ELEMENTS (FIXED): A pair of premium athletic sneakers prominently displayed in the center, occupying at least 60% of the frame. The brand logo must be integrated as a 3D matte-white embossed element on the shoe or on the central display surface, ensuring it is clear, sharp, and perfectly legible.
-ENVIRONMENT (RANDOMIZED): Generate a unique and professional commercial background each time. Choose one of the following distinct settings:
-- A soft, moody studio setting with dark silk fabric drapes and cinematic spotlighting.
-- A clean, minimalist 'infinite' dark void background with sharp, clean rim lighting that traces the sneaker silhouette.
-- An abstract product display surface featuring high-end materials like textured leather and carbon fiber, with soft, diffused professional studio light.
-- A sleek, modern podium setup in a dark, atmospheric space with subtle glowing edges.
-STYLE: Ultra-realistic, 8k resolution, professional advertising quality, deep color grading, dynamic depth of field with the sneakers in sharp focus and background softly blurred.";
+    $prompt = "A high-end cinematic sports brand banner image in a dark, moody black-and-white monochrome aesthetic (like a premium editorial shoot).
+
+COMPOSITION (strictly follow this layout):
+- BACKGROUND: Dark charcoal/black textured fabric (silk, satin, or leather drape) filling the entire frame. Moody, dramatic, low-key lighting.
+- SNEAKERS: One or two premium athletic sneakers displayed prominently, slightly off-center or angled dynamically, occupying approximately 55-65% of the frame. Rendered in high-contrast black and white, photorealistic with fine detail visible on sole texture and stitching.
+- BRAND LOGO: The uploaded logo must appear in the CENTER of the image, overlaid directly on top of the sneaker composition. The logo should be rendered in SOLID WHITE, large and bold, as if it is an illuminated graphic overlay. It must be clearly legible, sharp, and dominant.
+- BRAND NAME TEXT: Directly below the logo, render the brand name '{$brand_name}' in large, bold, all-caps white block letters (similar to the PUMA wordmark style). The text should be centered, clean, and the same size or slightly smaller than the logo icon.
+
+STYLE: Ultra-realistic 8K commercial advertising photography. Black and white color grade. Deep shadows, dramatic rim lighting on the sneakers. The logo and text must appear as sharp, clean white graphic elements layered over the photographic composition. No colored elements — entire image is monochrome except logo is pure white.
+
+IMPORTANT: The brand logo and '{$brand_name}' text must both be clearly visible, centered, and legible. Do not obscure them. This is the hero element of the banner.";
+
 
     $request_data = [
         "contents" => [[
@@ -119,7 +90,7 @@ STYLE: Ultra-realistic, 8k resolution, professional advertising quality, deep co
         ]]
     ];
 
-    $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=" . $apiKey;
+    $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image:generateContent?key=" . $apiKey;
     $ch  = curl_init($url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
@@ -130,17 +101,7 @@ STYLE: Ultra-realistic, 8k resolution, professional advertising quality, deep co
     if (curl_errno($ch)) { $err = curl_error($ch); curl_close($ch); echo json_encode(['error' => 'Curl error: ' . $err]); exit(); }
     curl_close($ch);
 
-<<<<<<< HEAD
     $decoded_result       = json_decode($result, true);
-=======
-    $decoded_result = json_decode($result, true);
-    if ($decoded_result === null && json_last_error() !== JSON_ERROR_NONE) {
-        echo json_encode(['error' => 'Invalid API response: ' . json_last_error_msg()]);
-        exit();
-    }
-
-    // 5. 解析 AI 返回的图片
->>>>>>> 7fad789807b8f063b25c191d3823f2857e46ddd8
     $generated_image_data = null;
     if (isset($decoded_result['candidates'][0]['content']['parts'])) {
         foreach ($decoded_result['candidates'][0]['content']['parts'] as $part) {
@@ -149,25 +110,12 @@ STYLE: Ultra-realistic, 8k resolution, professional advertising quality, deep co
     }
 
     if ($generated_image_data) {
-<<<<<<< HEAD
         // Save to a TEMP file — NOT the final filename, NOT written to DB yet
         $temp_filename = $brand_name_sanitized . "_preview_" . time() . ".png";
         $temp_path     = $save_dir . $temp_filename;
         file_put_contents($temp_path, $generated_image_data);
         $web_path = '../images/brands/' . $temp_filename;
         echo json_encode(['success' => true, 'img_url' => $web_path . '?t=' . time(), 'temp_filename' => $temp_filename]);
-=======
-        $brand_generated_filename = $brand_name_sanitized . ".png";
-        $brand_generated_path = $save_dir . $brand_generated_filename;
-        
-        if (file_put_contents($brand_generated_path, $generated_image_data) === false) {
-            echo json_encode(['error' => 'Unable to save generated image.']);
-            exit();
-        }
-        
-        $web_path = '../images/brands/' . $brand_generated_filename; // used for JSON response
-        $brand_logo_db_filename = $brand_generated_filename; // store only filename in DB
->>>>>>> 7fad789807b8f063b25c191d3823f2857e46ddd8
     } else {
         // AI failed — return original as preview
         $web_path = '../images/brands/' . $brand_original_filename;
@@ -694,14 +642,8 @@ async function generateBrandBanner() {
         fd.append('logo_base64', b64);
         fd.append('logo_mime',   mime);
 
-        const res = await fetch('admin_profile.php', { method: 'POST', body: fd });
-        const text = await res.text();
-        let data;
-        try {
-            data = JSON.parse(text);
-        } catch (parseErr) {
-            throw new Error('Invalid server response: ' + text.substring(0, 300));
-        }
+        const res  = await fetch('admin_profile.php', { method: 'POST', body: fd });
+        const data = await res.json();
 
         if (data.error) {
             Swal.fire({ icon: 'error', title: 'Generation Failed', text: data.error, confirmButtonColor: '#FF8C00' });

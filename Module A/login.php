@@ -21,7 +21,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
         // Try both password_verify (hashed) and plain text comparison
         if (password_verify($password, $user['User_Password']) || $password === trim($user['User_Password'])) {
-            // Set basic session data
+            
+            // Check if user is banned
+            if (isset($user['User_Status']) && $user['User_Status'] === 'Banned') {
+                $login_error = "BANNED";
+            } else {
             $_SESSION['user_id'] = $user['User_Id'];
             $_SESSION['user_name'] = $user['User_Name'];
             
@@ -54,6 +58,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
             // ------------------------------
             
+            } // end if not Banned
+            
         } else {
             $login_error = "Security Key (Password) is incorrect.";
         }
@@ -74,6 +80,7 @@ include_once '../includes/header.php';
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&family=Space+Grotesk:wght@700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     
     <style>
         :root {
@@ -242,6 +249,23 @@ include_once '../includes/header.php';
         </div>
     </div>
 </div>
+
+<?php if ($login_error === 'BANNED'): ?>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        Swal.fire({
+            icon: 'error',
+            title: 'Account Suspended',
+            html: `Your account has been <strong>banned</strong> and cannot be used to log in.<br><br>
+                   <span style="font-size:13px; color:#666;">If you have any questions, please contact:<br>
+                   <a href="mailto:admin@sport.com" style="color:#FF6B00; font-weight:700;">admin@sport.com</a></span>`,
+            confirmButtonColor: '#FF6B00',
+            confirmButtonText: 'OK',
+            allowOutsideClick: false
+        });
+    });
+</script>
+<?php endif; ?>
 
 </body>
 </html>

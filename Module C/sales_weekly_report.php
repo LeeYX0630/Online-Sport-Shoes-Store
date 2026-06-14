@@ -514,8 +514,8 @@ $j_brand_amounts   = json_encode($brand_amounts);
         <div class="calendar-trigger" id="datePickerBtn">
             <i class="bi bi-calendar-event"></i>
             <span>Week: <?php echo date('d M', strtotime($start_of_week)) . ' – ' . date('d M Y', strtotime($end_of_week)); ?></span>
+            <input type="text" id="weekPicker" style="position:absolute; opacity:0; pointer-events:none; width:1px; height:1px; bottom:0; left:0;">
         </div>
-        <input type="text" id="weekPicker" style="display:none;">
         <button onclick="downloadPDF()" class="btn-print" id="dlBtn">
             <i class="bi bi-file-earmark-pdf-fill"></i> Download PDF Report
         </button>
@@ -703,9 +703,8 @@ document.getElementById('datePickerBtn').addEventListener('click', () => fp.open
 const fp = flatpickr("#weekPicker", {
     defaultDate: "<?php echo $selected_date; ?>",
     maxDate: "today",
-    appendTo: document.getElementById('datePickerBtn'),
-    static: true,
-    position: "below",
+    positionElement: document.getElementById('datePickerBtn'),
+    position: "auto below",
     onChange: function(selectedDates, dateStr) {
         window.location.href = "sales_weekly_report.php?date=" + dateStr;
     }
