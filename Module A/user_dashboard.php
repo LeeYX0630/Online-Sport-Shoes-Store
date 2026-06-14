@@ -45,11 +45,14 @@ $user_id = $_SESSION['user_id'];
 $msg = "";
 $msg_type = "";
 
+// 💡 升级版：增加了 Postcode 和 State 字段，完美对接前端的输入框
 $conn->query("
     CREATE TABLE IF NOT EXISTS user_address (
         Address_Id INT AUTO_INCREMENT PRIMARY KEY,
         User_Id INT NOT NULL,
         Address_Text TEXT NOT NULL,
+        Postcode VARCHAR(10) NOT NULL,
+        State VARCHAR(50) NOT NULL,
         Is_Default TINYINT(1) NOT NULL DEFAULT 0,
         Created_At TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         Updated_At TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -348,7 +351,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     }
                 }
 
-                // HANDLE PROFILE IMAGE UPLOAD
+               // HANDLE PROFILE IMAGE UPLOAD
                 if (!empty($_FILES['profile_image']['name'])) {
                     $upload_dir = __DIR__ . "/../uploads/";
                     if (!is_dir($upload_dir)) {
@@ -365,6 +368,50 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                         $msg_type = "danger";
                     }
                 }
+
+                // =======================================================
+                // ADDED: MULTIPLE ADDRESSES SYNCHRONIZATION (SMART FIXED)
+                // =======================================================
+                if (isset($_POST['addresses'])) {
+                    $submitted_addresses = $_POST['addresses'] ?? [];
+                    $submitted_postcodes = $_POST['postcodes'] ?? [];
+                    $submitted_states    = $_POST['states'] ?? [];
+                    $default_index       = (int)($_POST['default_address_index'] ?? 0);
+
+                    // 1. First, wipe out old address records for this user to fresh sync
+                    $delete_stmt = $conn->prepare("DELETE FROM user_address WHERE User_Id = ?");
+                    $delete_stmt->bind_param("i", $user_id);
+                    $delete_stmt->execute();
+
+                    // 2. Loop through each row submitted from the frontend HTML
+                    foreach ($submitted_addresses as $i => $raw_addr) {
+                        // FIX: 去除首尾空格，同时强力清除可能不小心残留在末尾的逗号，防止数据无限叠加
+                        $clean_addr = rtrim(trim($raw_addr), ','); 
+                        $clean_post = trim($submitted_postcodes[$i] ?? '');
+                        $clean_stat = trim($submitted_states[$i] ?? '');
+                        
+                        // If all inputs in this row are completely empty, skip it
+                        if (empty($clean_addr) && empty($clean_post) && empty($clean_stat)) {
+                            continue;
+                        }
+                        
+                        // FIX: 只有在邮编和州属都有值时，才用标准逗号拼接；否则只保留路名，防止拼接出多余的空白逗号
+                        if (!empty($clean_post) && !empty($clean_stat)) {
+                            $full_address_string = "$clean_addr, $clean_post, $clean_stat";
+                        } else {
+                            $full_address_string = $clean_addr;
+                        }
+                        
+                        // Determine if this item is selected as Default by user
+                        $is_default = ($i === $default_index) ? 1 : 0;
+                        
+                        // Insert new compiled string row into user_address database table
+                        $insert_stmt = $conn->prepare("INSERT INTO user_address (User_Id, Address_Text, Is_Default) VALUES (?, ?, ?)");
+                        $insert_stmt->bind_param("isi", $user_id, $full_address_string, $is_default);
+                        $insert_stmt->execute();
+                    }
+                }
+                // =======================================================
                 
                 $msg = "Profile updated successfully!";
                 $msg_type = "success";
@@ -373,11 +420,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         }
     }
 }
-
 // ===============================
-// FETCH DATA
+// FETCH DATA (SMART ACCURATE SPLITTING)
 // ===============================
-$user_res = $conn->query("SELECT * FROM `user` WHERE User_Id='$user_id'");
+$user_res = $conn->query("SELECT * FROM user WHERE User_Id='$user_id'");
 $user = $user_res->fetch_assoc();
 
 $address_count_stmt = $conn->prepare("SELECT COUNT(*) AS total FROM user_address WHERE User_Id=?");
@@ -387,45 +433,61 @@ $address_count = $address_count_stmt->get_result()->fetch_assoc();
 
 if ((int)($address_count['total'] ?? 0) === 0 && !empty($user['User_Address'])) {
     $legacy_address = trim($user['User_Address']);
-    $legacy_postcode = trim($user['User_Postcode'] ?? '');
-    $legacy_state = trim($user['User_State'] ?? '');
     $is_default = 1;
-    $safe_address = $conn->real_escape_string($legacy_address);
-    $safe_postcode = $conn->real_escape_string($legacy_postcode);
-    $safe_state = $conn->real_escape_string($legacy_state);
-    $conn->query("INSERT INTO user_address (User_Id, Address_Text, Postcode, `State`, Is_Default) VALUES ('$user_id', '$safe_address', '$safe_postcode', '$safe_state', '$is_default')");
+    $insert_legacy_stmt = $conn->prepare("INSERT INTO user_address (User_Id, Address_Text, Is_Default) VALUES (?, ?, ?)");
+    $insert_legacy_stmt->bind_param("isi", $user_id, $legacy_address, $is_default);
+    $insert_legacy_stmt->execute();
 }
 
 $address_book = [];
 $default_address_index = 0;
-$address_stmt = $conn->prepare("SELECT Address_Text, Postcode, `State`, Is_Default FROM user_address WHERE User_Id=? ORDER BY Is_Default DESC, Address_Id ASC");
+$address_stmt = $conn->prepare("SELECT Address_Text, Is_Default FROM user_address WHERE User_Id=? ORDER BY Is_Default DESC, Address_Id ASC");
 $address_stmt->bind_param("i", $user_id);
 $address_stmt->execute();
 $address_result = $address_stmt->get_result();
-$idx = 0;
+
+// 标准马来西亚州属列表，用于比对验证
+$valid_states = ['johor','kedah','kelantan','melaka','negeri sembillan','pahang','penang','perak','perlis','sabah','sarawak','selangor','terengganu','kuala lumpur','putrajaya','labuan'];
+
 while ($address_row = $address_result->fetch_assoc()) {
     $is_default = (int)$address_row['Is_Default'] === 1;
     if ($is_default) {
         $default_address_index = count($address_book);
     }
+
+    $full_text = trim($address_row['Address_Text']);
+    $parts = explode(',', $full_text);
+    $parts = array_map('trim', $parts); // 清除每个部分的空格
+
+    $street_text = $full_text;
+    $postcode = '';
+    $state = '';
+
+    // 智能校验：只有当最后一部分是有效州属，且倒数第二部分是5位数字时，才进行切分
+    if (count($parts) >= 3) {
+        $possible_state = strtolower(end($parts));
+        $possible_postcode = $parts[count($parts) - 2];
+
+        if (in_array($possible_state, $valid_states) && preg_match('/^\d{5}$/', $possible_postcode)) {
+            $state = array_pop($parts);
+            $postcode = array_pop($parts);
+            $street_text = implode(', ', $parts);
+        }
+    }
+
     $address_book[] = [
-        'text' => $address_row['Address_Text'],
-        'postcode' => $address_row['Postcode'] ?? '',
-        'state' => $address_row['State'] ?? '',
-        'is_default' => $is_default,
-        'saved' => true,
+        'full_text'  => $full_text,
+        'text'       => $street_text,
+        'postcode'   => $postcode,
+        'state'      => $state,
+        'is_default' => $is_default
     ];
-    $idx++;
 }
+
 if (empty($address_book)) {
-    $address_book[] = ['text' => '', 'postcode' => '', 'state' => '', 'is_default' => true, 'saved' => false];
+    $address_book[] = ['full_text' => '', 'text' => '', 'postcode' => '', 'state' => '', 'is_default' => true];
 }
-
-$selected = $address_book[$default_address_index] ?? ['text'=>'','postcode'=>'','state'=>''];
-$selected_address_text = trim($selected['text']);
-if (!empty($selected['postcode'])) $selected_address_text .= (empty($selected_address_text) ? '' : "\n") . $selected['postcode'];
-if (!empty($selected['state'])) $selected_address_text .= (empty($selected_address_text) ? '' : "\n") . $selected['state'];
-
+$selected_address_text = $address_book[$default_address_index]['full_text'] ?? '';
 $passwordChangeDisabled = (empty($_SESSION['password_change_verified']) || $_SESSION['password_change_verified'] !== true) ? 'disabled' : '';
 $passwordVerified = ($passwordChangeDisabled === '') ? true : false;
 $available_promos = $conn->query("
@@ -653,84 +715,94 @@ body::after {
                        value="<?php echo $user['User_Email']; ?>" required>
             </div>
             
-            <div class="mb-4 address-book-shell rounded-4">
-                <div class="address-summary-card p-3">
-                    <div class="d-flex align-items-start gap-3">
-                        <span class="address-icon-badge"><i class="bi bi-truck"></i></span>
-                        <div class="flex-grow-1">
-                            <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
-                                <label class="small fw-bold text-muted text-uppercase mb-0">Address Book</label>
-                                <span class="badge rounded-pill text-bg-light border" id="addressCountBadge"><?php echo count($address_book); ?> saved</span>
-                            </div>
-                            <div id="selectedAddressPreview" class="address-summary-lines fw-semibold text-dark fs-6">
-                                <?php echo !empty($selected_address_text) ? htmlspecialchars($selected_address_text) : 'No address selected. Please add one.'; ?>
-                            </div>
-                        </div>
-                        <button class="btn btn-light btn-sm border address-toggle-btn rounded-circle" type="button" data-bs-toggle="collapse" data-bs-target="#collapseAddresses" aria-expanded="<?php echo empty($selected_address_text) ? 'true' : 'false'; ?>" aria-controls="collapseAddresses" id="addrChevronBtn" title="Edit addresses">
-                            <i class="bi bi-pencil-square" style="font-size: 1.05rem; color: var(--brand-orange);"></i>
-                        </button>
-                    </div>
+           <div class="mb-4 address-book-shell rounded-4 border bg-white shadow-sm overflow-hidden" style="border-color: #eaeaea !important;">
+    <div class="address-summary-card p-3 bg-light bg-opacity-25 border-bottom">
+        <div class="d-flex align-items-center justify-content-between">
+            <div class="d-flex align-items-center gap-2">
+                <i class="bi bi-geo-alt text-muted fs-5"></i>
+                <div id="selectedAddressPreview" class="fw-semibold text-dark small">
+                    <?php echo !empty($selected_address_text) ? htmlspecialchars($selected_address_text) : 'No address selected.'; ?>
                 </div>
+            </div>
+            <span class="badge rounded-pill text-bg-light border text-muted small" id="addressCountBadge" style="font-size: 0.75rem; font-weight: 500;"><?php echo count($address_book); ?> Saved</span>
+        </div>
+    </div>
 
-                <input type="hidden" name="default_address_index" id="defaultAddressIndex" value="<?php echo $default_address_index; ?>">
+    <input type="hidden" name="default_address_index" id="defaultAddressIndex" value="<?php echo htmlspecialchars($default_address_index); ?>">
 
-                <div class="collapse <?php echo empty($selected_address_text) ? 'show' : ''; ?>" id="collapseAddresses">
-                    <div class="p-3 border-top">
-                        <div class="d-flex justify-content-between align-items-center mb-3">
-                            <div>
-                                <div class="small fw-bold text-uppercase text-muted" style="letter-spacing: 1px;">Saved Addresses</div>
+    <div class="p-3">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div class="small fw-bold text-uppercase text-muted" style="letter-spacing: 0.5px; font-size: 0.75rem;">Shipping Addresses</div>
+            <button type="button" class="btn btn-sm rounded-pill fw-bold px-3" id="addNewAddressBtn" style="border: 1px solid #ff6700; color: #ff6700; background: transparent; font-size: 0.8rem;">
+                <i class="bi bi-plus-lg me-1"></i> Add New
+            </button>
+        </div>
+
+        <div id="addressBook" class="position-relative">
+            <?php foreach ($address_book as $index => $address): ?>
+                <?php 
+                $is_current_selected = ($index == $default_address_index); 
+                $addr_text = $address['text'] ?? '';
+                $addr_postcode = $address['postcode'] ?? '';
+                $addr_state = $address['state'] ?? '';
+                ?>
+                
+                <div class="address-row py-3 border-bottom <?php echo $is_current_selected ? 'is-selected-active' : ''; ?>" data-index="<?php echo $index; ?>" style="transition: all 0.2s ease;">
+                    
+                    <div class="address-readonly-text d-flex align-items-center justify-content-between gap-3" style="cursor: pointer;" onclick="handleRowSelect(this, event)">
+                        <div class="d-flex align-items-center gap-2 flex-grow-1">
+                            <div class="custom-radio-dot rounded-circle border d-flex align-items-center justify-content-center" style="width: 16px; height: 16px; min-width: 16px; border-color: <?php echo $is_current_selected ? '#ff6700' : '#ccc'; ?>;">
+                                <div class="dot-inner rounded-circle <?php echo $is_current_selected ? '' : 'd-none'; ?>" style="width: 8px; height: 8px; background-color: #ff6700;"></div>
                             </div>
-                            <button type="button" class="btn btn-outline-orange btn-sm rounded-3 fw-bold" id="addNewAddressBtn">
-                                <i class="bi bi-plus-lg me-1"></i> Add
-                            </button>
+                            
+                            <?php if ($is_current_selected): ?>
+                                <span class="badge id-addr-badge px-2 py-1 text-white" style="background-color: #ff6700; font-size: 0.7rem; font-weight: 500; border-radius: 4px;">Default</span>
+                            <?php endif; ?>
+
+                            <span class="readonly-combined-string text-dark small <?php echo $is_current_selected ? 'fw-bold' : 'text-muted'; ?>">
+                                <?php echo !empty($addr_text) ? htmlspecialchars($addr_text) . ', ' . htmlspecialchars($addr_postcode) . ', ' . htmlspecialchars($addr_state) : '(Empty Address)'; ?>
+                            </span>
                         </div>
 
-                        <div id="addressBook">
-                            <?php foreach ($address_book as $index => $address): ?>
-                                <?php $is_current_selected = ($index == $default_address_index); ?>
-                                <div class="address-row mb-3 p-3 <?php echo $is_current_selected ? 'selected' : ''; ?>" data-index="<?php echo $index; ?>">
-                                    
-                                    <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
-                                        <div>
-                                            <span class="badge id-addr-badge <?php echo $is_current_selected ? 'text-bg-warning' : 'text-bg-light border'; ?>">
-                                                <?php echo $is_current_selected ? 'Default Address' : 'Address ' . ($index + 1); ?>
-                                            </span>
-                                        </div>
-                                        <div class="btn-group btn-group-sm address-book-actions">
-                                            <button type="button" class="btn btn-outline-success <?php echo $is_current_selected ? 'active' : ''; ?> id-check-btn" onclick="setAsDefaultAddress(this)" title="Set default">
-                                                <i class="bi bi-check2"></i>
-                                            </button>
-                                            <button type="button" class="btn btn-outline-danger" onclick="removeAddressBox(this)" title="Remove address">
-                                                <i class="bi bi-trash3"></i>
-                                            </button>
-                                        </div>
-                                    </div>
+                        <div class="action-icons-group d-flex gap-2">
+                            <span class="text-muted p-1 hover-orange" title="Edit" onclick="editSingleAddress(this, event)" style="cursor: pointer;"><i class="bi bi-pencil"></i></span>
+                            <span class="text-muted p-1 hover-danger" title="Delete" onclick="removeAddressBox(this, event)" style="cursor: pointer;"><i class="bi bi-trash3"></i></span>
+                        </div>
+                    </div>
 
-                                    <div class="row g-3">
-                                        <div class="col-12">
-                                            <label class="small fw-bold text-muted">Shipping Address</label>
-                                            <textarea name="addresses[]" class="form-control address-text-field" rows="2" placeholder="House number, building, street name, city" oninput="updateSelectedAddressPreview()"><?php echo htmlspecialchars($address['text'] ?? ''); ?></textarea>
-                                        </div>
-                                        
-                                        <div class="col-md-5">
-                                            <label class="small fw-bold text-muted">Postcode</label>
-                                            <input type="text" name="postcodes[]" class="form-control address-postcode-field" maxlength="5" placeholder="75450" value="<?php echo htmlspecialchars($address['postcode'] ?? ''); ?>" oninput="this.value = this.value.replace(/[^0-9]/g, ''); updateSelectedAddressPreview()">
-                                        </div>
-                                        
-                                        <div class="col-md-7">
-                                            <label class="small fw-bold text-muted">State</label>
-                                            <select name="states[]" class="form-select address-state-field" onchange="updateSelectedAddressPreview()">
-                                                <option value="">Select State</option>
-                                                <?php
-                                                $states = ['Johor','Kedah','Kelantan','Melaka','Negeri Sembilan','Pahang','Penang','Perak','Perlis','Sabah','Sarawak','Selangor','Terengganu','Kuala Lumpur','Putrajaya','Labuan'];
-                                                foreach ($states as $st) {
-                                                    $sel = (isset($address['state']) && $address['state'] === $st) ? 'selected' : '';
-                                                    echo "<option value=\"".htmlspecialchars($st)."\" $sel>".htmlspecialchars($st)."</option>";
-                                                }
-                                                ?>
-                                            </select>
-                                        </div>
-                                    </div>
+                    <div class="address-input-fields d-none mt-3 p-3 rounded-3 bg-light bg-opacity-50 border">
+                        <div class="row g-3">
+                            <div class="col-12">
+                                <label class="small fw-bold text-muted mb-1" style="font-size: 0.75rem;">Street Address</label>
+                                <textarea name="addresses[]" class="form-control address-text-field bg-white" rows="2" placeholder="House number, building, street name" oninput="updateSelectedAddressPreview()" style="font-size: 0.85rem; border-color: #e0e0e0;"><?php echo htmlspecialchars($addr_text); ?></textarea>
+                            </div>
+                            <div class="col-md-5">
+                                <label class="small fw-bold text-muted mb-1" style="font-size: 0.75rem;">Postcode</label>
+                                <input type="text" name="postcodes[]" class="form-control address-postcode-field bg-white" maxlength="5" value="<?php echo htmlspecialchars($addr_postcode); ?>" oninput="this.value = this.value.replace(/[^0-9]/g, ''); updateSelectedAddressPreview()" style="font-size: 0.85rem; border-color: #e0e0e0;">
+                            </div>
+                            <div class="col-md-7">
+                                <label class="small fw-bold text-muted mb-1" style="font-size: 0.75rem;">State</label>
+                                <select name="states[]" class="form-select address-state-field bg-white" onchange="updateSelectedAddressPreview()" style="font-size: 0.85rem; border-color: #e0e0e0;">
+                                    <option value="">Select State</option>
+                                    <?php 
+                                    $states_list = ['Johor','Kedah','Kelantan','Melaka','Negeri Sembilan','Pahang','Penang','Perak','Perlis','Sabah','Sarawak','Selangor','Terengganu','Kuala Lumpur','Putrajaya','Labuan'];
+                                    foreach ($states_list as $st) {
+                                        // FIXED: Retaining the database state configuration correctly
+                                        $selected = (trim(strtolower($addr_state)) === trim(strtolower($st))) ? 'selected' : '';
+                                        echo "<option value=\"".htmlspecialchars($st)."\" $selected>$st</option>";
+                                    } ?>
+                                </select>
+                            </div>
+                            <div class="col-12 text-end mt-2 d-flex justify-content-end gap-2">
+                                <button type="button" class="btn btn-sm btn-light border px-3 fw-bold rounded-2 text-muted" onclick="discardSingleAddress(this)" style="font-size: 0.8rem;">
+                                    Cancel
+                                </button>
+                                <button type="button" class="btn btn-sm text-white px-3 fw-bold rounded-2" onclick="confirmSingleAddress(this)" style="background-color: #ff6700; font-size: 0.8rem;">
+                                    Save
+                                </button>
+                            </div>
+                        </div>
+                    </div>
 
                                 </div>
                             <?php endforeach; ?>
@@ -749,13 +821,12 @@ body::after {
                 </div>
             </div>
 
-            <div class="row justify-content-end g-2">
-                <div class="col-6 col-md-4 d-flex gap-2 justify-content-end">
-                    <button type="button" class="btn btn-light px-3 rounded-3 fw-semibold text-muted w-50" onclick="window.location.reload();">Cancel</button>
-                    <button type="submit" name="update_profile" class="btn btn-orange px-3 rounded-3 fw-bold text-white shadow-sm w-50">Save</button>
-                </div>
-            </div>
-
+            <div class="mb-4">
+                                <label class="small fw-bold text-muted">Change Avatar</label>
+                                <input type="file" name="profile_image" class="form-control bg-light border-0">
+                            </div>
+                            <button type="submit" class="btn btn-orange px-5 py-2">Save Profile Changes</button>
+                        </form>
         </form>
     </div>
     
@@ -1178,69 +1249,7 @@ body::after {
         });
     }
 
-    document.addEventListener('DOMContentLoaded', function() {
-        const sendOtpBtn = document.getElementById('sendSecurityOTP');
-        const verifyOtpBtn = document.getElementById('verifySecurityOTP');
-        
-        if (sendOtpBtn) {
-            sendOtpBtn.addEventListener('click', function() {
-                sendOtpBtn.disabled = true; sendOtpBtn.innerText = 'Sending...';
-                const formData = new FormData();
-                formData.append('action', 'send_security_otp');
-                fetch('user_dashboard.php', { method: 'POST', body: formData })
-                .then(r => r.json())
-                .then(data => {
-                    if (data.success) {
-                        document.getElementById('securityOtpSection').classList.remove('d-none');
-                        document.getElementById('securityOtpMessage').innerText = data.message;
-                        document.getElementById('securityOtpMessage').className = 'mt-2 small text-success';
-                    } else { alert(data.message); }
-                }).finally(() => { sendOtpBtn.disabled = false; sendOtpBtn.innerText = 'Send OTP'; });
-            });
-        }
-
-        if (verifyOtpBtn) {
-            verifyOtpBtn.addEventListener('click', function() {
-                const otpVal = document.getElementById('security_otp').value;
-                const formData = new FormData();
-                formData.append('action', 'verify_security_otp');
-                formData.append('otp', otpVal);
-                fetch('user_dashboard.php', { method: 'POST', body: formData })
-                .then(r => r.json())
-                .then(data => {
-                    if (data.success) {
-                        document.getElementById('securityOtpSection').classList.add('d-none');
-                        sendOtpBtn.classList.add('d-none');
-                        document.getElementById('verifiedBadge').classList.remove('d-none');
-                        document.getElementById('currentPassInput').removeAttribute('disabled');
-                        document.getElementById('newPassInput').removeAttribute('disabled');
-                        document.getElementById('confirmPassInput').removeAttribute('disabled');
-                        document.getElementById('updatePasswordBtn').removeAttribute('disabled');
-                    } else {
-                        document.getElementById('securityOtpMessage').innerText = data.message;
-                        document.getElementById('securityOtpMessage').className = 'mt-2 small text-danger';
-                    }
-                });
-            });
-        }
-    });
-
-    function setupWalletPIN() {
-        Swal.fire({
-            title: 'Activate Your E-Wallet', text: 'Please set a 6-digit secure PIN to protect your balance.', input: 'password',
-            inputAttributes: { maxlength: 6, autocapitalize: 'off', autocorrect: 'off', pattern: '[0-9]*', inputmode: 'numeric' },
-            showCancelButton: true, confirmButtonText: 'Set PIN', confirmButtonColor: '#FF6B00',
-            inputValidator: (value) => { if (!/^\d{6}$/.test(value)) { return 'PIN must be exactly 6 digits!'; } }
-        }).then((result) => {
-            if (result.isConfirmed) {
-                fetch('../Module B/update_pin_handler.php', {
-                    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: `new_pin=${result.value}`
-                }).then(res => res.json()).then(data => {
-                    if (data.success) { Swal.fire('Activated!', 'Your wallet is now ready.', 'success').then(() => location.reload()); }
-                });
-            }
-        });
-    }
+   
 
     async function forgotWalletPIN() {
         Swal.fire({
@@ -1278,215 +1287,469 @@ body::after {
         });
     }
 
-    // 1. 核心修复：根据隐藏域的当前值，统一刷新所有行的 data-index、高亮状态和 Badge 标签
-    function refreshAddressLabels() {
-        const defaultIndexInput = document.getElementById('defaultAddressIndex');
-        // 如果隐藏域不存在或为空，默认为 0
-        const currentDefault = (defaultIndexInput && defaultIndexInput.value !== '') ? Number(defaultIndexInput.value) : 0;
-        const rows = document.querySelectorAll('#addressBook .address-row');
+   function refreshAddressLabels() {
+    const defaultIndexInput = document.getElementById('defaultAddressIndex');
+    const currentDefault = (defaultIndexInput && defaultIndexInput.value !== '') ? Number(defaultIndexInput.value) : 0;
+    const rows = document.querySelectorAll('#addressBook .address-row');
 
-        rows.forEach((row, index) => {
-            // 规范化写入 data-index
-            row.setAttribute('data-index', index);
-            row.dataset.index = index;
+    rows.forEach((row, index) => {
+        row.setAttribute('data-index', index);
+        row.dataset.index = index;
 
-            const badge = row.querySelector('.id-addr-badge');
-            const defaultBtn = row.querySelector('.id-check-btn');
-            
-            // 纯粹根据当前索引 index 是否等于隐藏域记录的 currentDefault 来决定状态
-            const isSelected = (index === currentDefault);
+        const isSelected = (index === currentDefault);
+        row.classList.toggle('is-selected-active', isSelected);
 
-            // 切换外框的高亮样式
-            row.classList.toggle('selected', isSelected);
+        const radioDot = row.querySelector('.custom-radio-dot');
+        const innerDot = row.querySelector('.dot-inner');
+        if (radioDot) radioDot.style.borderColor = isSelected ? '#ff6700' : '#ccc';
+        if (innerDot) innerDot.classList.toggle('d-none', !isSelected);
 
-            if (badge) {
-                badge.textContent = isSelected ? 'Default Address' : `Address ${index + 1}`;
-                badge.className = `badge id-addr-badge ${isSelected ? 'text-bg-warning' : 'text-bg-light border'}`;
+        let labelContainer = row.querySelector('.d-flex.align-items-center');
+        let existingBadge = row.querySelector('.id-addr-badge');
+        
+        if (isSelected) {
+            if (!existingBadge && labelContainer) {
+                const badge = document.createElement('span');
+                badge.className = 'badge id-addr-badge px-2 py-1 text-white me-1';
+                badge.style = 'background-color: #ff6700; font-size: 0.7rem; font-weight: 500; border-radius: 4px;';
+                badge.textContent = 'Default';
+                radioDot.insertAdjacentElement('afterend', badge);
             }
+            row.querySelector('.readonly-combined-string')?.classList.add('fw-bold');
+        } else {
+            if (existingBadge) existingBadge.remove();
+            row.querySelector('.readonly-combined-string')?.classList.remove('fw-bold');
+        }
+    });
 
-            if (defaultBtn) { 
-                defaultBtn.classList.toggle('active', isSelected); 
-            }
+    const countBadge = document.getElementById('addressCountBadge');
+    if (countBadge) {
+        countBadge.textContent = `${rows.length} Saved`;
+    }
+}
+
+function updateSelectedAddressPreview() {
+    const defaultIndexInput = document.getElementById('defaultAddressIndex');
+    const rows = document.querySelectorAll('#addressBook .address-row');
+    const selectedIndex = defaultIndexInput ? Number(defaultIndexInput.value) : 0;
+    const preview = document.getElementById('selectedAddressPreview');
+    if (!preview) return;
+
+    const selectedRow = rows[selectedIndex];
+    if (selectedRow) {
+        const addr = selectedRow.querySelector('.address-text-field')?.value.trim() || '';
+        const post = selectedRow.querySelector('.address-postcode-field')?.value.trim() || '';
+        const state = selectedRow.querySelector('.address-state-field')?.value || '';
+        
+        let combined = [addr, post, state].filter(Boolean).join(', ');
+        preview.textContent = combined ? combined : 'No address selected.';
+    } else {
+        preview.textContent = 'No address selected.';
+    }
+}
+
+function handleRowSelect(element, event) {
+    const row = element.closest('.address-row');
+    if (!row) return;
+
+    const rows = document.querySelectorAll('#addressBook .address-row');
+    const selectedIndex = Array.from(rows).indexOf(row);
+    const defaultIndexInput = document.getElementById('defaultAddressIndex');
+    
+    if (defaultIndexInput) defaultIndexInput.value = selectedIndex;
+
+    refreshAddressLabels();
+    updateSelectedAddressPreview();
+}
+
+function confirmSingleAddress(button) {
+    const row = button.closest('.address-row');
+    if (!row) return;
+
+    const addr = (row.querySelector('.address-text-field')?.value || '').trim().replace(/,+$/, '');
+    const post = (row.querySelector('.address-postcode-field')?.value || '').trim();
+    const state = row.querySelector('.address-state-field')?.value || '';
+
+    // 强校验：必须输入完整的5位邮编和选择州属
+    if (!addr || post.length !== 5 || !state) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'Invalid Address',
+            text: 'Please enter a valid street address, 5-digit postcode, and select a state.',
+            confirmButtonColor: '#ff6700'
         });
-
-        // 动态更新最上方卡片里的 "X saved" 数量
-        const countBadge = document.getElementById('addressCountBadge');
-        if (countBadge) {
-            countBadge.textContent = `${rows.length} saved`;
-        }
+        return;
     }
 
-    // 2. 刷新上方的预览文字卡片
-    function updateSelectedAddressPreview() {
-        const defaultIndexInput = document.getElementById('defaultAddressIndex');
-        const rows = document.querySelectorAll('#addressBook .address-row');
-        const selectedIndex = defaultIndexInput ? Number(defaultIndexInput.value) : 0;
-        const preview = document.getElementById('selectedAddressPreview');
-        
-        if (!preview) return;
-        
-        const selectedRow = rows[selectedIndex];
-        if (!selectedRow) { 
-            preview.textContent = 'No address selected. Please add one.'; 
-            return; 
-        }
-        
-        const addressField = selectedRow.querySelector('.address-text-field');
-        const postcodeField = selectedRow.querySelector('.address-postcode-field');
-        const stateField = selectedRow.querySelector('.address-state-field');
-        
-        const previewText = [
-            addressField?.value.trim() || '', 
-            postcodeField?.value.trim() || '', 
-            stateField?.value.trim() || ''
-        ].filter(Boolean).join('\n');
-        
-        preview.textContent = previewText || 'No address selected. Please add one.';
+    const textBlock = row.querySelector('.address-readonly-text');
+    const inputBlock = row.querySelector('.address-input-fields');
+    const textSpan = row.querySelector('.readonly-combined-string');
+
+    // 严谨的前端同步文本展示
+    if (textSpan) {
+        textSpan.innerText = `${addr}, ${post}, ${state}`;
     }
 
-    // 3. 点击钩子按钮设为默认地址
-    // 3. 点击钩子按钮设为默认地址（并自动收起列表）
-    function setAsDefaultAddress(button) {
-        const currentRow = button.closest('.address-row');
-        if (!currentRow) return;
+    if (inputBlock) inputBlock.classList.add('d-none');
+    if (textBlock) textBlock.classList.remove('d-none');
+    row.classList.remove('is-new-unsaved');
+    
+    updateSelectedAddressPreview();
+}
 
-        // 在读取前，先强制刷新一次 index，确保拿到的 data-index 是最新且绝对准确的
-        const rows = Array.from(document.querySelectorAll('#addressBook .address-row'));
-        const index = rows.indexOf(currentRow);
-        
-        const defaultIndexInput = document.getElementById('defaultAddressIndex');
-        if (defaultIndexInput) {
-            defaultIndexInput.value = index;
-        }
-        
-        // 让刷新函数根据刚刚写入的新 index 去更新全页面的 UI 样式
-        refreshAddressLabels();
-        updateSelectedAddressPreview();
+function discardSingleAddress(button) {
+    const row = button.closest('.address-row');
+    if (!row) return;
 
-        // ✨ 新增：选好地址后，自动将下方的地址面板折叠收起
-        const collapseElement = document.getElementById('collapseAddresses');
-        if (collapseElement) {
-            // 获取或创建 Bootstrap 的 Collapse 实例
-            const bsCollapse = bootstrap.Collapse.getInstance(collapseElement) || new bootstrap.Collapse(collapseElement, { toggle: false });
-            bsCollapse.hide(); // 自动收起
-        }
+    const textBlock = row.querySelector('.address-readonly-text');
+    const inputBlock = row.querySelector('.address-input-fields');
+    
+    const isNewUnsaved = row.classList.contains('is-new-unsaved');
+    const addr = row.querySelector('.address-text-field')?.value.trim() || '';
+
+    if (isNewUnsaved && !addr) {
+        removeAddressBox(button, null);
+    } else {
+        if (inputBlock) inputBlock.classList.add('d-none');
+        if (textBlock) textBlock.classList.remove('d-none');
     }
+    
+    updateSelectedAddressPreview();
+}
 
-    // 4. 动态增加地址框
-    function addAddressBox() {
-        const addressBook = document.getElementById('addressBook');
-        if (!addressBook) return;
-        
-        const wrapper = document.createElement('div');
-        wrapper.className = 'address-row mb-3 p-3'; 
-        
-        wrapper.innerHTML = `
-            <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
-                <div><span class="badge id-addr-badge text-bg-light border">New Address</span></div>
-                <div class="btn-group btn-group-sm address-book-actions">
-                    <button type="button" class="btn btn-outline-success id-check-btn" onclick="setAsDefaultAddress(this)"><i class="bi bi-check2"></i></button>
-                    <button type="button" class="btn btn-outline-danger" onclick="removeAddressBox(this)"><i class="bi bi-trash3"></i></button>
+function editSingleAddress(element, event) {
+    if (event) event.stopPropagation();
+    
+    const row = element.closest('.address-row');
+    if (!row) return;
+
+    const textBlock = row.querySelector('.address-readonly-text');
+    const inputBlock = row.querySelector('.address-input-fields');
+    
+    if (textBlock) textBlock.classList.add('d-none');
+    if (inputBlock) inputBlock.classList.remove('d-none');
+}
+
+function addAddressBox() {
+    const addressBook = document.getElementById('addressBook');
+    if (!addressBook) return;
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'address-row py-3 border-bottom is-new-unsaved';
+    
+    wrapper.innerHTML = `
+        <div class="address-readonly-text d-none d-flex align-items-center justify-content-between gap-3" style="cursor: pointer;" onclick="handleRowSelect(this, event)">
+            <div class="d-flex align-items-center gap-2 flex-grow-1">
+                <div class="custom-radio-dot rounded-circle border d-flex align-items-center justify-content-center" style="width: 16px; height: 16px; min-width: 16px;">
+                    <div class="dot-inner rounded-circle d-none" style="width: 8px; height: 8px; background-color: #ff6700;"></div>
                 </div>
+                <span class="readonly-combined-string text-dark small"></span>
             </div>
+            <div class="action-icons-group d-flex gap-2">
+                <span class="text-muted p-1 hover-orange" title="Edit" onclick="editSingleAddress(this, event)" style="cursor: pointer;"><i class="bi bi-pencil"></i></span>
+                <span class="text-muted p-1 hover-danger" title="Delete" onclick="removeAddressBox(this, event)" style="cursor: pointer;"><i class="bi bi-trash3"></i></span>
+            </div>
+        </div>
+
+        <div class="address-input-fields p-3 rounded-3 bg-light bg-opacity-50 border">
             <div class="row g-3">
                 <div class="col-12">
-                    <label class="small fw-bold text-muted">Shipping Address</label>
-                    <textarea name="addresses[]" class="form-control address-text-field" rows="2" placeholder="House number, building name..." oninput="updateSelectedAddressPreview()"></textarea>
+                    <label class="small fw-bold text-muted mb-1" style="font-size: 0.75rem;">Street Address</label>
+                    <textarea name="addresses[]" class="form-control address-text-field bg-white" rows="2" placeholder="House number, building, street name" oninput="updateSelectedAddressPreview()" style="font-size: 0.85rem; border-color: #e0e0e0;"></textarea>
                 </div>
                 <div class="col-md-5">
-                    <label class="small fw-bold text-muted">Postcode</label>
-                    <input type="text" name="postcodes[]" class="form-control address-postcode-field" maxlength="5" placeholder="75450" oninput="this.value = this.value.replace(/[^0-9]/g, ''); updateSelectedAddressPreview()">
+                    <label class="small fw-bold text-muted mb-1" style="font-size: 0.75rem;">Postcode</label>
+                    <input type="text" name="postcodes[]" class="form-control address-postcode-field bg-white" maxlength="5" placeholder="Zip code" oninput="this.value = this.value.replace(/[^0-9]/g, ''); updateSelectedAddressPreview()" style="font-size: 0.85rem; border-color: #e0e0e0;">
                 </div>
                 <div class="col-md-7">
-                    <label class="small fw-bold text-muted">State</label>
-                    <select name="states[]" class="form-select address-state-field" onchange="updateSelectedAddressPreview()">
+                    <label class="small fw-bold text-muted mb-1" style="font-size: 0.75rem;">State</label>
+                    <select name="states[]" class="form-select address-state-field bg-white" onchange="updateSelectedAddressPreview()" style="font-size: 0.85rem; border-color: #e0e0e0;">
                         <option value="">Select State</option>
-                        <option>Johor</option><option>Kedah</option><option>Kelantan</option><option>Melaka</option><option>Negeri Sembilan</option><option>Pahang</option><option>Penang</option><option>Perak</option><option>Perlis</option><option>Sabah</option><option>Sarawak</option><option>Selangor</option><option>Terengganu</option><option>Kuala Lumpur</option><option>Putrajaya</option><option>Labuan</option>
+                        <option value="Johor">Johor</option><option value="Kedah">Kedah</option><option value="Kelantan">Kelantan</option>
+                        <option value="Melaka">Melaka</option><option value="Negeri Sembilan">Negeri Sembilan</option><option value="Pahang">Pahang</option>
+                        <option value="Penang">Penang</option><option value="Perak">Perak</option><option value="Perlis">Perlis</option>
+                        <option value="Sabah">Sabah</option><option value="Sarawak">Sarawak</option><option value="Selangor">Selangor</option>
+                        <option value="Terengganu">Terengganu</option><option value="Kuala Lumpur">Kuala Lumpur</option><option value="Putrajaya">Putrajaya</option>
+                        <option value="Labuan">Labuan</option>
                     </select>
                 </div>
-            </div>`;
-            
-        addressBook.appendChild(wrapper);
+                <div class="col-12 text-end mt-2 d-flex justify-content-end gap-2">
+                    <button type="button" class="btn btn-sm btn-light border px-3 fw-bold rounded-2 text-muted" onclick="discardSingleAddress(this)" style="font-size: 0.8rem;">
+                        Cancel
+                    </button>
+                    <button type="button" class="btn btn-sm text-white px-3 fw-bold rounded-2" onclick="confirmSingleAddress(this)" style="background-color: #ff6700; font-size: 0.8rem;">
+                        Save
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    addressBook.appendChild(wrapper);
+    refreshAddressLabels();
+    updateSelectedAddressPreview();
+}
+
+function removeAddressBox(button, event) {
+    if (event) event.stopPropagation();
+
+    const rows = document.querySelectorAll('#addressBook .address-row');
+    const rowToRemove = button.closest('.address-row');
+    if (!rowToRemove) return;
+
+    const defaultIndexInput = document.getElementById('defaultAddressIndex');
+    const currentDefault = defaultIndexInput ? Number(defaultIndexInput.value) : 0;
+    const removeIndex = Array.from(rows).indexOf(rowToRemove);
+
+    if (rows.length <= 1) {
+        if(rowToRemove.querySelector('.address-text-field')) rowToRemove.querySelector('.address-text-field').value = '';
+        if(rowToRemove.querySelector('.address-postcode-field')) rowToRemove.querySelector('.address-postcode-field').value = '';
+        if(rowToRemove.querySelector('.address-state-field')) rowToRemove.querySelector('.address-state-field').value = '';
         
-        // 关键顺序：
-        // 1. 先把全新的一列插进 DOM 树
-        // 2. 找到它在当前列表里属于第几个索引
-        const rows = Array.from(document.querySelectorAll('#addressBook .address-row'));
-        const newIndex = rows.indexOf(wrapper);
+        rowToRemove.querySelector('.address-readonly-text')?.classList.add('d-none');
+        rowToRemove.querySelector('.address-input-fields')?.classList.remove('d-none');
         
-        // 3. 更新隐藏域
-        const defaultIndexInput = document.getElementById('defaultAddressIndex');
-        if (defaultIndexInput) {
-            defaultIndexInput.value = newIndex;
-        }
-        
-        // 4. 一键渲染样式与更新顶部卡片
-        refreshAddressLabels();
         updateSelectedAddressPreview();
-        
-        wrapper.querySelector('textarea').focus();
+        return;
     }
 
-    // 5. 动态删除地址框
-    function removeAddressBox(button) {
-        const rows = document.querySelectorAll('#addressBook .address-row');
-        const rowToRemove = button.closest('.address-row');
-        if (!rowToRemove) return;
-        
-        const defaultIndexInput = document.getElementById('defaultAddressIndex');
-        const currentDefault = defaultIndexInput ? Number(defaultIndexInput.value) : 0;
-        const removeIndex = Array.from(rows).indexOf(rowToRemove);
+    rowToRemove.remove();
+    const updatedRows = document.querySelectorAll('#addressBook .address-row');
+    if (!defaultIndexInput) return;
 
-        // 如果只剩最后一行，禁止删除，改为清空内容
-        if (rows.length <= 1) {
-            rowToRemove.querySelectorAll('textarea, input').forEach(field => field.value = '');
-            const stateSelect = rowToRemove.querySelector('select'); 
-            if (stateSelect) stateSelect.value = '';
-            
-            if (defaultIndexInput) defaultIndexInput.value = 0;
-            refreshAddressLabels();
-            updateSelectedAddressPreview(); 
-            return;
-        }
-        
-        // 从页面上移除节点
-        rowToRemove.remove();
-        const updatedRows = document.querySelectorAll('#addressBook .address-row');
-        if (!defaultIndexInput) return;
-        
-        // 重新计算并修正隐藏输入框的值
-        if (removeIndex === currentDefault || currentDefault >= updatedRows.length) {
-            // 如果删掉的是当前默认地址，自动把默认项切到临近的有效行
-            const nextDefault = Math.max(0, Math.min(removeIndex, updatedRows.length - 1));
+    if (removeIndex === currentDefault || currentDefault >= updatedRows.length) {
+        const nextDefault = Math.max(0, Math.min(removeIndex, updatedRows.length - 1));
+        if (updatedRows[nextDefault]) {
             defaultIndexInput.value = nextDefault;
-        } else if (currentDefault > removeIndex) {
-            // 如果删掉的卡片在默认地址的上方，默认地址的 index 必须减 1 以保持对齐
-            defaultIndexInput.value = currentDefault - 1;
         }
-        
-        // 重新洗牌所有行的真实 index，刷新文本状态
-        refreshAddressLabels(); 
-        updateSelectedAddressPreview();
+    } else {
+        defaultIndexInput.value = currentDefault > removeIndex ? currentDefault - 1 : currentDefault;
+    }
+    
+    refreshAddressLabels();
+    updateSelectedAddressPreview();
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    const addNewAddressBtn = document.getElementById('addNewAddressBtn');
+    if (addNewAddressBtn) {
+        addNewAddressBtn.addEventListener('click', function () {
+            addAddressBox();
+        });
     }
 
-    // 6. 页面初始化绑定
-    document.addEventListener('DOMContentLoaded', function () {
-        const addNewAddressBtn = document.getElementById('addNewAddressBtn');
-        if (addNewAddressBtn) {
-            addNewAddressBtn.addEventListener('click', function () {
-                addAddressBox();
-                const collapseAddresses = document.getElementById('collapseAddresses');
-                if (collapseAddresses && !collapseAddresses.classList.contains('show')) { 
-                    collapseAddresses.classList.add('show'); 
+    document.querySelectorAll('#addressBook .address-row').forEach(row => {
+        const addr = row.querySelector('.address-text-field')?.value.trim() || '';
+        const post = row.querySelector('.address-postcode-field')?.value.trim() || '';
+        const state = row.querySelector('.address-state-field')?.value || '';
+        
+        if (addr && post && state) {
+            const textBlock = row.querySelector('.address-readonly-text');
+            const inputBlock = row.querySelector('.address-input-fields');
+            if (inputBlock) inputBlock.classList.add('d-none');
+            if (textBlock) textBlock.classList.remove('d-none');
+        }
+    });
+
+    refreshAddressLabels();
+    updateSelectedAddressPreview();
+});
+// OTP 身份认证逻辑前端 AJAX 的处理绑定
+document.addEventListener('DOMContentLoaded', function() {
+    const sendOtpBtn = document.getElementById('sendSecurityOTP');
+    const verifyOtpBtn = document.getElementById('verifySecurityOTP');
+    
+    // ==========================================
+    // 1. 发送登录密码修改的安全验证码 (已修复传参格式)
+    // ==========================================
+    if (sendOtpBtn) {
+        sendOtpBtn.addEventListener('click', function() {
+            sendOtpBtn.disabled = true;
+            sendOtpBtn.innerText = 'Sending...';
+            
+            // 💡 改用 URLSearchParams，确保后端 XAMPP $_POST['action'] 100% 能完美接收
+            const params = new URLSearchParams();
+            params.append('action', 'send_security_otp');
+
+            fetch('user_dashboard.php', { 
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: params.toString() 
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('securityOtpSection').classList.remove('d-none');
+                    document.getElementById('securityOtpMessage').innerText = data.message;
+                    document.getElementById('securityOtpMessage').className = 'mt-2 small text-success';
+                } else {
+                    Swal.fire('Error', data.message || 'Failed to send OTP.', 'error');
+                }
+            })
+            .catch(err => {
+                console.error(err);
+                Swal.fire('Error', 'Network error or system issue.', 'error');
+            })
+            .finally(() => {
+                sendOtpBtn.disabled = false;
+                sendOtpBtn.innerText = 'Send OTP';
+            });
+        });
+    }
+
+    // ==========================================
+    // 2. 校验登录密码修改的验证码 (已修复传参格式)
+    // ==========================================
+    if (verifyOtpBtn) {
+        verifyOtpBtn.addEventListener('click', function() {
+            const otpVal = document.getElementById('security_otp').value.trim();
+            if (!/^\d{6}$/.test(otpVal)) {
+                Swal.fire('Invalid Format', 'Please enter a valid 6-digit code.', 'warning');
+                return;
+            }
+
+            const params = new URLSearchParams();
+            params.append('action', 'verify_security_otp');
+            params.append('otp', otpVal);
+
+            fetch('user_dashboard.php', { 
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: params.toString() 
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('securityOtpSection').classList.add('d-none');
+                    sendOtpBtn.classList.add('d-none');
+                    document.getElementById('verifiedBadge').classList.remove('d-none');
+                    
+                    // 核心解锁：移除禁用，允许修改密码
+                    document.getElementById('currentPassInput').removeAttribute('disabled');
+                    document.getElementById('newPassInput').removeAttribute('disabled');
+                    document.getElementById('confirmPassInput').removeAttribute('disabled');
+                    document.getElementById('updatePasswordBtn').removeAttribute('disabled');
+                    
+                    Swal.fire('Identity Verified!', data.message, 'success');
+                } else {
+                    document.getElementById('securityOtpMessage').innerText = data.message;
+                    document.getElementById('securityOtpMessage').className = 'mt-2 small text-danger';
+                }
+            })
+            .catch(err => {
+                console.error(err);
+                Swal.fire('Error', 'Network error during validation.', 'error');
+            });
+        });
+    }
+});
+
+// ==========================================
+// 3. 电子钱包激活与 PIN 设置逻辑 (保持原逻辑畅通)
+// ==========================================
+function setupWalletPIN() {
+    Swal.fire({
+        title: 'Activate Your E-Wallet',
+        text: 'Please set a 6-digit secure PIN to protect your balance.',
+        input: 'password',
+        inputAttributes: { maxlength: 6, autocapitalize: 'off', autocorrect: 'off', pattern: '[0-9]*', inputmode: 'numeric' },
+        showCancelButton: true,
+        confirmButtonText: 'Set PIN',
+        confirmButtonColor: '#FF6B00',
+        inputValidator: (value) => {
+            if (!/^\d{6}$/.test(value)) { return 'PIN must be exactly 6 digits!'; }
+        }
+    }).then((result) => {
+        if (result.isConfirmed) {
+            fetch('../Module B/update_pin_handler.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: `new_pin=${result.value}`
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) { 
+                    Swal.fire('Activated!', 'Your wallet is now ready.', 'success').then(() => location.reload()); 
+                } else {
+                    Swal.fire('Failed', data.message || 'Failed to set PIN.', 'error');
                 }
             });
         }
-        // 初始化运行，完美衔接来自 PHP 的初始选中状态
-        refreshAddressLabels();
-        updateSelectedAddressPreview();
     });
+}
+
+// ==========================================
+// 4. 电子钱包 PIN 码重置申请
+// ==========================================
+async function forgotWalletPIN() {
+    Swal.fire({
+        title: 'Reset Wallet PIN',
+        text: "We will send an OTP to your registered email.",
+        icon: 'info',
+        showCancelButton: true,
+        confirmButtonText: 'Send OTP',
+        confirmButtonColor: '#FF6B00',
+        showLoaderOnConfirm: true,
+        preConfirm: () => {
+            return fetch('../Module B/wallet_pin_reset_handler.php', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: 'action=request_otp'
+            })
+            .then(res => {
+                if (!res.ok) throw new Error('Network response error');
+                return res.json();
+            })
+            .catch(error => {
+                Swal.showValidationMessage(`Request failed: ${error}`);
+            });
+        }
+    }).then((result) => {
+        if (result.isConfirmed && result.value && result.value.success) {
+            handleOTPInput();
+        } else if (result.isConfirmed && result.value) {
+            Swal.fire('Failed', result.value.message || 'Could not send OTP.', 'error');
+        }
+    });
+}
+
+// ==========================================
+// 5. 电子钱包 PIN 码验证并重置提交
+// ==========================================
+function handleOTPInput() {
+    Swal.fire({
+        title: 'Verify OTP',
+        html: `
+            <input type="text" id="otp_code" class="swal2-input" placeholder="6-digit OTP" maxlength="6">
+            <input type="password" id="reset_pin" class="swal2-input" placeholder="Enter New 6-digit PIN" maxlength="6">
+        `,
+        confirmButtonText: 'Reset PIN',
+        confirmButtonColor: '#17735b',
+        preConfirm: () => {
+            const otp = document.getElementById('otp_code').value.trim();
+            const pin = document.getElementById('reset_pin').value.trim();
+            if (!/^\d{6}$/.test(otp)) return Swal.showValidationMessage('Invalid OTP format');
+            if (!/^\d{6}$/.test(pin)) return Swal.showValidationMessage('PIN must be 6 digits');
+            
+            let formData = new URLSearchParams();
+            formData.append('action', 'verify_and_reset');
+            formData.append('otp', otp);
+            formData.append('new_pin', pin);
+
+            return fetch('../Module B/wallet_pin_reset_handler.php', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: formData.toString()
+            }).then(res => res.json());
+        }
+    }).then((result) => {
+        if (result.value && result.value.success) {
+            Swal.fire('Success!', 'Your Wallet PIN has been updated.', 'success').then(() => location.reload());
+        } else if (result.value) {
+            Swal.fire('Failed', result.value.message, 'error');
+        }
+    });
+}
 </script>
-
 </div> 
-
 <?php include '../includes/footer.php'; ?>
