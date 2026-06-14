@@ -804,22 +804,18 @@ body::after {
                         </div>
                     </div>
 
-                                </div>
-                            <?php endforeach; ?>
-                        </div>
-                    </div>
                 </div>
-            </div> <div class="mb-4">
-                <label class="small fw-bold text-muted d-block mb-2">Change Avatar</label>
-                <div class="d-flex align-items-center gap-3">
-                    <label for="avatarInput" class="btn btn-orange px-4 py-2 rounded-3 fw-bold text-white shadow-sm mb-0" style="cursor: pointer;">
-                        <i class="bi bi-camera me-2"></i>Upload Photo
-                    </label>
-                    <input type="file" id="avatarInput" name="profile_image" accept="image/*" class="d-none" onchange="showSelectedFileName(this)">
-                    
-                    <span id="avatarFileName" class="small text-muted fw-semibold"></span>
-                </div>
-            </div>
+            <?php endforeach; ?>
+        </div>
+    </div>
+</div>
+
+<style>
+    .hover-orange:hover { color: #ff6700 !important; }
+    .hover-danger:hover { color: #dc3545 !important; }
+    .address-row:last-child { border-bottom: none !important; }
+    .is-selected-active { background-color: #fffaf7; margin-left: -5px; margin-right: -5px; padding-left: 5px; padding-right: 5px; }
+</style>
 
             <div class="mb-4">
                                 <label class="small fw-bold text-muted">Change Avatar</label>
