@@ -9,7 +9,7 @@ $show_brands_mode = true; // 默认显示品牌墙
 $page_title = "Shop By Brand";
 
 // 获取数据库中产品最高价格，用于设定价格进度条的上限
-$max_price_sql = "SELECT MAX(Pro_Price) AS max_p FROM product";
+$max_price_sql = "SELECT MAX(Pro_Price) AS max_p FROM product WHERE Pro_Status != 'Unavailable'";
 $max_price_res = $conn->query($max_price_sql);
 $db_max_price = 2000; // 默认上限
 if ($max_price_res && $max_price_res->num_rows > 0) {
@@ -114,7 +114,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'GET') {
     }
 }
 
-$where_clause = count($where_clauses) > 0 ? "WHERE " . implode(" AND ", $where_clauses) : "";
+$where_clauses[] = "product.Pro_Status != 'Unavailable'";
+$where_clause = "WHERE " . implode(" AND ", $where_clauses);
 ?>
 
 <!DOCTYPE html>

@@ -261,7 +261,7 @@ if (isset($_POST['update_status'])) {
     $reason_query = '';
     if (isset($_POST['reason']) && !empty($_POST['reason'])) {
         $reason = mysqli_real_escape_string($conn, $_POST['reason']);
-        $reason_query = ", Reason = '$reason'";
+        $reason_query = ", Problem_Reason = '$reason'";
     }
 
     $current_time = date('Y-m-d H:i:s'); 
@@ -868,7 +868,7 @@ if (isset($_GET['ajax_get_items'])) {
                                 <td class="fw-bold text-dark">RM <?php echo number_format($row['Order_Amount'], 2); ?></td>
                                 <td class="text-end">
                                     <div class="d-inline-flex gap-2">
-                                        <button onclick="showItemPopup('<?php echo $row['Order_Id']; ?>')" class="btn btn-sm btn-outline-dark rounded-pill px-3">Details</button>
+                                        <button onclick="showItemPopup('<?php echo $row['Order_Id']; ?>', '<?php echo $row['Order_Tracking_Num']; ?>')" class="btn btn-sm btn-outline-dark rounded-pill px-3">Details</button>
                                         
                                         <?php if ($row['Order_Status'] === 'Issue'): ?>
                                             <button onclick="resolveIssuePopup('<?php echo $row['Order_Id']; ?>')" class="btn btn-sm btn-outline-warning rounded-circle d-flex align-items-center justify-content-center text-dark" style="width: 32px; height: 32px; border-width: 2px;" title="Resolve Issue">
@@ -927,10 +927,10 @@ if (data.status === 'success') {
     });
 }
 
-function showItemPopup(orderId) {
-    let paddedOrderId = String(orderId).padStart(5, '0');
+function showItemPopup(orderId, trackingNum) {
+    const displayId = trackingNum && trackingNum.trim() !== '' ? trackingNum : ('OD-' + String(orderId).padStart(5, '0'));
     Swal.fire({
-        title: 'Order Items (ID: #ORD-' + paddedOrderId + ')',
+        title: 'Order Items (ID: ODR' + displayId + ')',
         // --- 加入 customClass 控制标题样式 ---
         customClass: {
             title: 'text-start w-100 fs-5 mt-2 ms-2' 
@@ -1012,12 +1012,12 @@ function showIssuePopup(orderId) {
                 
                 <label class="form-label fw-bold small text-muted">Select Reason:</label>
                 <select id="issueReason" class="form-select mb-3 shadow-sm" onchange="toggleOtherReason()">
-                    <option value="Out of stock (缺货)">Out of stock</option>
-                    <option value="Customer requested cancellation (客户要求取消)">Customer requested cancellation</option>
-                    <option value="Payment verification failed (支付验证失败)">Payment verification failed</option>
-                    <option value="Invalid shipping address (无效的送货地址)">Invalid shipping address</option>
-                    <option value="Suspected fraudulent order (疑似欺诈订单)">Suspected fraudulent order</option>
-                    <option value="Logistics partner rejection (物流拒收)">Logistics partner rejection</option>
+                    <option value="Out of stock">Out of stock</option>
+                    <option value="Customer requested cancellation">Customer requested cancellation</option>
+                    <option value="Payment verification failed">Payment verification failed</option>
+                    <option value="Invalid shipping address">Invalid shipping address</option>
+                    <option value="Suspected fraudulent order">Suspected fraudulent order</option>
+                    <option value="Logistics partner rejection">Logistics partner rejection</option>
                     <option value="Other">Other (Type your own)</option>
                 </select>
                 

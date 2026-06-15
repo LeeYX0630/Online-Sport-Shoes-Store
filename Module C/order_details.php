@@ -48,8 +48,10 @@ if (!$order_data) {
     exit();
 }
 
-// 格式化订单编号
-$display_order_id = "#ORD-" . str_pad($order_id, 5, '0', STR_PAD_LEFT);
+// 格式化订单编号：优先显示追踪号（ODRxxxx），无追踪号时回退到填充的数字 ID
+$display_order_id = !empty($order_data['Order_Tracking_Num'])
+    ? 'ODR' . htmlspecialchars($order_data['Order_Tracking_Num'])
+    : 'ORD-' . str_pad($order_id, 5, '0', STR_PAD_LEFT);
 
 // ==========================================
 // 🚨 严格的状态高亮逻辑

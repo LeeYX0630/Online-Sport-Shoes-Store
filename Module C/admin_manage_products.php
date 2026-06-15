@@ -40,16 +40,15 @@ $swalCode = "";
 // 1. 删除逻辑
 if (isset($_GET['delete'])) {
     $id = intval($_GET['delete']);
-    // 权限检查：Level 1 和 2 可以删除任何产品，Level 3 只能删除属于自己品牌的产品
     $checkSql = ($admin_role == 1 || $admin_role == 2) ? "" : " AND Brand_Id = '$admin_brand_id'";
-    $delSql = "DELETE FROM product WHERE Pro_Id = '$id' $checkSql";
+    $delSql = "UPDATE product SET Pro_Status = 'Unavailable' WHERE Pro_Id = '$id' $checkSql";
     if ($conn->query($delSql) === TRUE) {
         $swalCode = "Swal.fire({ title: 'Deleted!', text: 'Product removed successfully.', icon: 'success', confirmButtonColor: '#FF6B00' }).then(() => { window.location.href = 'admin_manage_products.php'; });";
     }
 }
 
 // --- 动态获取数据库中产品的最低价和最高价 ---
-$priceBoundsSql = "SELECT MIN(Pro_Price) as minP, MAX(Pro_Price) as maxP FROM product";
+$priceBoundsSql = "SELECT MIN(Pro_Price) as minP, MAX(Pro_Price) as maxP FROM product WHERE Pro_Status != 'Unavailable'";
 $boundsRes = $conn->query($priceBoundsSql)->fetch_assoc();
 $list_min = floor($boundsRes['minP'] ?? 0);
 $list_max = ceil($boundsRes['maxP'] ?? 1000);
@@ -68,9 +67,9 @@ $age_filter = $_GET['age'] ?? '';
 // 如果是 Level 1 或 Level 2，默认看到全部 (1=1)
 // 否则（Level 3），必须限制在刚才查到的 $admin_brand_id 下
 if ($admin_role == 1 || $admin_role == 2) {
-    $queryCondition = "1=1";
+    $queryCondition = "p.Pro_Status != 'Unavailable'";
 } else {
-    $queryCondition = "p.Brand_Id = '$admin_brand_id'";
+    $queryCondition = "p.Brand_Id = '$admin_brand_id' AND p.Pro_Status != 'Unavailable'";
 }
 
 if (!empty($search)) $queryCondition .= " AND (p.Pro_Name LIKE '%$search%' OR p.Pro_Id LIKE '%$search%')";

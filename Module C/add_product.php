@@ -217,7 +217,22 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_product'])) {
     $stmt = $conn->prepare($sql_product);
     $stmt->bind_param("siidsssssss", $pro_name, $cat_id, $brand_id, $price, $desc, $db_main_image, $size_string, $color_string, $gender, $age_group, $status);
     
-    if ($stmt->execute()) {
+    try {
+        $executeResult = $stmt->execute();
+    } catch (\mysqli_sql_exception $e) {
+        if ($e->getCode() == 1062) {
+            // Duplicate product name
+            $_SESSION['swal_status'] = 'duplicate';
+            $_SESSION['swal_duplicate_name'] = htmlspecialchars($pro_name);
+        } else {
+            $_SESSION['swal_status'] = 'failed';
+        }
+        $stmt->close();
+        header("Location: add_product.php");
+        exit();
+    }
+
+    if ($executeResult) {
         $new_pro_id = $conn->insert_id;
         if (!empty($_POST['selected_colors']) && is_array($_POST['selected_colors'])) {
             if (!empty($_POST['stock']) && is_array($_POST['stock'])) {
@@ -970,6 +985,15 @@ document.getElementById('generateDescBtn').addEventListener('click', async funct
             }).then((result) => {
                 window.location.href = '../Module C/admin_Product.php';
             });
+        } else if (status === 'duplicate') {
+            const dupName = "<?php echo $_SESSION['swal_duplicate_name'] ?? ''; ?>";
+            Swal.fire({
+                title: 'Duplicate Product Name',
+                html: `A product named <strong>"${dupName}"</strong> already exists.<br>Please use a different product name.`,
+                icon: 'warning',
+                confirmButtonColor: '#FF8C00',
+                confirmButtonText: 'OK'
+            });
         } else if (status === 'desc_required') {
             Swal.fire({
                 title: 'Description Required',
@@ -985,7 +1009,8 @@ document.getElementById('generateDescBtn').addEventListener('click', async funct
     });
 <?php 
     // 弹窗触发后清除 Session，防止刷新页面时重复弹窗
-    unset($_SESSION['swal_status']); 
+    unset($_SESSION['swal_status']);
+    unset($_SESSION['swal_duplicate_name']);
 endif; 
 ?>
 

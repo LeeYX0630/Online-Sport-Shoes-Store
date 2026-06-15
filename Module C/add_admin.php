@@ -26,7 +26,16 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] != 1) {
 // 获取 Header 所需的管理员信息
 $admin_role = $_SESSION['role'];
 $username = $_SESSION['username'] ?? 'Admin';
-$admin_image = $_SESSION['admin_image'] ?? 'default_admin.png';
+$admin_image = $_SESSION['admin_image'] ?? '';
+
+// Resolve the avatar URL: prefer session image if file exists, otherwise fallback to an existing default
+$admin_image_path = __DIR__ . '/../uploads/admin/' . $admin_image;
+if (!empty($admin_image) && file_exists($admin_image_path)) {
+    $admin_image_url = '../uploads/admin/' . $admin_image;
+} else {
+    // Fallback to a known existing image in the repository
+    $admin_image_url = '../uploads/admin/SuperAdmin.jpg';
+}
 
 $msg = "";
 $real_name = "";
@@ -237,7 +246,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                         else echo 'Brand Manager'; 
                     ?></small>
                 </div>
-                <img src="../uploads/admin/<?php echo $admin_image; ?>?t=<?php echo time(); ?>" class="admin-profile-img">
+                <img src="<?php echo htmlspecialchars($admin_image_url); ?>?t=<?php echo time(); ?>" class="admin-profile-img" alt="Admin profile">
             </div>
         </header>
 

@@ -208,20 +208,25 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_product'])) {
         }
     }
 
+    // ── 颜色 & 尺寸字符串（与 add_product 一致）────────────────
+    $size_string  = isset($_POST['variant_sizes'])   ? implode(',', array_unique($_POST['variant_sizes']))  : '';
+    $color_string = isset($_POST['selected_colors']) ? implode(',', $_POST['selected_colors'])              : '';
+
     // ── UPDATE product 主表 ──────────────────────────────────────
     if ($is_edit) {
         $stmt_update = $conn->prepare(
             "UPDATE product SET
                 Pro_Name = ?, Cat_Id = ?, Brand_Id = ?, Pro_Price = ?,
                 Pro_Description = ?, Pro_Gender = ?, Pro_Age_Group = ?,
-                Pro_Status = ?, Pro_Image = ?
+                Pro_Status = ?, Pro_Image = ?, Pro_Colour = ?, Pro_Size = ?
              WHERE Pro_Id = ?"
         );
         $stmt_update->bind_param(
-            "siidsssssi",
+            "siidsssssssi",
             $pro_name, $cat_id, $brand_id, $price,
             $desc, $gender, $age_group,
             $status, $db_main_image,
+            $color_string, $size_string,
             $edit_pro_id
         );
         $stmt_update->execute();
@@ -230,14 +235,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_product'])) {
     } else {
         // 新增产品
         $stmt_insert = $conn->prepare(
-            "INSERT INTO product (Pro_Name, Cat_Id, Brand_Id, Pro_Price, Pro_Description, Pro_Gender, Pro_Age_Group, Pro_Status, Pro_Image)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO product (Pro_Name, Cat_Id, Brand_Id, Pro_Price, Pro_Description, Pro_Gender, Pro_Age_Group, Pro_Status, Pro_Image, Pro_Colour, Pro_Size)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         );
         $stmt_insert->bind_param(
-            "siidsssss",
+            "siidsssssss",
             $pro_name, $cat_id, $brand_id, $price,
             $desc, $gender, $age_group,
-            $status, $db_main_image
+            $status, $db_main_image,
+            $color_string, $size_string
         );
         $stmt_insert->execute();
         $edit_pro_id = $conn->insert_id;
@@ -472,10 +478,10 @@ if ($is_edit && !empty($product_data['Pro_Image'])) {
                         <li class="breadcrumb-item">
                             <a href="admin_manage_products.php" class="text-decoration-none" style="color: var(--orange-primary);">Products</a>
                         </li>
-                        <li class="breadcrumb-item active" aria-current="page" style="color: #6c757d;">Add New</li>
+                        <li class="breadcrumb-item active" aria-current="page" style="color: #6c757d;">Edit Product</li>
                     </ol>
                 </nav>
-                <h4 class="fw-bold mb-0">Create New Product</h4>
+                <h4 class="fw-bold mb-0">Edit Product</h4>
             </div>
             <div class="d-flex align-items-center">
                 <div class="text-end me-3 text-dark">
