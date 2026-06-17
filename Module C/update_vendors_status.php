@@ -109,7 +109,12 @@ if ($action === 'approve') {
 </div>";
         @sendMailHtml($to, $subject, $html);
 
-        echo "<script>alert('Vendor approved and admin created.'); window.location.href='admin_manage_admins.php';</script>";
+        $_SESSION['vendor_action_msg'] = [
+            'type'  => 'approve',
+            'title' => 'Vendor Approved',
+            'text'  => 'Vendor approved and admin created successfully.'
+        ];
+        header("Location: admin_manage_admins.php");
         exit();
     } catch (Exception $e) {
         $conn->rollback();
@@ -149,7 +154,12 @@ if ($action === 'approve') {
         </div>";
             @sendMailHtml($to, $subject, $html);
         }
-        echo "<script>alert('Vendor rejected and notification sent.'); window.location.href='admin_manage_admins.php';</script>";
+        $_SESSION['vendor_action_msg'] = [
+            'type'  => 'reject',
+            'title' => 'Vendor Rejected',
+            'text'  => 'Vendor rejected and notification sent.'
+        ];
+        header("Location: admin_manage_admins.php");
         exit();
     } catch (Exception $e) {
         echo '<!doctype html><html><head><meta charset="utf-8"><title>Error</title>';

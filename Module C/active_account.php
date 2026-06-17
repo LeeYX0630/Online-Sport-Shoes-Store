@@ -9,7 +9,7 @@ $message = "";
 $messageType = "";
 
 if (!$token) { 
-    die("<div style='text-align:center; padding:50px; font-family: Arial, sans-serif; color: #d33;'><h2>Invalid request. No token provided.</h2></div>"); 
+    die("<div style='text-align:center; padding:50px; font-family: 'Segoe UI', 'Inter', sans-serif; color: #d33;'><h2>Invalid request. No token provided.</h2></div>"); 
 }
 
 // 2. 验证 Token
@@ -19,7 +19,7 @@ $check_token->execute();
 $result = $check_token->get_result();
 
 if ($result->num_rows === 0) {
-    die("<div style='text-align:center; padding:50px; font-family: Arial, sans-serif; color: #d33;'><h2>This activation link is invalid or has expired.</h2></div>");
+    die("<div style='text-align:center; padding:50px; font-family: 'Segoe UI', 'Inter', sans-serif; color: #d33;'><h2>This activation link is invalid or has expired.</h2></div>");
 }
 
 $row = $result->fetch_assoc();
@@ -75,7 +75,7 @@ include_once '../includes/header.php';
 
 <style>
     body {
-        font-family: Arial, "Segoe UI", sans-serif;
+        font-family: 'Segoe UI', 'Inter', sans-serif;
         background-color: #f8fafc; 
         margin: 0; padding: 0;
     }

@@ -106,6 +106,26 @@ if (isset($_SESSION['new_admin_data'])):
     // 这里重新开启 PHP 模式以执行 unset
     unset($_SESSION['new_admin_data']);
 endif; // 结束 if 块
+
+// --- 新增：approve / reject vendor 后的提示，改用 SweetAlert2 显示 ---
+if (isset($_SESSION['vendor_action_msg'])):
+    $vmsg = $_SESSION['vendor_action_msg'];
+    $vmsg_icon = ($vmsg['type'] === 'reject') ? 'warning' : 'success';
+?>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            Swal.fire({
+                icon: '<?php echo addslashes($vmsg_icon); ?>',
+                title: '<?php echo addslashes($vmsg['title']); ?>',
+                text: '<?php echo addslashes($vmsg['text']); ?>',
+                confirmButtonText: 'OK',
+                confirmButtonColor: '#FF6B00'
+            });
+        });
+    </script>
+<?php
+    unset($_SESSION['vendor_action_msg']);
+endif;
 ?>
 
 
