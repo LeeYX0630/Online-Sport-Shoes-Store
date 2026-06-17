@@ -66,7 +66,7 @@ function sendShipmentNotificationEmail($user_email, $user_name, $order_id, $trac
 // ─────────────────────────────────────────────────────────────
 // 发送 Issue / Canceled / Resumed-Processing 通知邮件给客户
 // ─────────────────────────────────────────────────────────────
-function sendOrderStatusEmail($type, $user_email, $user_name, $order_tracking_num, $reason, $superadmin_email, $brand_admin_email) {
+function sendOrderStatusEmail($type, $user_email, $user_name, $order_tracking_num, $reason, $superadmin_email, $brand_admin_email, $refund_amount = null) {
     $mail = new PHPMailer(true);
     try {
         $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
@@ -128,10 +128,7 @@ function sendOrderStatusEmail($type, $user_email, $user_name, $order_tracking_nu
                     Our team is actively working to resolve this as quickly as possible. Please allow <strong>1–3 working days</strong> for us to investigate and get back to you.
                     We apologise for any inconvenience caused and appreciate your patience.
                 </p>
-                {$contact_block}
-                <div style='text-align:center; margin-top:24px;'>
-                    <a href='{$order_link}' style='display:inline-block; padding:12px 28px; border-radius:8px; background:#FF8C00; color:#fff; text-decoration:none; font-weight:700; font-size:14px;'>View My Order</a>
-                </div>";
+                {$contact_block}";
 
         } elseif ($type === 'Canceled') {
             $mail->Subject = "Your Order #ODR{$order_tracking_num} Has Been Cancelled";
@@ -146,14 +143,15 @@ function sendOrderStatusEmail($type, $user_email, $user_name, $order_tracking_nu
                 <div style='background:#fff5f5; border:1px solid #fecaca; border-radius:10px; padding:16px 20px; margin:20px 0;'>
                     <p style='margin:0 0 6px; font-size:13px; color:#b91c1c; font-weight:700; text-transform:uppercase; letter-spacing:.5px;'>Reason</p>
                     <p style='margin:0; font-size:15px; color:#111; font-weight:600;'>{$reason}</p>
-                </div>
+                </div>" . (!empty($refund_amount) ? "
+                <div style='background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:16px 20px; margin:20px 0;'>
+                    <p style='margin:0 0 6px; font-size:13px; color:#15803d; font-weight:700; text-transform:uppercase; letter-spacing:.5px;'>Refund</p>
+                    <p style='margin:0; font-size:15px; color:#111; font-weight:600;'>RM " . number_format($refund_amount, 2) . " has been refunded to your wallet balance.</p>
+                </div>" : "") . "
                 <p style='color:#555; line-height:1.8;'>
                     If you believe this is a mistake or would like to place a new order, please don't hesitate to reach out to us. We're here to help.
                 </p>
-                {$contact_block}
-                <div style='text-align:center; margin-top:24px;'>
-                    <a href='{$order_link}' style='display:inline-block; padding:12px 28px; border-radius:8px; background:#FF8C00; color:#fff; text-decoration:none; font-weight:700; font-size:14px;'>View My Order</a>
-                </div>";
+                {$contact_block}";
 
         } elseif ($type === 'IssueResolved') {
             $mail->Subject = "Good News! Your Order #ODR{$order_tracking_num} Is Back On Track";
@@ -171,10 +169,7 @@ function sendOrderStatusEmail($type, $user_email, $user_name, $order_tracking_nu
                 <p style='color:#555; line-height:1.8;'>
                     We sincerely apologise for the delay and appreciate your understanding. If you have any further questions, feel free to contact us below.
                 </p>
-                {$contact_block}
-                <div style='text-align:center; margin-top:24px;'>
-                    <a href='{$order_link}' style='display:inline-block; padding:12px 28px; border-radius:8px; background:#FF8C00; color:#fff; text-decoration:none; font-weight:700; font-size:14px;'>View My Order</a>
-                </div>";
+                {$contact_block}";
         } else {
             return false;
         }
@@ -268,12 +263,16 @@ if (isset($_POST['update_status'])) {
     $extra_query = ""; 
 
     // 获取订单基础信息 + Super Admin email + Brand Admin email
-    $order_info_res = mysqli_query($conn, "SELECT o.Order_Tracking_Num, u.User_Email, u.User_Name FROM `order` o JOIN `user` u ON o.User_Id = u.User_Id WHERE o.Order_Id = '$order_id'");
+    $order_info_res = mysqli_query($conn, "SELECT o.Order_Tracking_Num, o.Order_Amount, u.User_Id, u.User_Email, u.User_Name FROM `order` o JOIN `user` u ON o.User_Id = u.User_Id WHERE o.Order_Id = '$order_id'");
     $order_tracking_num = '';
+    $order_amount = 0;
+    $customer_user_id = '';
     $customer_email = '';
     $customer_name = '';
     if ($order_info_res && $order_row = mysqli_fetch_assoc($order_info_res)) {
         $order_tracking_num = $order_row['Order_Tracking_Num'];
+        $order_amount       = $order_row['Order_Amount'];
+        $customer_user_id   = $order_row['User_Id'];
         $customer_email     = $order_row['User_Email'];
         $customer_name      = $order_row['User_Name'];
     }
@@ -336,6 +335,13 @@ if (isset($_POST['update_status'])) {
         }
         mysqli_query($conn, $shipment_sql);
     }
+    elseif ($new_status == 'Canceled') {
+        // 【新增】取消订单时，把订单金额退回该用户的钱包余额 (User_Balance)
+        if (!empty($customer_user_id) && $order_amount > 0) {
+            $refund_sql = "UPDATE `user` SET User_Balance = User_Balance + '$order_amount' WHERE User_Id = '$customer_user_id'";
+            mysqli_query($conn, $refund_sql);
+        }
+    }
 
     // 【新增】合并 $reason_query 更新 order 表
     $update_sql = "UPDATE `order` SET Order_Status = '$new_status' $extra_query $reason_query WHERE Order_Id = '$order_id'";
@@ -358,7 +364,8 @@ if (isset($_POST['update_status'])) {
                 $order_tracking_num,
                 $reason ?: 'No reason specified.',
                 $superadmin_email,
-                $brand_admin_email
+                $brand_admin_email,
+                $new_status === 'Canceled' ? $order_amount : null
             );
         }
 
@@ -380,7 +387,7 @@ if (isset($_POST['update_status'])) {
             case 'Processing': $notif_msg = "Order #ODR{$order_tracking_num} is now being processed."; break;
             case 'Shipped':    $notif_msg = "Order #ODR{$order_tracking_num} has been shipped out."; break;
             case 'Delivered':  $notif_msg = "Order #ODR{$order_tracking_num} has been successfully delivered."; break;
-            case 'Canceled':   $notif_msg = "Order #ODR{$order_tracking_num} was CANCELED. Reason: " . ($reason ?: 'None'); break;
+            case 'Canceled':   $notif_msg = "Order #ODR{$order_tracking_num} was CANCELED. Reason: " . ($reason ?: 'None') . ". RM " . number_format($order_amount, 2) . " refunded to user's wallet."; break;
             case 'Issue':      $notif_msg = "Order #ODR{$order_tracking_num} flagged with ISSUE. Reason: " . ($reason ?: 'None'); break;
             default:           $notif_msg = "Order #ODR{$order_tracking_num} status changed to {$new_status}."; break;
         }
