@@ -288,33 +288,48 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 $msg = "Email already used by another account!";
                 $msg_type = "danger";
             } else {
-                $addresses = [];
-                $postcodes = [];
-                $states    = [];
+                $address_ids = $_POST['address_ids'] ?? [];
+                $addresses   = $_POST['addresses'] ?? [];
+                $postcodes   = $_POST['postcodes'] ?? [];
+                $cities      = $_POST['cities'] ?? [];
+                $states      = $_POST['states'] ?? [];
                 $address_error = "";
                 
-                if (isset($_POST['addresses']) && is_array($_POST['addresses'])) {
-                    foreach ($_POST['addresses'] as $idx => $address) {
+                // 数据合规性前置校验
+                $valid_items = [];
+                if (is_array($addresses)) {
+                    foreach ($addresses as $idx => $address) {
                         $clean_address = trim(preg_replace('/\s+/', ' ', $address));
                         if ($clean_address !== '') {
-                            $pc = isset($_POST['postcodes'][$idx]) ? trim($_POST['postcodes'][$idx]) : '';
+                            $pc = isset($postcodes[$idx]) ? trim($postcodes[$idx]) : '';
                             $pc = preg_replace('/[^0-9]/', '', $pc);
-                            $st = isset($_POST['states'][$idx]) ? trim($_POST['states'][$idx]) : '';
+                            $ct = isset($cities[$idx]) ? trim($cities[$idx]) : '';
+                            $st = isset($states[$idx]) ? trim($states[$idx]) : '';
+                            $aid = isset($address_ids[$idx]) ? intval($address_ids[$idx]) : 0;
 
                             if (!preg_match('/^[0-9]{5}$/', $pc)) {
                                 $address_error = "Every shipping address needs a 5-digit postcode.";
+                                break;
+                            } elseif ($ct === '') {
+                                $address_error = "Please enter a city for every shipping address.";
+                                break;
                             } elseif ($st === '') {
                                 $address_error = "Please select a state for every shipping address.";
+                                break;
                             }
 
-                            $addresses[] = substr($clean_address, 0, 500);
-                            $postcodes[] = substr($pc, 0, 20);
-                            $states[]    = substr($st, 0, 100);
+                            $valid_items[] = [
+                                'address_id'   => $aid,
+                                'address_text' => substr($clean_address, 0, 500),
+                                'city'         => substr($ct, 0, 100),
+                                'postcode'     => substr($pc, 0, 20),
+                                'state'        => substr($st, 0, 100)
+                            ];
                         }
                     }
                 }
 
-                if (empty($addresses)) {
+                if (empty($valid_items)) {
                     $msg = "Please add at least one shipping address.";
                     $msg_type = "danger";
                 } elseif ($address_error !== "") {
@@ -322,44 +337,63 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     $msg_type = "danger";
                 } else {
                     $default_index = isset($_POST['default_address_index']) ? (int)$_POST['default_address_index'] : 0;
-                    if ($default_index < 0 || $default_index >= count($addresses)) {
+                    if ($default_index < 0 || $default_index >= count($valid_items)) {
                         $default_index = 0;
                     }
 
-                    // 1. 更新用户主表基础信息（不再写入任何冗余地址文本）
+                    // 1. 更新用户主表基础信息
                     $stmt = $conn->prepare("UPDATE `user` SET User_Name=?, User_Phone=?, User_Email=? WHERE User_Id=?");
                     $stmt->bind_param("sssi", $new_name, $clean_phone, $new_email, $user_id);
                     $stmt->execute();
                     $stmt->close();
                     $_SESSION['user_name'] = $new_name;
 
-                    // 2. 清理旧地址簿，准备结构化重写
-                    $delete_stmt = $conn->prepare("DELETE FROM user_address WHERE User_Id=?");
-                    $delete_stmt->bind_param("i", $user_id);
-                    $delete_stmt->execute();
-                    $delete_stmt->close();
+                    // 2. 收集保留下来的老 Address_Id，防止误伤历史关联
+                    $kept_ids = [];
+                    foreach ($valid_items as $item) {
+                        if ($item['address_id'] > 0) {
+                            $kept_ids[] = $item['address_id'];
+                        }
+                    }
+
+                    // 3. 安全软删除：只将不在当前保留列表中的该用户老地址标记为删除
+                    if (!empty($kept_ids)) {
+                        $id_list = implode(',', $kept_ids);
+                        $conn->query("UPDATE user_address SET Is_Deleted = 1, Is_Default = 0 WHERE User_Id = '$user_id' AND Address_Id NOT IN ($id_list)");
+                    } else {
+                        $conn->query("UPDATE user_address SET Is_Deleted = 1, Is_Default = 0 WHERE User_Id = '$user_id'");
+                    }
 
                     $active_default_id = null;
 
-                    // 3. 结构化重新插入新地址
-                    if (!empty($addresses)) {
-                        $insert_stmt = $conn->prepare("INSERT INTO user_address (User_Id, Address_Text, Postcode, `State`, City, Is_Default) VALUES (?, ?, ?, ?, '', ?)");
-                        foreach ($addresses as $index => $address) {
-                            $is_default = ($index === $default_index) ? 1 : 0;
-                            $postcode   = $postcodes[$index] ?? '';
-                            $state      = $states[$index] ?? '';
+                    // 4. 增量更新与重写：老数据 UPDATE，新数据 INSERT
+                    foreach ($valid_items as $index => $item) {
+                        $is_default = ($index === $default_index) ? 1 : 0;
+                        
+                        if ($item['address_id'] > 0) {
+                            // 针对老地址执行温和的更新，原主键保持不变，绝对不影响老订单！
+                            $update_stmt = $conn->prepare("UPDATE user_address SET Address_Text=?, Postcode=?, City=?, `State`=?, Is_Default=? WHERE Address_Id=? AND User_Id=?");
+                            $update_stmt->bind_param("ssssiii", $item['address_text'], $item['postcode'], $item['city'], $item['state'], $is_default, $item['address_id'], $user_id);
+                            $update_stmt->execute();
+                            $update_stmt->close();
                             
-                            $insert_stmt->bind_param("isssi", $user_id, $address, $postcode, $state, $is_default);
+                            if ($is_default) {
+                                $active_default_id = $item['address_id'];
+                            }
+                        } else {
+                            // 只有全新的地址行才允许创建新记录
+                            $insert_stmt = $conn->prepare("INSERT INTO user_address (User_Id, Address_Text, Postcode, `State`, City, Is_Default, Is_Deleted) VALUES (?, ?, ?, ?, ?, ?, 0)");
+                            $insert_stmt->bind_param("isssi", $user_id, $item['address_text'], $item['postcode'], $item['state'], $item['city'], $is_default);
                             $insert_stmt->execute();
                             
                             if ($is_default) {
                                 $active_default_id = $insert_stmt->insert_id;
                             }
+                            $insert_stmt->close();
                         }
-                        $insert_stmt->close();
                     }
 
-                    // 4. 将最新设置的默认地址主键 ID 同步更新给 user.Default_Address_Id 外键
+                    // 5. 同步更新用户表关联外键
                     if ($active_default_id !== null) {
                         $conn->query("UPDATE `user` SET Default_Address_Id = '$active_default_id' WHERE User_Id = '$user_id'");
                     }
@@ -399,7 +433,8 @@ $user = $user_res->fetch_assoc();
 $default_address_index = 0;
 $address_book = [];
 
-$address_stmt = $conn->prepare("SELECT Address_Id, Address_Text, Postcode, State, City, Is_Default FROM user_address WHERE User_Id=? ORDER BY Is_Default DESC, Address_Id ASC");
+// 核心：只读取未被软删除的地址簿
+$address_stmt = $conn->prepare("SELECT Address_Id, Address_Text, Postcode, State, City, Is_Default FROM user_address WHERE User_Id=? AND Is_Deleted = 0 ORDER BY Is_Default DESC, Address_Id ASC");
 $address_stmt->bind_param("i", $user_id);
 $address_stmt->execute();
 $address_result = $address_stmt->get_result();
@@ -711,16 +746,21 @@ body::after {
                                 </div>
 
                                 <div class="address-input-fields d-none mt-3 p-3 rounded-3 bg-light bg-opacity-50 border">
+                                    <input type="hidden" name="address_ids[]" value="<?php echo intval($address['address_id']); ?>">
                                     <div class="row g-3">
                                         <div class="col-12">
                                             <label class="small fw-bold text-muted mb-1" style="font-size: 0.75rem;">Street Address</label>
                                             <textarea name="addresses[]" class="form-control address-text-field bg-white" rows="2" placeholder="House number, building, street name" oninput="updateSelectedAddressPreview()" style="font-size: 0.85rem; border-color: #e0e0e0;"><?php echo htmlspecialchars($addr_text); ?></textarea>
                                         </div>
-                                        <div class="col-md-5">
+                                        <div class="col-md-4">
                                             <label class="small fw-bold text-muted mb-1" style="font-size: 0.75rem;">Postcode</label>
                                             <input type="text" name="postcodes[]" class="form-control address-postcode-field bg-white" maxlength="5" value="<?php echo htmlspecialchars($addr_postcode); ?>" oninput="this.value = this.value.replace(/[^0-9]/g, ''); updateSelectedAddressPreview()" style="font-size: 0.85rem; border-color: #e0e0e0;">
                                         </div>
-                                        <div class="col-md-7">
+                                        <div class="col-md-4">
+                                            <label class="small fw-bold text-muted mb-1" style="font-size: 0.75rem;">City</label>
+                                            <input type="text" name="cities[]" class="form-control address-city-field bg-white" value="<?php echo htmlspecialchars($address['city'] ?? ''); ?>" placeholder="e.g. Bukit Beruang" style="font-size: 0.85rem; border-color: #e0e0e0;">
+                                        </div>
+                                        <div class="col-md-4">
                                             <label class="small fw-bold text-muted mb-1" style="font-size: 0.75rem;">State</label>
                                             <select name="states[]" class="form-select address-state-field bg-white" onchange="updateSelectedAddressPreview()" style="font-size: 0.85rem; border-color: #e0e0e0;">
                                                 <option value="">Select State</option>
@@ -1294,14 +1334,15 @@ function confirmSingleAddress(button) {
 
     const addr = (row.querySelector('.address-text-field')?.value || '').trim().replace(/,+$/, '');
     const post = (row.querySelector('.address-postcode-field')?.value || '').trim();
+    const city = (row.querySelector('.address-city-field')?.value || '').trim(); // 💡 获取 City
     const state = row.querySelector('.address-state-field')?.value || '';
 
-    // 强校验：必须输入完整的5位邮编和选择州属
-    if (!addr || post.length !== 5 || !state) {
+    // 强校验：必须输入完整的5位邮编、城市和选择州属
+    if (!addr || post.length !== 5 || !city || !state) {
         Swal.fire({
             icon: 'warning',
             title: 'Invalid Address',
-            text: 'Please enter a valid street address, 5-digit postcode, and select a state.',
+            text: 'Please enter a valid street address, 5-digit postcode, city, and select a state.',
             confirmButtonColor: '#ff6700'
         });
         return;
@@ -1311,9 +1352,8 @@ function confirmSingleAddress(button) {
     const inputBlock = row.querySelector('.address-input-fields');
     const textSpan = row.querySelector('.readonly-combined-string');
 
-    // 严谨的前端同步文本展示
     if (textSpan) {
-        textSpan.innerText = `${addr}, ${post}, ${state}`;
+        textSpan.innerText = `${addr}, ${post}, ${city}, ${state}`; // 展示包含城市
     }
 
     if (inputBlock) inputBlock.classList.add('d-none');
@@ -1383,11 +1423,15 @@ function addAddressBox() {
                     <label class="small fw-bold text-muted mb-1" style="font-size: 0.75rem;">Street Address</label>
                     <textarea name="addresses[]" class="form-control address-text-field bg-white" rows="2" placeholder="House number, building, street name" oninput="updateSelectedAddressPreview()" style="font-size: 0.85rem; border-color: #e0e0e0;"></textarea>
                 </div>
-                <div class="col-md-5">
+                <div class="col-md-4">
                     <label class="small fw-bold text-muted mb-1" style="font-size: 0.75rem;">Postcode</label>
                     <input type="text" name="postcodes[]" class="form-control address-postcode-field bg-white" maxlength="5" placeholder="Zip code" oninput="this.value = this.value.replace(/[^0-9]/g, ''); updateSelectedAddressPreview()" style="font-size: 0.85rem; border-color: #e0e0e0;">
                 </div>
-                <div class="col-md-7">
+                <div class="col-md-4">
+                    <label class="small fw-bold text-muted mb-1" style="font-size: 0.75rem;">City</label>
+                    <input type="text" name="cities[]" class="form-control address-city-field bg-white" placeholder="City name" style="font-size: 0.85rem; border-color: #e0e0e0;">
+                </div>
+                <div class="col-md-4">
                     <label class="small fw-bold text-muted mb-1" style="font-size: 0.75rem;">State</label>
                     <select name="states[]" class="form-select address-state-field bg-white" onchange="updateSelectedAddressPreview()" style="font-size: 0.85rem; border-color: #e0e0e0;">
                         <option value="">Select State</option>
