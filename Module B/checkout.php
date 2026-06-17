@@ -78,7 +78,7 @@ if ($is_fresh_entry) {
 
 // 2. 抓取该用户的所有保存地址
 $address_book = [];
-$addr_sql = "SELECT * FROM user_address WHERE User_Id = '$uid' ORDER BY Is_Default DESC, Address_Id ASC";
+$addr_sql = "SELECT * FROM user_address WHERE User_Id = '$uid' AND Is_Deleted = 0 ORDER BY Is_Default DESC, Address_Id ASC";
 $addr_res = $conn->query($addr_sql);
 if ($addr_res && $addr_res->num_rows > 0) {
     while ($row = $addr_res->fetch_assoc()) {
@@ -411,7 +411,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['place_order'])) {
             $is_first = (count($address_book) === 0) ? 1 : 0; 
             
             // 完美匹配你的结构化数据列
-            $stmt_save_addr = $conn->prepare("INSERT INTO user_address (User_Id, Address_Text, Postcode, State, City, Is_Default) VALUES (?, ?, ?, ?, ?, ?)");
+            $stmt_save_addr = $conn->prepare("INSERT INTO user_address (User_Id, Address_Text, Postcode, State, City, Is_Default, Is_Deleted) VALUES (?, ?, ?, ?, ?, ?, 0)");
             if ($stmt_save_addr) {
                 $stmt_save_addr->bind_param("issssi", $uid, $combined_addr, $postcode, $state, $city, $is_first);
                 $stmt_save_addr->execute();

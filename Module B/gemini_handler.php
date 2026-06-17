@@ -52,10 +52,10 @@ if ($mode === 'sizer' && $image_path) {
        - 'Egyptian Foot' : Big toe is the longest, others taper down like a staircase.
        - 'Square Foot' : All five toes are almost equal in length, wide forefoot.
     4. Detect arch profile signs if visible (e.g., potential 'Flat Foot' signs).
-    5. Provide normal 0-1 relative image coordinates (x, y) for 3 critical landmarks to draw overlay lines:
-       - 'heel_center': Backmost point of the heel.
-       - 'longest_toe_tip': The tip of the longest toe.
-       - 'forefoot_width_outer': The outermost point of the big toe joint or pinky joint for width line.
+    5. Provide normal 0-1 relative image coordinates (x, y) for 3 critical landmarks based on the ENTIRE image boundaries (where 0.0 is top/left and 1.0 is bottom/right):
+       - 'heel_center': The exact lowest point of the bare heel or sock heel contour where it touches the paper line.
+       - 'longest_toe_tip': The absolute apex tip point of the longest toe (typically the big toe for Egyptian foot).
+       - 'forefoot_width_outer': The widest lateral projection point on the opposite side of the foot to form a proper width reference.
 
     Your response must be a strict JSON object matching this schema:
     {

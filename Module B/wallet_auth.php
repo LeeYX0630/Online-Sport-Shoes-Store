@@ -67,13 +67,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['wallet_pin'])) {
 
             $tracking_no = generateTrackingNum($conn);
             $pay_method_display = "Store Wallet";
-            $promo_id_to_save = isset($_SESSION['applied_user_promo_id']) ? intval($_SESSION['applied_user_promo_id']) : "NULL";
+
+            // 精准反查真正的 Promo_Id，无券则保持为数据库关键字 NULL
+            $promo_id_to_save = "NULL"; 
+            if (isset($_SESSION['applied_promo_code']) && !empty($_SESSION['applied_promo_code'])) {
+                $code_temp = $conn->real_escape_string($_SESSION['applied_promo_code']);
+                $p_res = $conn->query("SELECT Promo_Id FROM promo WHERE Promo_Code = '$code_temp'");
+                if ($p_res && $p_row = $p_res->fetch_assoc()) {
+                    $promo_id_to_save = intval($p_row['Promo_Id']);
+                }
+            }
 
             $conn->begin_transaction();
             try {
                 // 【核心修复】：增加 Order_Tracking_Num, Promo_Id, Payment_Method 三个字段
                 $sql_order = "INSERT INTO `ORDER` (User_Id, Order_Amount, Order_Shipping_Addr, Order_Status, Order_Date, Payment_Status, Order_Tracking_Num, Promo_Id, Payment_Method) 
-                              VALUES ('$uid', '$grand_total', '$final_addr', 'Processing', '$order_date', 'Paid', '$tracking_no', $promo_id_to_save, '$pay_method_display')";
+              VALUES ('$uid', '$grand_total', '$final_addr', 'Processing', '$order_date', 'Paid', '$tracking_no', $promo_id_to_save, '$pay_method_display')";
                 
                 $conn->query($sql_order);
                 $order_id = $conn->insert_id;

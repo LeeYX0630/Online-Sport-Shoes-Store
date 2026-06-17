@@ -1500,28 +1500,29 @@ function drawAnalysisLines(landmarks) {
     const img = document.getElementById('analyzedFootImg');
     if (!canvas || !img || !landmarks) return;
 
-    // 1. 让 Canvas 的画布分辨率与它的显示区域大小完美一致
+    // 1. 确保画布分辨率与 CSS 显示区域大小物理像素完美一致
     canvas.width = canvas.clientWidth;
     canvas.height = canvas.clientHeight;
     
     const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height); // 清空旧画布
+    ctx.clearRect(0, 0, canvas.width, canvas.height); 
 
-    // 2. 获取图片在 object-fit: contain 规则下在屏幕上的绝对绘制边界
+    // 2. 获取图片原始宽高与 Canvas 容器宽高
     const imgW = img.naturalWidth;
     const imgH = img.naturalHeight;
     const canvasW = canvas.width;
     const canvasH = canvas.height;
 
+    // 3. 计算 object-fit: contain 下的缩放比例
     const imgScale = Math.min(canvasW / imgW, canvasH / imgH);
     
-    // 计算出图片在容器内居中显示后的实际左上角起点 (x, y) 以及实际宽高
+    // 4. 【核心修复】：精确计算图片在 Canvas 内部居中后的实际渲染起点 (startX, startY)
     const realWidth = imgW * imgScale;
     const realHeight = imgH * imgScale;
     const startX = (canvasW - realWidth) / 2;
     const startY = (canvasH - realHeight) / 2;
 
-    // 3. 将 AI 返回的 0~1 相对坐标映射到图片实际渲染出的像素坐标上
+    // 5. 将 AI 0~1 的相对坐标，严格映射到图片实际渲染像素区间内
     const pHeel = { 
         x: startX + (landmarks.heel_center.x * realWidth), 
         y: startY + (landmarks.heel_center.y * realHeight) 
@@ -1535,39 +1536,37 @@ function drawAnalysisLines(landmarks) {
         y: startY + (landmarks.forefoot_width_outer.y * realHeight) 
     } : null;
 
-    // 4. 绘制高能科技感红线（纵向解剖轴线）
-    ctx.strokeStyle = '#ff3b30'; // 苹果高能红
+    // 6. 绘制纵向解剖轴线（脚后跟中心 -> 最长脚趾尖）
+    ctx.strokeStyle = '#ff3b30'; 
     ctx.lineWidth = 3;
-    ctx.shadowBlur = 8;
-    ctx.shadowColor = 'rgba(255, 59, 48, 0.8)';
+    ctx.shadowBlur = 6;
+    ctx.shadowColor = 'rgba(255, 59, 48, 0.6)';
     
     ctx.beginPath();
     ctx.moveTo(pHeel.x, pHeel.y);
     ctx.lineTo(pToe.x, pToe.y);
     ctx.stroke();
 
-    // 5. 绘制横向测量范围虚线（前掌脚宽）
+    // 7. 绘制横向脚宽参考虚线
     if (pWidth) {
-        ctx.strokeStyle = '#ffcc00'; // 警告黄
+        ctx.strokeStyle = '#ffcc00'; 
         ctx.lineWidth = 2;
         ctx.setLineDash([6, 4]);
         ctx.beginPath();
         ctx.moveTo(pToe.x, pToe.y);
         ctx.lineTo(pWidth.x, pWidth.y);
         ctx.stroke();
-        ctx.setLineDash([]); // 恢复实线
+        ctx.setLineDash([]); 
     }
 
-    // 6. 绘制激光雷达定位点（绿色双环靶心）
-    ctx.shadowBlur = 0; // 关闭阴影避免模糊
+    // 8. 绘制双环激光定位靶心
+    ctx.shadowBlur = 0; 
     [pHeel, pToe].forEach(p => {
-        // 内实心圆
         ctx.fillStyle = '#00ff9d'; 
         ctx.beginPath();
         ctx.arc(p.x, p.y, 5, 0, 2 * Math.PI);
         ctx.fill();
         
-        // 外准星圈
         ctx.strokeStyle = '#00ff9d';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
