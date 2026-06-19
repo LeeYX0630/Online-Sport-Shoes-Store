@@ -136,7 +136,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_product'])) {
     }
     $gender   = $_POST['gender'];
     $age_group = $_POST['age_group'];
-    $status   = ($_POST['status'] == 'Active') ? 'Available' : 'Unavailable';
+    $status   = 'Available'; // Pro_Status 直接设为 Available，无需选择 Publish Now / Save Draft
 
     // 处理 Category 逻辑
     $cat_id = 0;
@@ -576,10 +576,6 @@ $categories = $conn->query("SELECT * FROM category");
             </div>
 
             <div class="d-flex align-items-center justify-content-end gap-3 mt-5 mb-5">
-                    <select name="status" class="form-select border-0 shadow-sm" style="width: 140px;">
-                        <option value="Active">Publish Now</option>
-                        <option value="Draft">Save Draft</option>
-                    </select>
                     <button type="submit" name="save_product" class="btn btn-save">Create Product</button>
             </div>
         </form>
@@ -734,12 +730,23 @@ document.addEventListener('change', function(e) {
     const safeId = color.replace(/\s+/g, '_');
     const container = document.getElementById('stock_' + safeId);
     const checked = Array.from(document.getElementById('box_' + safeId).querySelectorAll('.size-checkbox:checked'));
+
+    // 【修复】在清空容器前，先把已存在的库存数值记下来，避免勾选新尺码时把旧数值清零
+    const previousValues = {};
+    container.querySelectorAll('.stock-input').forEach(input => {
+        // name 格式: stock[颜色][尺码]，提取尺码部分
+        const match = input.name.match(/\[([^\]]+)\]$/);
+        if (match) previousValues[match[1]] = input.value;
+    });
+
     container.innerHTML = checked.length ? '' : '<div class="col-12 text-muted small">Select sizes above first...</div>';
     checked.forEach(cb => {
         const size = cb.value;
+        // 已有数值就沿用，否则才用默认 0（新勾选的尺码）
+        const keepValue = previousValues.hasOwnProperty(size) ? previousValues[size] : '0';
         const div = document.createElement('div');
         div.className = 'col-4';
-        div.innerHTML = `<div class="p-2 border rounded-3 bg-light"><label class="d-block small fw-bold mb-1">UK ${size}</label><input type="number" name="stock[${color}][${size}]" class="form-control form-control-sm text-center stock-input" value="0" min="0"></div>`;
+        div.innerHTML = `<div class="p-2 border rounded-3 bg-light"><label class="d-block small fw-bold mb-1">UK ${size}</label><input type="number" name="stock[${color}][${size}]" class="form-control form-control-sm text-center stock-input" value="${keepValue}" min="0"></div>`;
         container.appendChild(div);
     });
 });
