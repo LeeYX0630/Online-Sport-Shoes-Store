@@ -1,6 +1,6 @@
 <?php
 /** 
- * Design: Stealth Sport Shoes - Compact Light Aesthetic
+ * Design: STRYDEX Sport Shoes - Compact Light Aesthetic
  * Logic: Role-based redirection (@sport for Admin)
  */
 ob_start();
@@ -76,7 +76,7 @@ include_once '../includes/header.php';
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Member Access | Stealth Sport Shoes</title>
+    <title>Member Access | STRYDEX Sport Shoes Store</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&family=Space+Grotesk:wght@700&display=swap" rel="stylesheet">
@@ -216,8 +216,8 @@ include_once '../includes/header.php';
 
         <div class="form-panel">
             <div class="mb-4">
-                <h3 style="font-weight: 800;">Sign In</h3>
-                <p class="text-muted small">Orange branding, light aesthetic.</p>
+                <h3 style="font-weight: 800;">LONG TIME NO SEE!</h3>
+                <p class="text-muted small">Please sign in to continue.</p>
             </div>
 
             <?php if (!empty($login_error)): ?>
