@@ -57,7 +57,7 @@ if (!filter_var($admin_email, FILTER_VALIDATE_EMAIL)) {
     fail_redirect('Update Failed', 'Please enter a valid email address.');
 }
 
-if (!in_array($admin_level, [0, 1], true)) {
+if (!in_array($admin_level, [2, 1], true)) {
     fail_redirect('Update Failed', 'Invalid admin level selected.');
 }
 

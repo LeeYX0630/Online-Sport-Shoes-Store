@@ -353,7 +353,7 @@ endif;
                             <div class="mb-3">
                                 <label class="form-label small fw-bold text-muted text-uppercase">Admin Level</label>
                                 <select name="admin_level" id="edit_admin_level" class="form-select">
-                                    <option value="0">Normal Admin</option>
+                                    <option value="2">Normal Admin</option>
                                     <option value="1">Super Admin</option>                                </select>
                             </div>
                         </div>
