@@ -782,7 +782,42 @@ include '../includes/header.php';
                             </div>
                             <div class="flex-grow-1">
                                 <div class="fw-bold small"><?php echo $item['Pro_Name']; ?></div>
-                                <div class="text-muted" style="font-size: 0.8rem;"><?php echo $item['size']; ?> / <?php echo $item['color']; ?></div>
+                                <div class="text-muted" style="font-size: 0.8rem;">
+                                    <?php 
+                                    // 尺码转换显示
+                                    $php_size_matrix_checkout = [
+                                        "3"   => ["US-M" => "4",   "US-F" => "5",   "EUR" => "36"],
+                                        "3.5" => ["US-M" => "4.5", "US-F" => "5.5", "EUR" => "36.5"],
+                                        "4"   => ["US-M" => "5",   "US-F" => "6",   "EUR" => "37"],
+                                        "4.5" => ["US-M" => "5.5", "US-F" => "6.5", "EUR" => "37.5"],
+                                        "5"   => ["US-M" => "6",   "US-F" => "7",   "EUR" => "38"],
+                                        "5.5" => ["US-M" => "6.5", "US-F" => "7.5", "EUR" => "38.5"],
+                                        "6"   => ["US-M" => "7",   "US-F" => "8",   "EUR" => "39"],
+                                        "6.5" => ["US-M" => "7.5", "US-F" => "8.5", "EUR" => "40"],
+                                        "7"   => ["US-M" => "8",   "US-F" => "9",   "EUR" => "40.5"],
+                                        "7.5" => ["US-M" => "8.5", "US-F" => "9.5", "EUR" => "41"],
+                                        "8"   => ["US-M" => "9",   "US-F" => "10",  "EUR" => "42"],
+                                        "8.5" => ["US-M" => "9.5", "US-F" => "10.5", "EUR" => "42.5"],
+                                        "9"   => ["US-M" => "10",  "US-F" => "11",  "EUR" => "43"],
+                                        "9.5" => ["US-M" => "10.5", "US-F" => "11.5", "EUR" => "43.5"],
+                                        "10"  => ["US-M" => "11",  "US-F" => "12",  "EUR" => "44"],
+                                        "10.5" => ["US-M" => "11.5", "US-F" => "12.5", "EUR" => "44.5"],
+                                        "11"  => ["US-M" => "12",  "US-F" => "13",  "EUR" => "45"],
+                                        "11.5" => ["US-M" => "12.5", "US-F" => "13.5", "EUR" => "45.5"],
+                                        "12"  => ["US-M" => "13",  "US-F" => "14",  "EUR" => "46"],
+                                        "12.5" => ["US-M" => "13.5", "US-F" => "14.5", "EUR" => "46.5"],
+                                        "13"  => ["US-M" => "14",  "US-F" => "15",  "EUR" => "47"],
+                                    ];
+                                    
+                                    $user_sys_checkout = $_SESSION['size_system'] ?? 'UK';
+                                    $display_size_checkout = "UK " . htmlspecialchars($item['size']);
+                                    
+                                    if ($user_sys_checkout !== 'UK' && isset($php_size_matrix_checkout[$item['size']][$user_sys_checkout])) {
+                                        $display_size_checkout = $user_sys_checkout . " " . htmlspecialchars($php_size_matrix_checkout[$item['size']][$user_sys_checkout]);
+                                    }
+                                    echo $display_size_checkout;
+                                    ?> / <?php echo $item['color']; ?>
+                                </div>
                             </div>
                             <div class="fw-bold small">RM <?php echo number_format($item['item_total'], 2); ?></div>
                         </div>

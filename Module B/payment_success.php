@@ -136,14 +136,49 @@ if ($res_details) {
         <table class="table table-borderless align-middle mb-5">
             <thead class="border-bottom">
                 <tr>
-                    <th style="width: 45%;">Item Description</th>
+                    <th style="width: 40%;">Item Description</th>
+                    <th class="text-center">Size</th>
                     <th class="text-center">Price</th>
                     <th class="text-center">Qty</th>
                     <th class="text-end">Subtotal</th>
                 </tr>
             </thead>
             <tbody>
-                <?php foreach ($order_items as $item): ?>
+                <?php 
+                // 尺码转换表用于receipt显示
+                $receipt_size_matrix = [
+                    "3"   => ["US-M" => "4",   "US-F" => "5",   "EUR" => "36"],
+                    "3.5" => ["US-M" => "4.5", "US-F" => "5.5", "EUR" => "36.5"],
+                    "4"   => ["US-M" => "5",   "US-F" => "6",   "EUR" => "37"],
+                    "4.5" => ["US-M" => "5.5", "US-F" => "6.5", "EUR" => "37.5"],
+                    "5"   => ["US-M" => "6",   "US-F" => "7",   "EUR" => "38"],
+                    "5.5" => ["US-M" => "6.5", "US-F" => "7.5", "EUR" => "38.5"],
+                    "6"   => ["US-M" => "7",   "US-F" => "8",   "EUR" => "39"],
+                    "6.5" => ["US-M" => "7.5", "US-F" => "8.5", "EUR" => "40"],
+                    "7"   => ["US-M" => "8",   "US-F" => "9",   "EUR" => "40.5"],
+                    "7.5" => ["US-M" => "8.5", "US-F" => "9.5", "EUR" => "41"],
+                    "8"   => ["US-M" => "9",   "US-F" => "10",  "EUR" => "42"],
+                    "8.5" => ["US-M" => "9.5", "US-F" => "10.5", "EUR" => "42.5"],
+                    "9"   => ["US-M" => "10",  "US-F" => "11",  "EUR" => "43"],
+                    "9.5" => ["US-M" => "10.5", "US-F" => "11.5", "EUR" => "43.5"],
+                    "10"  => ["US-M" => "11",  "US-F" => "12",  "EUR" => "44"],
+                    "10.5" => ["US-M" => "11.5", "US-F" => "12.5", "EUR" => "44.5"],
+                    "11"  => ["US-M" => "12",  "US-F" => "13",  "EUR" => "45"],
+                    "11.5" => ["US-M" => "12.5", "US-F" => "13.5", "EUR" => "45.5"],
+                    "12"  => ["US-M" => "13",  "US-F" => "14",  "EUR" => "46"],
+                    "12.5" => ["US-M" => "13.5", "US-F" => "14.5", "EUR" => "46.5"],
+                    "13"  => ["US-M" => "14",  "US-F" => "15",  "EUR" => "47"],
+                ];
+                
+                foreach ($order_items as $item): 
+                    $user_size_sys = $_SESSION['size_system'] ?? 'UK';
+                    $item_size = $item['Pro_Size'] ?? '';
+                    $display_receipt_size = "UK " . htmlspecialchars($item_size);
+                    
+                    if ($user_size_sys !== 'UK' && isset($receipt_size_matrix[$item_size][$user_size_sys])) {
+                        $display_receipt_size = $user_size_sys . " " . htmlspecialchars($receipt_size_matrix[$item_size][$user_size_sys]);
+                    }
+                ?>
                 <tr class="border-bottom">
                     <td>
                         <div class="d-flex align-items-center py-2">
@@ -161,9 +196,11 @@ if ($res_details) {
                             <img src="<?php echo $display_img; ?>" class="item-img me-3 rounded border" onerror="this.src='../images/placeholder.png'">
                             <div>
                                 <div class="fw-bold"><?php echo htmlspecialchars($item['Pro_Name']); ?></div>
+                                <div class="small text-muted"><?php echo htmlspecialchars($item['Pro_Colour'] ?? 'Default'); ?></div>
                             </div>
                         </div>
                     </td>
+                    <td class="text-center"><?php echo $display_receipt_size; ?></td>
                     <td class="text-center">RM <?php echo number_format($item['Order_Subtotal'] / $item['Order_Qty'], 2); ?></td>
                     <td class="text-center"><?php echo $item['Order_Qty']; ?></td>
                     <td class="text-end fw-bold">RM <?php echo number_format($item['Order_Subtotal'], 2); ?></td>

@@ -446,13 +446,46 @@ $where_clause = "WHERE " . implode(" AND ", $where_clauses);
                         </details>
 
                         <details class="filter-group">
-                            <summary>Size (UK)</summary>
+                            <summary>Size (<?php echo htmlspecialchars($_SESSION['size_system'] ?? 'UK'); ?>)</summary>
                             <div class="filter-options">
                                 <?php
+                                // 尺码转换表用于catalogue过滤显示
+                                $catalogue_size_matrix = [
+                                    "3"   => ["US-M" => "4",   "US-F" => "5",   "EUR" => "36"],
+                                    "3.5" => ["US-M" => "4.5", "US-F" => "5.5", "EUR" => "36.5"],
+                                    "4"   => ["US-M" => "5",   "US-F" => "6",   "EUR" => "37"],
+                                    "4.5" => ["US-M" => "5.5", "US-F" => "6.5", "EUR" => "37.5"],
+                                    "5"   => ["US-M" => "6",   "US-F" => "7",   "EUR" => "38"],
+                                    "5.5" => ["US-M" => "6.5", "US-F" => "7.5", "EUR" => "38.5"],
+                                    "6"   => ["US-M" => "7",   "US-F" => "8",   "EUR" => "39"],
+                                    "6.5" => ["US-M" => "7.5", "US-F" => "8.5", "EUR" => "40"],
+                                    "7"   => ["US-M" => "8",   "US-F" => "9",   "EUR" => "40.5"],
+                                    "7.5" => ["US-M" => "8.5", "US-F" => "9.5", "EUR" => "41"],
+                                    "8"   => ["US-M" => "9",   "US-F" => "10",  "EUR" => "42"],
+                                    "8.5" => ["US-M" => "9.5", "US-F" => "10.5", "EUR" => "42.5"],
+                                    "9"   => ["US-M" => "10",  "US-F" => "11",  "EUR" => "43"],
+                                    "9.5" => ["US-M" => "10.5", "US-F" => "11.5", "EUR" => "43.5"],
+                                    "10"  => ["US-M" => "11",  "US-F" => "12",  "EUR" => "44"],
+                                    "10.5" => ["US-M" => "11.5", "US-F" => "12.5", "EUR" => "44.5"],
+                                    "11"  => ["US-M" => "12",  "US-F" => "13",  "EUR" => "45"],
+                                    "11.5" => ["US-M" => "12.5", "US-F" => "13.5", "EUR" => "45.5"],
+                                    "12"  => ["US-M" => "13",  "US-F" => "14",  "EUR" => "46"],
+                                    "12.5" => ["US-M" => "13.5", "US-F" => "14.5", "EUR" => "46.5"],
+                                    "13"  => ["US-M" => "14",  "US-F" => "15",  "EUR" => "47"],
+                                ];
+                                
                                 $common_sizes = ['6', '7', '8', '9', '10', '11', '12'];
+                                $current_size_sys = $_SESSION['size_system'] ?? 'UK';
+                                
                                 foreach($common_sizes as $sz) {
                                     $checked = (isset($_GET['sizes']) && in_array($sz, $_GET['sizes'])) ? "checked" : "";
-                                    echo '<label><input type="checkbox" name="sizes[]" value="'.$sz.'" '.$checked.'> UK '.$sz.'</label>';
+                                    
+                                    $display_size_label = "UK " . htmlspecialchars($sz);
+                                    if ($current_size_sys !== 'UK' && isset($catalogue_size_matrix[$sz][$current_size_sys])) {
+                                        $display_size_label = $current_size_sys . " " . htmlspecialchars($catalogue_size_matrix[$sz][$current_size_sys]) . " (UK " . $sz . ")";
+                                    }
+                                    
+                                    echo '<label><input type="checkbox" name="sizes[]" value="'.$sz.'" '.$checked.'> ' . $display_size_label . '</label>';
                                 }
                                 ?>
                             </div>

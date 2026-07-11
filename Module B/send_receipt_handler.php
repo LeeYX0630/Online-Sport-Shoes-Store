@@ -39,16 +39,51 @@ function sendOrderReceiptEmail($order_id, $conn) {
                   WHERE od.Order_Id = '$order_id'";
     $items_res = $conn->query($sql_items);
 
+    // 邮件中的尺码转换表
+    $email_size_matrix = [
+        "3"   => ["US-M" => "4",   "US-F" => "5",   "EUR" => "36"],
+        "3.5" => ["US-M" => "4.5", "US-F" => "5.5", "EUR" => "36.5"],
+        "4"   => ["US-M" => "5",   "US-F" => "6",   "EUR" => "37"],
+        "4.5" => ["US-M" => "5.5", "US-F" => "6.5", "EUR" => "37.5"],
+        "5"   => ["US-M" => "6",   "US-F" => "7",   "EUR" => "38"],
+        "5.5" => ["US-M" => "6.5", "US-F" => "7.5", "EUR" => "38.5"],
+        "6"   => ["US-M" => "7",   "US-F" => "8",   "EUR" => "39"],
+        "6.5" => ["US-M" => "7.5", "US-F" => "8.5", "EUR" => "40"],
+        "7"   => ["US-M" => "8",   "US-F" => "9",   "EUR" => "40.5"],
+        "7.5" => ["US-M" => "8.5", "US-F" => "9.5", "EUR" => "41"],
+        "8"   => ["US-M" => "9",   "US-F" => "10",  "EUR" => "42"],
+        "8.5" => ["US-M" => "9.5", "US-F" => "10.5", "EUR" => "42.5"],
+        "9"   => ["US-M" => "10",  "US-F" => "11",  "EUR" => "43"],
+        "9.5" => ["US-M" => "10.5", "US-F" => "11.5", "EUR" => "43.5"],
+        "10"  => ["US-M" => "11",  "US-F" => "12",  "EUR" => "44"],
+        "10.5" => ["US-M" => "11.5", "US-F" => "12.5", "EUR" => "44.5"],
+        "11"  => ["US-M" => "12",  "US-F" => "13",  "EUR" => "45"],
+        "11.5" => ["US-M" => "12.5", "US-F" => "13.5", "EUR" => "45.5"],
+        "12"  => ["US-M" => "13",  "US-F" => "14",  "EUR" => "46"],
+        "12.5" => ["US-M" => "13.5", "US-F" => "14.5", "EUR" => "46.5"],
+        "13"  => ["US-M" => "14",  "US-F" => "15",  "EUR" => "47"],
+    ];
+
     $items_html        = "";
     $subtotal_amount   = 0.00;
     while ($item = $items_res->fetch_assoc()) {
         $unit_price       = $item['Order_Subtotal'] / $item['Order_Qty'];
         $subtotal_amount += floatval($item['Order_Subtotal']);
+        
+        // 尺码转换显示
+        $user_size_system = $_SESSION['size_system'] ?? 'UK';
+        $item_size = $item['Pro_Size'] ?? '';
+        $display_email_size = "UK " . htmlspecialchars($item_size);
+        
+        if ($user_size_system !== 'UK' && isset($email_size_matrix[$item_size][$user_size_system])) {
+            $display_email_size = $user_size_system . " " . htmlspecialchars($email_size_matrix[$item_size][$user_size_system]);
+        }
+        
         $items_html .= "
             <tr>
                 <td style='padding:14px 12px; border-bottom:1px solid #f0f0f0; font-size:14px; color:#333;'>
                     <strong>" . htmlspecialchars($item['Pro_Name']) . "</strong><br>
-                    <span style='font-size:11px; color:#999;'>SKU: #" . intval($item['Pro_Id']) . "</span>
+                    <span style='font-size:11px; color:#999;'>SKU: #" . intval($item['Pro_Id']) . " | Size: " . $display_email_size . " | Color: " . htmlspecialchars($item['Pro_Colour'] ?? 'Default') . "</span>
                 </td>
                 <td style='padding:14px 12px; border-bottom:1px solid #f0f0f0; text-align:center; font-size:14px; color:#555;'>
                     RM " . number_format($unit_price, 2) . "

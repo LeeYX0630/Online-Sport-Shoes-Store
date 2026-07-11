@@ -31,7 +31,6 @@ if (isset($_SESSION['user_id'])) {
     $nav_is_logged_in = true;
     $uid = $_SESSION['user_id'];
     
-    // 使用真实的表名 USER 和 字段名 User_Name, User_Image
     $sql = "SELECT User_Name, User_Image FROM `USER` WHERE User_Id = '$uid'";
     $res = $conn->query($sql);
     
@@ -49,12 +48,17 @@ if (isset($_SESSION['user_id'])) {
     $nav_user_name = isset($_SESSION['username']) ? $_SESSION['username'] . " (Admin)" : "Administrator";
 }
 
+if (!isset($_SESSION['size_system'])) {
+    $_SESSION['size_system'] = 'UK';
+}
+
 $header_cart_count = 0;
 if (isset($_SESSION['cart']) && !empty($_SESSION['cart'])) {
     foreach ($_SESSION['cart'] as $item) {
         $header_cart_count += isset($item['qty']) ? intval($item['qty']) : 0;
     }
 }
+
 ?>
 <!doctype html>
 <html lang="en" class="h-100">
@@ -122,6 +126,22 @@ if (isset($_SESSION['cart']) && !empty($_SESSION['cart'])) {
           </form>
 
           <div class="d-flex align-items-center ms-lg-3">
+
+            <div class="btn-group btn-group-sm border border-secondary rounded-pill overflow-hidden me-3 shadow-sm bg-dark" role="group" aria-label="Global Size System" style="height: 32px;">
+                <?php 
+                $current_sys = $_SESSION['size_system'];
+                $systems = ['UK' => 'UK', 'US-M' => 'US (M)', 'US-F' => 'US (F)', 'EUR' => 'EUR'];
+                foreach ($systems as $key => $label): 
+                    $is_active = ($current_sys === $key);
+                ?>
+                    <button type="button" 
+                            class="btn btn-sm global-size-btn <?php echo $is_active ? 'btn-warning text-dark fw-bold' : 'btn-dark text-white-50'; ?>" 
+                            onclick="changeGlobalSizeSystem('<?php echo $key; ?>', this)"
+                            style="font-size: 11px; padding: 2px 10px; border: none; transition: all 0.2s;">
+                        <?php echo $label; ?>
+                    </button>
+                <?php endforeach; ?>
+            </div>
             
             <?php if ($nav_is_logged_in): ?>
                 
@@ -164,7 +184,30 @@ if (isset($_SESSION['cart']) && !empty($_SESSION['cart'])) {
             <?php endif; ?>
             <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
             <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.3.0/model-viewer.min.js"></script>
-          </div>
+            <script>
+                function changeGlobalSizeSystem(system, btnEl) {
+                    // 1. 立即切换前端高亮状态，提升视觉响应速度
+                    const container = btnEl.parentElement;
+                    container.querySelectorAll('.global-size-btn').forEach(btn => {
+                        btn.classList.remove('btn-warning', 'text-dark', 'fw-bold');
+                        btn.classList.add('btn-dark', 'text-white-50');
+                    });
+                    btnEl.classList.remove('btn-dark', 'text-white-50');
+                    btnEl.classList.add('btn-warning', 'text-dark', 'fw-bold');
+
+                    // 2. 异步发送给后端 Session 处理器（步骤 2 会创建这个文件）
+                    fetch('<?php echo $path_root; ?>includes/set_size_session.php?system=' + encodeURIComponent(system))
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.success) {
+                                // 3. 成功后静默刷新当前页面，让 Catalogue 或 Product Details 重新按新尺码渲染
+                                window.location.reload();
+                            }
+                        })
+                        .catch(err => console.error('Error changing size system:', err));
+                }
+                </script>
+            </div>
         </div>
-      </div>
-    </nav>
+    </div>
+</nav>

@@ -421,8 +421,36 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
         .color-variant-box.custom-plus-box:hover { border: 2px solid #008060; background: #f0f7f4; }
 
         .size-selector { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 15px; }
-        .size-box { width: 50px; height: 50px; border: 1px solid #ccc; display: flex; align-items: center; justify-content: center; font-weight: bold; cursor: pointer; border-radius: 4px; transition: 0.2s;}
-        .size-box.selected { background: #333; color: white; border-color: #333; }
+        .size-box { 
+            width: 60px; 
+            height: 60px; 
+            border: 2px solid #ddd; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            font-weight: bold; 
+            cursor: pointer; 
+            border-radius: 6px; 
+            transition: all 0.2s ease;
+            background: #fff;
+            color: #333;
+            user-select: none;
+        }
+        .size-box:hover:not([style*="opacity: 0.3"]) { 
+            border-color: #FF6B00; 
+            box-shadow: 0 2px 8px rgba(255, 107, 0, 0.2);
+            transform: translateY(-2px);
+        }
+        .size-box.selected { 
+            background: #333; 
+            color: white; 
+            border-color: #333;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+        .size-box[style*="opacity: 0.3"] { 
+            cursor: not-allowed;
+            color: #999;
+        }
         
         .quantity-selector { display: flex; border: 1px solid #ccc; border-radius: 4px; width: 120px; overflow: hidden; }
         .quantity-selector button { background: #f4f4f4; width: 40px; font-size: 20px; border: none; cursor: pointer; }
@@ -784,10 +812,19 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
                         </div>
                     </div>
 
-                    <div class="info-label">Select Size (UK) <span id="sizeError" style="color:red; font-size:12px; display:none; margin-left:10px;">*Required</span></div>
-                    <div class="size-selector">
-                        <?php foreach($all_unique_sizes as $sz): ?>
-                            <div class='size-box' data-size='<?php echo $sz; ?>' onclick='handleSizeClick(this, "<?php echo $sz; ?>")'><?php echo $sz; ?></div>
+                    <div class="info-label d-flex justify-content-between align-items-center">
+                        <div>Select Size (<span id="currentSizeSystemLabel"><?php echo htmlspecialchars($_SESSION['size_system'] ?? 'UK'); ?></span>) <span id="sizeError" style="color:red; font-size:12px; display:none; margin-left:10px;">*Required</span></div>
+                    </div>
+
+                    <!-- Size Selection Box Container -->
+                    <div id="sizeBoxContainer" style="display: flex; gap: 10px; flex-wrap: wrap; margin: 15px 0;">
+                        <?php foreach($all_unique_sizes as $size): ?>
+                            <button type="button" class="size-box" data-size="<?php echo htmlspecialchars($size, ENT_QUOTES, 'UTF-8'); ?>" 
+                                    onclick="handleSizeClick(this, '<?php echo htmlspecialchars($size, ENT_QUOTES, 'UTF-8'); ?>')">
+                                <span class="size-display" data-uk-size="<?php echo htmlspecialchars($size, ENT_QUOTES, 'UTF-8'); ?>">
+                                    <?php echo htmlspecialchars($size, ENT_QUOTES, 'UTF-8'); ?>
+                                </span>
+                            </button>
                         <?php endforeach; ?>
                     </div>
 
@@ -866,6 +903,33 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
     const isSale = <?php echo $product['Pro_Sale']; ?>;
     let selectedColor = "<?php echo htmlspecialchars($selected_color, ENT_QUOTES, 'UTF-8'); ?>";
     let selectedSize = "";
+    let currentSizeSystem = "<?php echo $_SESSION['size_system'] ?? 'UK'; ?>";
+
+    document.addEventListener('DOMContentLoaded', () => {
+        // 确保页面标题显示当前的尺码系统
+        const sizeLabel = document.getElementById('currentSizeSystemLabel');
+        if (sizeLabel) {
+            sizeLabel.innerText = currentSizeSystem;
+        }
+        
+        renderGallery(selectedColor);
+        updateSizeDisplayFormat(currentSizeSystem);
+        refreshSizeButtons();
+    });
+
+    // 监听全局尺码系统的改变（通过header的changeGlobalSizeSystem触发）
+    // 每当用户从header改变尺码系统后，页面刷新会重新加载这个脚本
+    // 此时 currentSizeSystem 已经是新值（从 PHP Session 读取）
+    window.addEventListener('pageshow', () => {
+        // 页面恢复时也要确保显示最新格式
+        const sizeLabel = document.getElementById('currentSizeSystemLabel');
+        if (sizeLabel) {
+            sizeLabel.innerText = currentSizeSystem;
+        }
+        updateSizeDisplayFormat(currentSizeSystem);
+        refreshSizeButtons();
+    });
+
     const MOCK_GEMINI_LAYOUT_ONLY = false; // 关闭本地模拟布局，使用后端 Gemini API 进行 AI 分析
     const MOCK_WEAR_ANALYSIS = false; // 关闭本地模拟磨损分析，使用后端 Gemini API 生成结果
 
@@ -917,6 +981,21 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
         refreshSizeButtons();
     }
 
+function updateSizeDisplayFormat(sizeSystem) {
+    document.querySelectorAll('.size-box').forEach(box => {
+        const ukSize = box.getAttribute('data-size');
+        const display = box.querySelector('.size-display');
+        
+        if (sizeSystem === 'UK') {
+            display.innerText = ukSize;
+        } else if (SIZE_CONVERSION_TABLE[ukSize] && SIZE_CONVERSION_TABLE[ukSize][sizeSystem]) {
+            display.innerText = SIZE_CONVERSION_TABLE[ukSize][sizeSystem];
+        } else {
+            display.innerText = ukSize; // fallback to UK size
+        }
+    });
+}
+
 function refreshSizeButtons() {
     const currentColorStock = variantMap[selectedColor] || {};
     let isCurrentlySelectedSizeValid = false;
@@ -940,43 +1019,20 @@ function refreshSizeButtons() {
     const stockDisplay = document.getElementById('stockDisplay');
     if (isCurrentlySelectedSizeValid && selectedSize !== "") {
         const stock = currentColorStock[selectedSize] || 0;
+        let displaySizeText = "UK " + selectedSize;
+        if (currentSizeSystem !== 'UK' && SIZE_CONVERSION_TABLE[selectedSize]) {
+            displaySizeText = currentSizeSystem + " " + SIZE_CONVERSION_TABLE[selectedSize][currentSizeSystem];
+        }
+        
         if (selectedColor === "Custom Design") {
-            stockDisplay.innerHTML = `<span style="color:#008060; font-weight:bold;"><i class="bi bi-hammer"></i> Custom Built to Order</span>`;
+            stockDisplay.innerHTML = `<span style="color:#008060; font-weight:bold;"><i class="bi bi-hammer"></i> Custom Built to Order (${displaySizeText} Available)</span>`;
         } else {
-            stockDisplay.innerHTML = `Only <strong>${stock}</strong> left in stock.`;
+            stockDisplay.innerHTML = `Selected <strong>${displaySizeText}</strong>: Only <strong>${stock}</strong> left in stock.`;
         }
     } else if (selectedSize !== "") {
         selectedSize = "";
         document.getElementById('selectedSizeInput').value = "";
         stockDisplay.innerHTML = `<span style="color: #dc3545; font-weight: bold;">Size not available for this choice.</span>`;
-    }
-}
-
-function handleSizeClick(el, sz) {
-    document.querySelectorAll('.size-box').forEach(b => b.classList.remove('selected'));
-    el.classList.add('selected');
-    selectedSize = sz;
-    document.getElementById('selectedSizeInput').value = sz;
-    document.getElementById('sizeError').style.display = 'none';
-
-    const stock = (variantMap[selectedColor] || {})[sz] || 0;
-    const qtyInput = document.getElementById('qtyInput');
-    qtyInput.max = stock; 
-
-    // --- 【核心修复】：定制款不显示具体数字，仅显示状态 ---
-    const stockDisplay = document.getElementById('stockDisplay');
-    if (selectedColor === "Custom Design") {
-        if (stock > 0) {
-            stockDisplay.innerHTML = `<span style="color:#008060; font-weight:bold;"><i class="bi bi-hammer"></i> Custom Built to Order (Available)</span>`;
-        } else {
-            stockDisplay.innerHTML = `<span style="color:#dc3545; font-weight:bold;">Out of materials for this size.</span>`;
-        }
-    } else {
-        stockDisplay.innerHTML = `Only <strong>${stock}</strong> left in stock.`;
-    }
-
-    if (parseInt(qtyInput.value) > stock) {
-        qtyInput.value = stock > 0 ? stock : 1;
     }
 }
 
@@ -1108,54 +1164,6 @@ function addToCartAndOpen() {
         refreshSizeButtons();
     });
 
-/*    async function askAI() {
-    const input = document.getElementById('aiInput');
-    const btn = document.getElementById('aiSendBtn');
-    const container = document.getElementById('chatMessages');
-    const message = input.value.trim();
-
-    if (!message) return;
-
-    // 1. 显示用户消息
-    appendMessage('user', message);
-    input.value = '';
-    input.disabled = true;
-    btn.disabled = true;
-
-    // 2. 显示加载状态
-    const loadingId = 'loading-' + Date.now();
-    appendMessage('ai', '<span id="' + loadingId + '">AI is calculating...</span>');
-
-    try {
-        const response = await fetch('gemini_handler.php', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                message: message,
-                current_product: "<?php echo $product['Pro_Name']; ?>" 
-            })
-        });
-        
-        const data = await response.json();
-        let reply = data.reply;
-
-        // 3. 安全解析：将 [RECOMMENDED_SIZE:X] 转换为可点击按钮
-        const sizeTagRegex = /\[RECOMMENDED_SIZE:(\d+)\]/g;
-        reply = reply.replace(sizeTagRegex, (match, size) => {
-            return `<br><button class="apply-size-btn" onclick="autoSelectSize('${size}')">Apply UK ${size} to my order</button>`;
-        });
-
-        // 移除加载文字并显示正式回复
-        document.getElementById(loadingId).parentElement.innerHTML = reply;
-
-    } catch (error) {
-        document.getElementById(loadingId).innerText = "System error. Please try again.";
-    } finally {
-        input.disabled = false;
-        btn.disabled = false;
-        input.focus();
-    }
-}*/
 
 function appendMessage(type, text) {
     const container = document.getElementById('chatMessages');
@@ -1177,19 +1185,93 @@ function calculateUKSize(cm) {
     return "11";
 }
 
-// 联动功能：AI 推荐后点击按钮，自动选中上方的尺码
+// ==========================================
+// 国际化尺码转换矩阵 (与系统底层保持完全对齐)
+// 标准运动鞋尺码对照表：UK → US-M/US-F/EUR
+// ==========================================
+const SIZE_CONVERSION_TABLE = {
+    "3":   { "US-M": "4",   "US-F": "5",   "EUR": "36" },
+    "3.5": { "US-M": "4.5", "US-F": "5.5", "EUR": "36.5" },
+    "4":   { "US-M": "5",   "US-F": "6",   "EUR": "37" },
+    "4.5": { "US-M": "5.5", "US-F": "6.5", "EUR": "37.5" },
+    "5":   { "US-M": "6",   "US-F": "7",   "EUR": "38" },
+    "5.5": { "US-M": "6.5", "US-F": "7.5", "EUR": "38.5" },
+    "6":   { "US-M": "7",   "US-F": "8",   "EUR": "39" },
+    "6.5": { "US-M": "7.5", "US-F": "8.5", "EUR": "40" },
+    "7":   { "US-M": "8",   "US-F": "9",   "EUR": "40.5" },
+    "7.5": { "US-M": "8.5", "US-F": "9.5", "EUR": "41" },
+    "8":   { "US-M": "9",   "US-F": "10",  "EUR": "42" },
+    "8.5": { "US-M": "9.5", "US-F": "10.5", "EUR": "42.5" },
+    "9":   { "US-M": "10",  "US-F": "11",  "EUR": "43" },
+    "9.5": { "US-M": "10.5", "US-F": "11.5", "EUR": "43.5" },
+    "10":  { "US-M": "11",  "US-F": "12",  "EUR": "44" },
+    "10.5": { "US-M": "11.5", "US-F": "12.5", "EUR": "44.5" },
+    "11":  { "US-M": "12",  "US-F": "13",  "EUR": "45" },
+    "11.5": { "US-M": "12.5", "US-F": "13.5", "EUR": "45.5" },
+    "12":  { "US-M": "13",  "US-F": "14",  "EUR": "46" },
+    "12.5": { "US-M": "13.5", "US-F": "14.5", "EUR": "46.5" },
+    "13":  { "US-M": "14",  "US-F": "15",  "EUR": "47" }
+};
+
+// ==========================================
+// 1. handleSizeClick 完整国际化代码
+// ==========================================
+function handleSizeClick(el, sz) {
+    document.querySelectorAll('.size-box').forEach(b => b.classList.remove('selected'));
+    el.classList.add('selected');
+    selectedSize = sz;
+    document.getElementById('selectedSizeInput').value = sz;
+    document.getElementById('sizeError').style.display = 'none';
+
+    const stock = (variantMap[selectedColor] || {})[sz] || 0;
+    const qtyInput = document.getElementById('qtyInput');
+    qtyInput.max = stock; 
+
+    // 根据当前全局 Session 的尺码系统动态翻译提示文本
+    let displaySizeText = "UK " + sz;
+    if (typeof currentSizeSystem !== 'undefined' && currentSizeSystem !== 'UK' && SIZE_CONVERSION_TABLE[sz]) {
+        displaySizeText = currentSizeSystem + " " + SIZE_CONVERSION_TABLE[sz][currentSizeSystem];
+    }
+
+    const stockDisplay = document.getElementById('stockDisplay');
+    if (selectedColor === "Custom Design") {
+        if (stock > 0) {
+            stockDisplay.innerHTML = `<span style="color:#008060; font-weight:bold;"><i class="bi bi-hammer"></i> Custom Built to Order (${displaySizeText} Available)</span>`;
+        } else {
+            stockDisplay.innerHTML = `<span style="color:#dc3545; font-weight:bold;">Out of materials for this size.</span>`;
+        }
+    } else {
+        stockDisplay.innerHTML = `Selected <strong>${displaySizeText}</strong>: Only <strong>${stock}</strong> left in stock.`;
+    }
+
+    if (parseInt(qtyInput.value) > stock) {
+        qtyInput.value = stock > 0 ? stock : 1;
+    }
+}
+
+// ==========================================
+// 2. autoSelectSize 完整国际化代码
+// ==========================================
 function autoSelectSize(size) {
     const sizeBox = document.querySelector(`.size-box[data-size="${size}"]`);
     if (sizeBox) {
         if (sizeBox.style.opacity === "0.3") {
             Swal.fire('Out of Stock', `Sorry, UK ${size} is currently unavailable.`, 'warning');
         } else {
-            sizeBox.click(); // 模拟点击尺码格子
+            sizeBox.click(); // 触发点击联动
+
+            // 动态翻译通知标题，提示用户已成功进行国际标准匹配
+            let displaySizeText = "UK " + size;
+            if (currentSizeSystem !== 'UK' && SIZE_CONVERSION_TABLE[size] && SIZE_CONVERSION_TABLE[size][currentSizeSystem]) {
+                displaySizeText = currentSizeSystem + " " + SIZE_CONVERSION_TABLE[size][currentSizeSystem];
+            }
+
             Swal.fire({
                 icon: 'success',
-                title: `UK ${size} Selected`,
+                title: `${displaySizeText} Auto-Selected`,
+                text: 'Successfully matched to your regional sizer system via AI recommendation!',
                 showConfirmButton: false,
-                timer: 1000
+                timer: 1500
             });
         }
     } else {
@@ -1417,6 +1499,12 @@ async function processMeasurement(imagePath) {
         const landmarks = data.landmarks || null;
 
         // 3. 渲染最终报告（直接调用 displaySrc 物理路径显示图片）
+        // 转换推荐尺码到当前选择的尺码系统
+        let displayRecommendedSize = "UK " + recommendedUK;
+        if (currentSizeSystem !== 'UK' && SIZE_CONVERSION_TABLE[recommendedUK] && SIZE_CONVERSION_TABLE[recommendedUK][currentSizeSystem]) {
+            displayRecommendedSize = currentSizeSystem + " " + SIZE_CONVERSION_TABLE[recommendedUK][currentSizeSystem];
+        }
+
         Swal.fire({
             icon: 'success',
             title: 'AI Analysis Complete!',
@@ -1431,7 +1519,7 @@ async function processMeasurement(imagePath) {
                         </div>
                         <div style="text-align: right;">
                             <span style="font-size:12px; opacity:0.9;">Recommended Size</span>
-                            <h2 style="margin:0; font-weight:800; color:#ffeb3b;">UK ${recommendedUK}</h2>
+                            <h2 style="margin:0; font-weight:800; color:#ffeb3b;">${displayRecommendedSize}</h2>
                         </div>
                     </div>
 
